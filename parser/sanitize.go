@@ -1,0 +1,128 @@
+package parser
+
+import (
+	"encoding/json"
+	"regexp"
+	"strings"
+)
+
+// Tag constants matching the TypeScript messageTags.ts.
+const (
+	localCommandStdoutTag = "<local-command-stdout>"
+	localCommandStderrTag = "<local-command-stderr>"
+)
+
+// Noise tag patterns - system-generated metadata stripped from display content.
+var noiseTagPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?is)<local-command-caveat>.*?</local-command-caveat>`),
+	regexp.MustCompile(`(?is)<system-reminder>.*?</system-reminder>`),
+}
+
+// Command tag patterns - removed after extracting display form.
+var commandTagPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?is)<command-name>.*?</command-name>`),
+	regexp.MustCompile(`(?is)<command-message>.*?</command-message>`),
+	regexp.MustCompile(`(?is)<command-args>.*?</command-args>`),
+}
+
+var (
+	reCommandName = regexp.MustCompile(`<command-name>/([^<]+)</command-name>`)
+	reCommandArgs = regexp.MustCompile(`<command-args>([^<]*)</command-args>`)
+	reStdout      = regexp.MustCompile(`(?is)<local-command-stdout>(.*?)</local-command-stdout>`)
+	reStderr      = regexp.MustCompile(`(?is)<local-command-stderr>(.*?)</local-command-stderr>`)
+)
+
+// SanitizeContent removes noise XML tags and converts command tags into
+// a human-readable slash command format for display.
+func SanitizeContent(s string) string {
+	// Command output messages: extract the inner content.
+	if IsCommandOutput(s) {
+		if out := ExtractCommandOutput(s); out != "" {
+			return out
+		}
+	}
+
+	// Command messages: convert to "/name args" form.
+	if strings.HasPrefix(s, "<command-name>") || strings.HasPrefix(s, "<command-message>") {
+		if display := extractCommandDisplay(s); display != "" {
+			return display
+		}
+	}
+
+	// Strip noise tags.
+	result := s
+	for _, pat := range noiseTagPatterns {
+		result = pat.ReplaceAllString(result, "")
+	}
+
+	// Strip remaining command tags.
+	for _, pat := range commandTagPatterns {
+		result = pat.ReplaceAllString(result, "")
+	}
+
+	return strings.TrimSpace(result)
+}
+
+// extractCommandDisplay converts <command-name>/foo</command-name><command-args>bar</command-args>
+// into "/foo bar".
+func extractCommandDisplay(s string) string {
+	m := reCommandName.FindStringSubmatch(s)
+	if m == nil {
+		return ""
+	}
+	name := "/" + strings.TrimSpace(m[1])
+	if am := reCommandArgs.FindStringSubmatch(s); am != nil {
+		if args := strings.TrimSpace(am[1]); args != "" {
+			return name + " " + args
+		}
+	}
+	return name
+}
+
+// ExtractText pulls display text from a json.RawMessage that is either a
+// JSON string or an array of content blocks. Text blocks are joined with newlines.
+func ExtractText(content json.RawMessage) string {
+	if len(content) == 0 {
+		return ""
+	}
+
+	// Try string first (the common case for user messages).
+	var s string
+	if err := json.Unmarshal(content, &s); err == nil {
+		return s
+	}
+
+	// Array of content blocks.
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return ""
+	}
+
+	var parts []string
+	for _, b := range blocks {
+		if b.Type == "text" && b.Text != "" {
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// ExtractCommandOutput returns the inner text from <local-command-stdout> or
+// <local-command-stderr> wrapper tags. Returns empty string if neither tag is found.
+func ExtractCommandOutput(s string) string {
+	if m := reStdout.FindStringSubmatch(s); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	if m := reStderr.FindStringSubmatch(s); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+// IsCommandOutput returns true when content starts with a local-command output tag.
+func IsCommandOutput(s string) bool {
+	return strings.HasPrefix(s, localCommandStdoutTag) || strings.HasPrefix(s, localCommandStderrTag)
+}
