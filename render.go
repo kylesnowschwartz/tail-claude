@@ -77,6 +77,27 @@ func truncateLines(content string, maxLines int) (string, int) {
 	return strings.Join(lines[:maxLines], "\n"), len(lines) - maxLines
 }
 
+// formatToolResultPreview renders a one-line tool result summary for collapsed view.
+func formatToolResultPreview(lo *parser.LastOutput) string {
+	icon := IconToolOk
+	iconStyle := lipgloss.NewStyle().Foreground(ColorSuccess)
+	if lo.IsError {
+		icon = IconToolErr
+		iconStyle = lipgloss.NewStyle().Foreground(ColorError)
+	}
+	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary)
+	resultStyle := lipgloss.NewStyle().Foreground(ColorTextSecondary)
+
+	result := lo.ToolResult
+	if len(result) > 200 {
+		result = result[:200] + "\u2026"
+	}
+	// Collapse newlines for single-line preview
+	result = strings.ReplaceAll(result, "\n", " ")
+
+	return iconStyle.Render(icon) + " " + nameStyle.Render(lo.ToolName) + " " + resultStyle.Render(truncate(result, 80))
+}
+
 // -- Message rendering --------------------------------------------------------
 
 func (m model) renderMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
@@ -103,9 +124,22 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 	// Render the card body -- truncate when collapsed
 	content := msg.content
 	if !isExpanded {
-		truncated, hidden := truncateLines(content, maxCollapsedLines)
-		if hidden > 0 {
-			content = truncated + "\n" + fmt.Sprintf("\u2026 (%d lines hidden)", hidden)
+		if msg.lastOutput != nil {
+			switch msg.lastOutput.Type {
+			case parser.LastOutputText:
+				content = msg.lastOutput.Text
+				truncated, hidden := truncateLines(content, maxCollapsedLines)
+				if hidden > 0 {
+					content = truncated + "\n" + fmt.Sprintf("\u2026 (%d lines hidden)", hidden)
+				}
+			case parser.LastOutputToolResult:
+				content = formatToolResultPreview(msg.lastOutput)
+			}
+		} else {
+			truncated, hidden := truncateLines(content, maxCollapsedLines)
+			if hidden > 0 {
+				content = truncated + "\n" + fmt.Sprintf("\u2026 (%d lines hidden)", hidden)
+			}
 		}
 	}
 
