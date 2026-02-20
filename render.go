@@ -148,11 +148,28 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 	contentWidth := contentWidth(maxWidth)
 	var body string
 	if isExpanded && len(msg.items) > 0 {
-		// Structured item rows instead of raw markdown
+		// Structured item rows, then last output text at the bottom (matches claude-devtools)
 		var rows []string
 		for i, item := range msg.items {
 			rows = append(rows, m.renderDetailItemRow(item, i, -1, contentWidth))
 		}
+
+		// Append truncated last output text below the items
+		if msg.lastOutput != nil && msg.lastOutput.Text != "" {
+			outputText := msg.lastOutput.Text
+			truncated, hidden := truncateLines(outputText, maxCollapsedLines)
+			if hidden > 0 {
+				outputText = truncated
+			}
+			rendered := m.md.renderMarkdown(outputText, contentWidth)
+			rows = append(rows, "", rendered) // blank line separator
+			if hidden > 0 {
+				hint := lipgloss.NewStyle().Foreground(ColorTextSecondary).
+					Render(fmt.Sprintf("… %d more lines — Enter for full text", hidden))
+				rows = append(rows, hint)
+			}
+		}
+
 		body = strings.Join(rows, "\n")
 	} else {
 		body = m.md.renderMarkdown(content, contentWidth)
