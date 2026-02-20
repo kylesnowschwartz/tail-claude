@@ -43,11 +43,6 @@ type message struct {
 	timestamp  string
 }
 
-// newChunksMsg is sent when new chunks are available (for future live tailing)
-type newChunksMsg struct {
-	messages []message
-}
-
 type model struct {
 	messages     []message
 	expanded     map[int]bool // which messages are expanded
@@ -64,28 +59,50 @@ type model struct {
 	view            viewState
 	detailScroll    int // scroll offset within the detail view
 	detailMaxScroll int // cached max scroll for detail view, updated on enter/resize
+
+	// Live tailing state
+	sessionPath string
+	watching    bool
+	tailSub     chan []message
+	tailErrc    chan error
+}
+
+// loadResult holds everything needed to bootstrap the TUI and watcher.
+type loadResult struct {
+	messages   []message
+	path       string
+	classified []parser.ClassifiedMsg
+	offset     int64
 }
 
 // loadSession reads a JSONL session file and converts chunks to display messages.
-// Auto-discovers the latest session when path is empty.
-func loadSession(path string) ([]message, error) {
+// Auto-discovers the latest session when path is empty. Returns the full load
+// result so the caller can hand off classified messages and offset to the watcher.
+func loadSession(path string) (loadResult, error) {
 	if path == "" {
 		discovered, err := parser.DiscoverLatestSession()
 		if err != nil {
-			return nil, fmt.Errorf("no session found: %w", err)
+			return loadResult{}, fmt.Errorf("no session found: %w", err)
 		}
 		path = discovered
 	}
 
-	chunks, err := parser.ReadSession(path)
+	classified, offset, err := parser.ReadSessionIncremental(path, 0)
 	if err != nil {
-		return nil, fmt.Errorf("reading session %s: %w", path, err)
-	}
-	if len(chunks) == 0 {
-		return nil, fmt.Errorf("session %s has no messages", path)
+		return loadResult{}, fmt.Errorf("reading session %s: %w", path, err)
 	}
 
-	return chunksToMessages(chunks), nil
+	chunks := parser.BuildChunks(classified)
+	if len(chunks) == 0 {
+		return loadResult{}, fmt.Errorf("session %s has no messages", path)
+	}
+
+	return loadResult{
+		messages:   chunksToMessages(chunks),
+		path:       path,
+		classified: classified,
+		offset:     offset,
+	}, nil
 }
 
 // chunksToMessages maps parser output into the TUI's message type.
@@ -192,6 +209,12 @@ func sampleMessages() []message {
 }
 
 func (m model) Init() tea.Cmd {
+	if m.watching {
+		return tea.Batch(
+			waitForTailUpdate(m.tailSub),
+			waitForWatcherErr(m.tailErrc),
+		)
+	}
 	return nil
 }
 
@@ -207,12 +230,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case newChunksMsg:
-		m.messages = append(m.messages, msg.messages...)
-		m.cursor = len(m.messages) - 1
+	case tailUpdateMsg:
+		// Auto-follow: if cursor was on the last message, track the new tail.
+		wasAtEnd := m.cursor >= len(m.messages)-1
+		m.messages = msg.messages
+		if wasAtEnd && len(m.messages) > 0 {
+			m.cursor = len(m.messages) - 1
+		}
+		// Clamp cursor if the message list somehow shrank.
+		if m.cursor >= len(m.messages) && len(m.messages) > 0 {
+			m.cursor = len(m.messages) - 1
+		}
 		m.computeLineOffsets()
 		m.ensureCursorVisible()
-		return m, nil
+		return m, waitForTailUpdate(m.tailSub)
+
+	case watcherErrMsg:
+		// Transient watcher errors: re-subscribe and keep going.
+		return m, waitForWatcherErr(m.tailErrc)
 
 	case tea.KeyMsg:
 		if m.view == viewDetail {
@@ -732,6 +767,7 @@ func (m model) renderDetailHeader(msg message, width int) string {
 }
 
 // renderStatusBar renders a key-hint status bar from alternating key/description pairs.
+// When m.watching is true, a green LIVE badge is prepended.
 func (m model) renderStatusBar(pairs ...string) string {
 	statusStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("236")).
@@ -749,6 +785,17 @@ func (m model) renderStatusBar(pairs ...string) string {
 		Foreground(lipgloss.Color("243"))
 
 	var parts []string
+
+	if m.watching {
+		liveBadge := lipgloss.NewStyle().
+			Background(lipgloss.Color("28")).
+			Foreground(lipgloss.Color("255")).
+			Bold(true).
+			Padding(0, 1).
+			Render("LIVE")
+		parts = append(parts, liveBadge)
+	}
+
 	for i := 0; i+1 < len(pairs); i += 2 {
 		parts = append(parts, dimKey.Render(pairs[i])+dimDesc.Render(":"+pairs[i+1]))
 	}
@@ -1016,7 +1063,7 @@ func main() {
 		}
 	}
 
-	msgs, err := loadSession(sessionPath)
+	result, err := loadSession(sessionPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -1024,7 +1071,7 @@ func main() {
 
 	if dumpMode {
 		width := 120
-		m := initialModel(msgs)
+		m := initialModel(result.messages)
 		m.width = width
 		m.height = 1_000_000
 		if expandAll {
@@ -1036,7 +1083,17 @@ func main() {
 		return
 	}
 
-	p := tea.NewProgram(initialModel(msgs), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// Start the file watcher for live tailing.
+	watcher := newSessionWatcher(result.path, result.classified, result.offset)
+	go watcher.run()
+
+	m := initialModel(result.messages)
+	m.sessionPath = result.path
+	m.watching = true
+	m.tailSub = watcher.sub
+	m.tailErrc = watcher.errc
+
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
