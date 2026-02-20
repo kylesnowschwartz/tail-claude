@@ -67,6 +67,16 @@ func contentWidth(cardWidth int) int {
 	return w
 }
 
+// truncateLines caps content to maxLines and returns the truncated text plus
+// the number of hidden lines. Returns (content, 0) when within the limit.
+func truncateLines(content string, maxLines int) (string, int) {
+	lines := strings.Split(content, "\n")
+	if len(lines) <= maxLines {
+		return content, 0
+	}
+	return strings.Join(lines[:maxLines], "\n"), len(lines) - maxLines
+}
+
 // -- Message rendering --------------------------------------------------------
 
 func (m model) renderMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
@@ -93,11 +103,9 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 	// Render the card body -- truncate when collapsed
 	content := msg.content
 	if !isExpanded {
-		lines := strings.Split(content, "\n")
-		if len(lines) > maxCollapsedLines {
-			content = strings.Join(lines[:maxCollapsedLines], "\n")
-			hint := fmt.Sprintf("\u2026 (%d lines hidden)", len(lines)-maxCollapsedLines)
-			content += "\n" + hint
+		truncated, hidden := truncateLines(content, maxCollapsedLines)
+		if hidden > 0 {
+			content = truncated + "\n" + fmt.Sprintf("\u2026 (%d lines hidden)", hidden)
 		}
 	}
 
@@ -171,11 +179,11 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 
 	// Truncate long user messages when collapsed
 	if !isExpanded {
-		lines := strings.Split(content, "\n")
-		if len(lines) > maxCollapsedLines {
-			content = strings.Join(lines[:maxCollapsedLines], "\n")
+		truncated, hidden := truncateLines(content, maxCollapsedLines)
+		if hidden > 0 {
+			content = truncated
 			hint = lipgloss.NewStyle().Foreground(ColorTextDim).
-				Render(fmt.Sprintf("… (%d lines hidden)", len(lines)-maxCollapsedLines))
+				Render(fmt.Sprintf("… (%d lines hidden)", hidden))
 		}
 	}
 
