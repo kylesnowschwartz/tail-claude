@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -28,6 +30,20 @@ const (
 	viewPicker                  // session picker
 )
 
+// displayItem is a structured element within an AI message's detail view.
+// Mirrors parser.DisplayItem but with pre-formatted fields for rendering.
+type displayItem struct {
+	itemType    parser.DisplayItemType
+	text        string
+	toolName    string
+	toolSummary string
+	toolInput   string // formatted JSON for display
+	toolResult  string
+	toolError   bool
+	durationMs  int64
+	tokenCount  int
+}
+
 type message struct {
 	role       string
 	model      string
@@ -42,6 +58,7 @@ type message struct {
 	duration   string
 	durationMs int64
 	timestamp  string
+	items      []displayItem
 }
 
 type model struct {
@@ -58,8 +75,10 @@ type model struct {
 
 	// Detail view state
 	view            viewState
-	detailScroll    int // scroll offset within the detail view
-	detailMaxScroll int // cached max scroll for detail view, updated on enter/resize
+	detailScroll    int        // scroll offset within the detail view
+	detailMaxScroll int        // cached max scroll for detail view, updated on enter/resize
+	detailCursor    int        // selected item index within the detail message
+	detailExpanded  map[int]bool // which detail items are expanded
 
 	// Live tailing state
 	sessionPath string
@@ -133,6 +152,7 @@ func chunksToMessages(chunks []parser.Chunk) []message {
 				tokensRaw:  c.Usage.TotalTokens(),
 				durationMs: c.DurationMs,
 				timestamp:  formatTime(c.Timestamp),
+				items:      convertDisplayItems(c.Items),
 			})
 		case parser.SystemChunk:
 			msgs = append(msgs, message{
@@ -143,6 +163,37 @@ func chunksToMessages(chunks []parser.Chunk) []message {
 		}
 	}
 	return msgs
+}
+
+// convertDisplayItems maps parser.DisplayItem to the TUI's displayItem type.
+func convertDisplayItems(items []parser.DisplayItem) []displayItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]displayItem, len(items))
+	for i, it := range items {
+		input := ""
+		if len(it.ToolInput) > 0 {
+			var pretty bytes.Buffer
+			if json.Indent(&pretty, it.ToolInput, "", "  ") == nil {
+				input = pretty.String()
+			} else {
+				input = string(it.ToolInput)
+			}
+		}
+		out[i] = displayItem{
+			itemType:    it.Type,
+			text:        it.Text,
+			toolName:    it.ToolName,
+			toolSummary: it.ToolSummary,
+			toolInput:   input,
+			toolResult:  it.ToolResult,
+			toolError:   it.ToolError,
+			durationMs:  it.DurationMs,
+			tokenCount:  it.TokenCount,
+		}
+	}
+	return out
 }
 
 // shortModel turns "claude-opus-4-6" into "opus4.6".
@@ -165,9 +216,10 @@ func formatTime(t time.Time) string {
 
 func initialModel(msgs []message) model {
 	return model{
-		messages: msgs,
-		expanded: make(map[int]bool), // all messages start collapsed
-		cursor:   0,
+		messages:       msgs,
+		expanded:       make(map[int]bool), // all messages start collapsed
+		cursor:         0,
+		detailExpanded: make(map[int]bool),
 	}
 }
 
@@ -277,8 +329,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.messages = msg.messages
 		m.expanded = make(map[int]bool)
+		m.detailExpanded = make(map[int]bool)
 		m.cursor = 0
 		m.scroll = 0
+		m.detailCursor = 0
 		m.sessionPath = msg.path
 		m.view = viewList
 		m.computeLineOffsets()
@@ -353,6 +407,8 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.messages) > 0 {
 			m.view = viewDetail
 			m.detailScroll = 0
+			m.detailCursor = 0
+			m.detailExpanded = make(map[int]bool)
 			m.computeDetailMaxScroll()
 		}
 	case "e":
@@ -390,16 +446,52 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// detailHasItems returns true when the current detail message has structured items.
+func (m model) detailHasItems() bool {
+	if m.cursor < 0 || m.cursor >= len(m.messages) {
+		return false
+	}
+	return len(m.messages[m.cursor].items) > 0
+}
+
 // updateDetail handles key events in the full-screen detail view.
 func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	hasItems := m.detailHasItems()
+
 	switch msg.String() {
-	case "q", "escape", "enter":
+	case "q", "escape":
 		m.view = viewList
+		m.detailCursor = 0
+		m.detailExpanded = make(map[int]bool)
+	case "enter":
+		if hasItems {
+			m.detailExpanded[m.detailCursor] = !m.detailExpanded[m.detailCursor]
+			m.computeDetailMaxScroll()
+		} else {
+			m.view = viewList
+			m.detailCursor = 0
+			m.detailExpanded = make(map[int]bool)
+		}
 	case "j", "down":
-		m.detailScroll++
+		if hasItems {
+			itemCount := len(m.messages[m.cursor].items)
+			if m.detailCursor < itemCount-1 {
+				m.detailCursor++
+			}
+			m.ensureDetailCursorVisible()
+		} else {
+			m.detailScroll++
+		}
 	case "k", "up":
-		if m.detailScroll > 0 {
-			m.detailScroll--
+		if hasItems {
+			if m.detailCursor > 0 {
+				m.detailCursor--
+			}
+			m.ensureDetailCursorVisible()
+		} else {
+			if m.detailScroll > 0 {
+				m.detailScroll--
+			}
 		}
 	case "J", "ctrl+d":
 		m.detailScroll += m.height / 2
@@ -412,6 +504,9 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detailScroll = m.detailMaxScroll
 	case "g":
 		m.detailScroll = 0
+		if hasItems {
+			m.detailCursor = 0
+		}
 	case "ctrl+c":
 		return m, tea.Quit
 	}
@@ -550,6 +645,22 @@ func (m *model) computeDetailMaxScroll() {
 		width = 120
 	}
 
+	// For AI messages with items, use the items view renderer.
+	if msg.role == RoleClaude && len(msg.items) > 0 {
+		content := m.renderDetailItemsContent(msg, width)
+		content = strings.TrimRight(content, "\n")
+		totalLines := strings.Count(content, "\n") + 1
+		viewHeight := m.height - 1
+		if viewHeight <= 0 {
+			viewHeight = 1
+		}
+		m.detailMaxScroll = totalLines - viewHeight
+		if m.detailMaxScroll < 0 {
+			m.detailMaxScroll = 0
+		}
+		return
+	}
+
 	var header, body string
 	switch msg.role {
 	case RoleClaude:
@@ -582,6 +693,64 @@ func (m *model) computeDetailMaxScroll() {
 	m.detailMaxScroll = totalLines - viewHeight
 	if m.detailMaxScroll < 0 {
 		m.detailMaxScroll = 0
+	}
+}
+
+// ensureDetailCursorVisible adjusts detailScroll so the current detail cursor
+// item is within the visible viewport. Computes the cursor's line position by
+// counting header lines + item rows + expanded content lines before it.
+func (m *model) ensureDetailCursorVisible() {
+	if m.cursor < 0 || m.cursor >= len(m.messages) || m.width == 0 || m.height == 0 {
+		return
+	}
+	msg := m.messages[m.cursor]
+	if len(msg.items) == 0 {
+		return
+	}
+
+	width := m.width
+	if width > 120 {
+		width = 120
+	}
+
+	// Count header lines (header + blank separator)
+	header := m.renderDetailHeader(msg, width)
+	headerLines := strings.Count(header, "\n") + 1 // header rendered lines
+	headerLines += 1                                // blank line separator from "\n\n"
+
+	// Count lines for items before the cursor
+	cursorLine := headerLines
+	for i := 0; i < m.detailCursor && i < len(msg.items); i++ {
+		cursorLine++ // the item row itself
+		if m.detailExpanded[i] {
+			expanded := m.renderDetailItemExpanded(msg.items[i], width)
+			if expanded != "" {
+				cursorLine += strings.Count(expanded, "\n") + 1
+			}
+		}
+	}
+
+	viewHeight := m.height - 1 // reserve status bar
+	if viewHeight <= 0 {
+		viewHeight = 1
+	}
+
+	// Scroll up if cursor is above viewport
+	if cursorLine < m.detailScroll {
+		m.detailScroll = cursorLine
+	}
+	// Scroll down if cursor is below viewport
+	if cursorLine >= m.detailScroll+viewHeight {
+		m.detailScroll = cursorLine - viewHeight + 1
+	}
+
+	// Recompute max scroll after potential expansion changes
+	m.computeDetailMaxScroll()
+	if m.detailScroll > m.detailMaxScroll {
+		m.detailScroll = m.detailMaxScroll
+	}
+	if m.detailScroll < 0 {
+		m.detailScroll = 0
 	}
 }
 
@@ -684,32 +853,37 @@ func (m model) viewDetail() string {
 		width = 120
 	}
 
-	// Render full message content without truncation
-	var header, body string
+	var content string
 
-	switch msg.role {
-	case RoleClaude:
-		header = m.renderDetailHeader(msg, width)
-		bodyStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")).
-			Width(width - 4)
-		body = bodyStyle.Render(msg.content)
-	case RoleUser:
-		header = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Render("You") +
-			"  " + lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(msg.timestamp)
-		bodyStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")).
-			Width(width - 4)
-		body = bodyStyle.Render(msg.content)
-	case RoleSystem:
-		header = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("System") +
-			"  " + lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(msg.timestamp)
-		body = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(msg.content)
+	// AI messages with items get the structured items view.
+	if msg.role == RoleClaude && len(msg.items) > 0 {
+		content = m.renderDetailItemsContent(msg, width)
+	} else {
+		// Existing text-based rendering for user, system, and simple AI messages.
+		var header, body string
+		switch msg.role {
+		case RoleClaude:
+			header = m.renderDetailHeader(msg, width)
+			bodyStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("252")).
+				Width(width - 4)
+			body = bodyStyle.Render(msg.content)
+		case RoleUser:
+			header = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Render("You") +
+				"  " + lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(msg.timestamp)
+			bodyStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("252")).
+				Width(width - 4)
+			body = bodyStyle.Render(msg.content)
+		case RoleSystem:
+			header = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("System") +
+				"  " + lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(msg.timestamp)
+			body = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(msg.content)
+		}
+		content = header + "\n\n" + body
 	}
 
-	content := header + "\n\n" + body
-
-	// Strip trailing newlines that lipgloss may add — they create phantom blank
+	// Strip trailing newlines that lipgloss may add -- they create phantom blank
 	// lines when we split on \n, wasting a viewport line and pushing the status
 	// bar off-screen.
 	content = strings.TrimRight(content, "\n")
@@ -751,13 +925,189 @@ func (m model) viewDetail() string {
 		scrollInfo = fmt.Sprintf("  %d%% (%d/%d)", pct, scroll+viewHeight, totalLines)
 	}
 
-	status := m.renderStatusBar(
-		"j/k", "scroll",
-		"G/g", "jump",
-		"q/esc", "back"+scrollInfo,
-	)
+	// Status bar varies by message type
+	hasItems := msg.role == RoleClaude && len(msg.items) > 0
+	var status string
+	if hasItems {
+		status = m.renderStatusBar(
+			"j/k", "items",
+			"enter", "expand",
+			"J/K", "scroll",
+			"G/g", "jump",
+			"q/esc", "back"+scrollInfo,
+		)
+	} else {
+		status = m.renderStatusBar(
+			"j/k", "scroll",
+			"G/g", "jump",
+			"q/esc", "back"+scrollInfo,
+		)
+	}
 
 	return output + "\n" + status
+}
+
+// renderDetailItemsContent renders the full content for an AI message with
+// structured items (header + items list + expanded content). Returns the
+// complete string before scrolling is applied.
+func (m model) renderDetailItemsContent(msg message, width int) string {
+	header := m.renderDetailHeader(msg, width)
+
+	var itemLines []string
+	for i, item := range msg.items {
+		itemLines = append(itemLines, m.renderDetailItemRow(item, i, width))
+
+		if m.detailExpanded[i] {
+			expanded := m.renderDetailItemExpanded(item, width)
+			if expanded != "" {
+				itemLines = append(itemLines, expanded)
+			}
+		}
+	}
+
+	return header + "\n\n" + strings.Join(itemLines, "\n")
+}
+
+// renderDetailItemRow renders a single item row in the detail view.
+// Format: {cursor} {indicator} {name:<12} {summary}  {tokens} {duration}
+func (m model) renderDetailItemRow(item displayItem, index int, width int) string {
+	// Cursor indicator
+	cursor := "  "
+	if index == m.detailCursor {
+		cursor = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("75")).Render("> ")
+	}
+
+	// Type indicator and name
+	var indicator, name string
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+
+	switch item.itemType {
+	case parser.ItemThinking:
+		indicator = dim.Render("\u25cb") // open circle
+		name = "Thinking"
+	case parser.ItemOutput:
+		indicator = dim.Render("\u25cb")
+		name = "Output"
+	case parser.ItemToolCall:
+		if item.toolError {
+			indicator = red.Render("\u25cf") // filled circle
+		} else {
+			indicator = green.Render("\u25cf")
+		}
+		name = item.toolName
+	}
+
+	// Pad name to 12 chars
+	nameStr := fmt.Sprintf("%-12s", name)
+	nameRendered := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Render(nameStr)
+
+	// Summary
+	var summary string
+	switch item.itemType {
+	case parser.ItemThinking, parser.ItemOutput:
+		summary = truncate(item.text, 40)
+	case parser.ItemToolCall:
+		summary = item.toolSummary
+	}
+	summaryRendered := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render(summary)
+
+	// Right-side: tokens + duration
+	var rightParts []string
+	if item.tokenCount > 0 {
+		tokStr := fmt.Sprintf("~%s tok", formatTokens(item.tokenCount))
+		rightParts = append(rightParts, lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(tokStr))
+	}
+	if item.durationMs > 0 {
+		durStr := fmt.Sprintf("%dms", item.durationMs)
+		if item.durationMs >= 1000 {
+			durStr = formatDuration(item.durationMs)
+		}
+		rightParts = append(rightParts, lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(durStr))
+	}
+	rightSide := strings.Join(rightParts, "  ")
+
+	// Build the row: cursor + indicator + " " + name + summary + gap + right
+	left := cursor + indicator + " " + nameRendered + " " + summaryRendered
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(rightSide)
+	gap := width - leftWidth - rightWidth
+	if gap < 2 {
+		gap = 2
+	}
+
+	return left + strings.Repeat(" ", gap) + rightSide
+}
+
+// renderDetailItemExpanded renders the expanded content for a detail item.
+// Indented 4 spaces, word-wrapped to width-8.
+func (m model) renderDetailItemExpanded(item displayItem, width int) string {
+	wrapWidth := width - 8
+	if wrapWidth < 20 {
+		wrapWidth = 20
+	}
+	indent := "    "
+
+	switch item.itemType {
+	case parser.ItemThinking, parser.ItemOutput:
+		if item.text == "" {
+			return ""
+		}
+		bodyStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("243")).
+			Width(wrapWidth)
+		wrapped := bodyStyle.Render(item.text)
+		return indentBlock(wrapped, indent)
+
+	case parser.ItemToolCall:
+		var sections []string
+
+		if item.toolInput != "" {
+			headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
+			sections = append(sections, indent+headerStyle.Render("Input:"))
+			inputStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("243")).
+				Width(wrapWidth)
+			sections = append(sections, indentBlock(inputStyle.Render(item.toolInput), indent))
+		}
+
+		if item.toolResult != "" || item.toolError {
+			if len(sections) > 0 {
+				sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+				sections = append(sections, indent+sepStyle.Render(strings.Repeat("-", wrapWidth)))
+			}
+
+			if item.toolError {
+				headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
+				sections = append(sections, indent+headerStyle.Render("Error:"))
+			} else {
+				headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
+				sections = append(sections, indent+headerStyle.Render("Result:"))
+			}
+
+			resultStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("243")).
+				Width(wrapWidth)
+			sections = append(sections, indentBlock(resultStyle.Render(item.toolResult), indent))
+		}
+
+		if len(sections) == 0 {
+			return ""
+		}
+		return strings.Join(sections, "\n")
+	}
+
+	return ""
+}
+
+// indentBlock adds a prefix to every line of a block of text.
+func indentBlock(text string, indent string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = indent + line
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderDetailHeader renders metadata for the detail view header.
