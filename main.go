@@ -75,9 +75,9 @@ type model struct {
 
 	// Detail view state
 	view            viewState
-	detailScroll    int        // scroll offset within the detail view
-	detailMaxScroll int        // cached max scroll for detail view, updated on enter/resize
-	detailCursor    int        // selected item index within the detail message
+	detailScroll    int          // scroll offset within the detail view
+	detailMaxScroll int          // cached max scroll for detail view, updated on enter/resize
+	detailCursor    int          // selected item index within the detail message
 	detailExpanded  map[int]bool // which detail items are expanded
 
 	// Live tailing state
@@ -467,6 +467,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if hasItems {
 			m.detailExpanded[m.detailCursor] = !m.detailExpanded[m.detailCursor]
 			m.computeDetailMaxScroll()
+			m.ensureDetailCursorVisible()
 		} else {
 			m.view = viewList
 			m.detailCursor = 0
@@ -716,7 +717,7 @@ func (m *model) ensureDetailCursorVisible() {
 	// Count header lines (header + blank separator)
 	header := m.renderDetailHeader(msg, width)
 	headerLines := strings.Count(header, "\n") + 1 // header rendered lines
-	headerLines += 1                                // blank line separator from "\n\n"
+	headerLines += 1                               // blank line separator from "\n\n"
 
 	// Count lines for items before the cursor
 	cursorLine := headerLines
@@ -730,6 +731,15 @@ func (m *model) ensureDetailCursorVisible() {
 		}
 	}
 
+	// Count lines for the cursor item itself (row + expanded content)
+	cursorEnd := cursorLine // the row line
+	if m.detailCursor < len(msg.items) && m.detailExpanded[m.detailCursor] {
+		expanded := m.renderDetailItemExpanded(msg.items[m.detailCursor], width)
+		if expanded != "" {
+			cursorEnd += strings.Count(expanded, "\n") + 1
+		}
+	}
+
 	viewHeight := m.height - 1 // reserve status bar
 	if viewHeight <= 0 {
 		viewHeight = 1
@@ -739,9 +749,9 @@ func (m *model) ensureDetailCursorVisible() {
 	if cursorLine < m.detailScroll {
 		m.detailScroll = cursorLine
 	}
-	// Scroll down if cursor is below viewport
-	if cursorLine >= m.detailScroll+viewHeight {
-		m.detailScroll = cursorLine - viewHeight + 1
+	// Scroll down if cursor end (including expanded content) is below viewport
+	if cursorEnd >= m.detailScroll+viewHeight {
+		m.detailScroll = cursorEnd - viewHeight + 1
 	}
 
 	// Recompute max scroll after potential expansion changes
