@@ -22,4 +22,6 @@ const (
 	IconSelected  = "\u2502" // box drawing vertical
 	IconClock     = "\uF017" // nf-fa-clock_o
 	IconToken     = "\uE26B" // nf-fae-coins
+	IconBeadFull  = "\u25CF" // black circle (activity indicator bead, bright)
+	IconBeadEmpty = "\u00B7" // middle dot (activity indicator bead, dim)
 )

@@ -21,6 +21,9 @@ const maxCollapsedLines = 6
 // Rounded border: top + content + bottom = 3 lines.
 const statusBarHeight = 3
 
+// beadCount is the number of dots in the activity indicator animation.
+const beadCount = 5
+
 // -- Helpers ------------------------------------------------------------------
 
 // chevron returns the expand/collapse indicator
@@ -577,10 +580,55 @@ func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) 
 	return spaceBetween(left, strings.Join(rightParts, "  "), width)
 }
 
+// -- Activity indicator --------------------------------------------------------
+
+// activityIndicatorHeight returns the number of extra lines the activity
+// indicator occupies above the status bar (0 or 1).
+func (m model) activityIndicatorHeight() int {
+	if m.watching && m.sessionOngoing {
+		return 1
+	}
+	return 0
+}
+
+// renderActivityIndicator returns a centered animated bead line when the
+// session is ongoing, or an empty string otherwise. Each tick shifts the
+// bright "head" position through 5 dots.
+func (m model) renderActivityIndicator(width int) string {
+	if !m.watching || !m.sessionOngoing {
+		return ""
+	}
+
+	// Color palette from brightest to dimmest.
+	colors := []lipgloss.AdaptiveColor{
+		ColorAccent,        // head (bright blue)
+		ColorInfo,          // near head
+		ColorTextSecondary, // mid
+		ColorTextMuted,     // dim
+	}
+
+	head := m.animFrame % beadCount
+	var dots []string
+	for i := 0; i < beadCount; i++ {
+		// Distance from head, wrapping around.
+		dist := (i - head + beadCount) % beadCount
+		// Map distance to a color index (0=closest, capped at len-1).
+		ci := dist
+		if ci >= len(colors) {
+			ci = len(colors) - 1
+		}
+		style := lipgloss.NewStyle().Foreground(colors[ci])
+		dots = append(dots, style.Render(IconBeadFull))
+	}
+
+	line := strings.Join(dots, " ")
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, line)
+}
+
 // -- Status bar ---------------------------------------------------------------
 
 // renderStatusBar renders key hints in a rounded-border box.
-// When m.watching is true, a green LIVE badge is prepended.
+// When m.watching is true, a dim "tail" indicator is prepended.
 func (m model) renderStatusBar(pairs ...string) string {
 	keyStyle := lipgloss.NewStyle().
 		Foreground(ColorAccent).
@@ -594,13 +642,10 @@ func (m model) renderStatusBar(pairs ...string) string {
 	var hints []string
 
 	if m.watching {
-		liveBadge := lipgloss.NewStyle().
-			Background(ColorLiveBg).
-			Foreground(ColorLiveFg).
-			Bold(true).
-			Padding(0, 1).
-			Render("LIVE")
-		hints = append(hints, liveBadge)
+		tailLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Render("tail")
+		hints = append(hints, tailLabel)
 	}
 
 	for i := 0; i+1 < len(pairs); i += 2 {
