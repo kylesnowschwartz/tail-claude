@@ -25,6 +25,17 @@ type UserMsg struct {
 func (UserMsg) classifiedMsg()         {}
 func (m UserMsg) timestamp() time.Time { return m.Timestamp }
 
+// ContentBlock represents a single content block from an assistant or tool result message.
+type ContentBlock struct {
+	Type      string          // "thinking", "text", "tool_use", "tool_result"
+	Text      string          // thinking or text content
+	ToolID    string          // tool_use: call ID; tool_result: tool_use_id
+	ToolName  string          // tool_use only
+	ToolInput json.RawMessage // tool_use only
+	Content   string          // tool_result content (stringified)
+	IsError   bool            // tool_result only
+}
+
 // AIMsg represents assistant responses and internal flow messages (tool results).
 type AIMsg struct {
 	Timestamp  time.Time
@@ -32,6 +43,7 @@ type AIMsg struct {
 	Text       string // sanitized text content
 	Thinking   int    // count of thinking blocks
 	ToolCalls  []ToolCall
+	Blocks     []ContentBlock // ordered content blocks, nil until populated
 	Usage      Usage
 	StopReason string
 	IsMeta     bool // internal user message (tool results)

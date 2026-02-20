@@ -1,9 +1,34 @@
 package parser
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
+
+// DisplayItemType discriminates the three display item categories.
+type DisplayItemType int
+
+const (
+	ItemThinking DisplayItemType = iota
+	ItemOutput
+	ItemToolCall
+)
+
+// DisplayItem is a structured element within an AI chunk's detail view.
+type DisplayItem struct {
+	Type        DisplayItemType
+	Text        string
+	ToolName    string
+	ToolID      string
+	ToolInput   json.RawMessage
+	ToolSummary string // "main.go" for Read, "go test" for Bash
+	ToolResult  string
+	ToolError   bool
+	DurationMs  int64 // tool_use -> tool_result timestamp delta
+	TokenCount  int   // estimated tokens: len(text)/4
+	Timestamp   time.Time
+}
 
 // ChunkType discriminates the three chunk categories.
 type ChunkType int
@@ -30,6 +55,7 @@ type Chunk struct {
 	Text       string
 	Thinking   int
 	ToolCalls  []ToolCall
+	Items      []DisplayItem // structured detail, nil until populated
 	Usage      Usage
 	StopReason string
 	DurationMs int64 // first to last message timestamp in chunk
