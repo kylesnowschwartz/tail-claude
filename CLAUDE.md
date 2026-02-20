@@ -24,9 +24,61 @@ Pure data transformation -- no side effects except file IO in `ReadSession` / `R
 
 Bubble Tea model with three view states: list, detail, picker.
 
-- **main.go** -- Model, Update, View, rendering functions, utility formatters
+- **main.go** -- Model, Update, View, `chunksToMessages`, `convertDisplayItems`, utility formatters
+- **render.go** -- All rendering functions (extracted from main.go)
 - **watcher.go** -- fsnotify-based file watcher for live tailing
 - **picker.go** -- Session discovery and selection UI
+- **markdown.go** -- Glamour-based markdown renderer with width-based caching
+- **theme.go** -- AdaptiveColor definitions for dark/light terminal support
+- **icons.go** -- Nerd Font icon constants
+
+### Rendering (`render.go`, `markdown.go`, `theme.go`, `icons.go`)
+
+`render.go` contains all rendering functions. The dispatch flow:
+
+```
+View() -> viewList/viewDetail/viewPicker
+  viewList:   renderMessage -> renderClaudeMessage | renderUserMessage | renderSystemMessage | renderCompactMessage
+  viewDetail: renderDetailContent -> renderDetailHeader + renderDetailItemsContent | markdown body
+```
+
+**List view rendering:**
+- `renderMessage` dispatches by role to type-specific renderers.
+- `renderClaudeMessage` renders a header (model, stats, tokens, duration, timestamp) + card body. Collapsed view uses `FindLastOutput` -- shows `LastOutputText` as markdown or `LastOutputToolResult` as a one-line summary. Expanded view with items shows structured `renderDetailItemRow` rows + truncated last output text at the bottom.
+- `renderUserMessage` renders a right-aligned bubble with markdown content.
+- `renderSystemMessage` renders a single inline line (icon + label + timestamp + content).
+- `renderCompactMessage` renders a centered horizontal divider with text.
+
+**Detail view rendering:**
+- `renderDetailContent` is the single source of truth for detail content (used by both `viewDetail` and `computeDetailMaxScroll`).
+- AI messages with items get `renderDetailItemsContent`: header + item rows with optional expanded content.
+- `renderDetailItemRow` format: `{cursor} {indicator} {name:<12} {summary}  {tokens} {duration}`.
+- `renderDetailItemExpanded` renders indented content -- markdown for thinking/output/teammate, input+separator+result for tool calls/subagents.
+
+**Scroll computation:**
+- `computeLineOffsets` pre-renders every message to calculate per-message line counts. Used by `ensureCursorVisible` to keep the cursor in the viewport.
+- `computeDetailMaxScroll` renders the detail content once to calculate total lines.
+- `ensureDetailCursorVisible` counts header lines + item rows + expanded content to find the cursor's line position.
+
+**Markdown renderer (`markdown.go`):**
+- `mdRenderer` wraps glamour. Caches the renderer at a specific width; recreates when width changes.
+- Terminal background (dark/light) detected once in `main()` before Bubble Tea alt-screen activation, passed to `newMdRenderer`.
+- Document.Color is nilled so body text inherits terminal default foreground (avoids invisible text on light backgrounds).
+
+**Layout constants (`render.go`):**
+- `maxContentWidth = 120` -- content rendering width cap.
+- `maxCollapsedLines = 6` -- collapsed message line limit before truncation.
+- `statusBarHeight = 3` -- rounded border: top + content + bottom.
+
+**Theme (`theme.go`):**
+- All colors are `lipgloss.AdaptiveColor` with Light/Dark values.
+- Text hierarchy: Primary, Secondary, Dim, Muted.
+- Model family colors: Opus (red/coral), Sonnet (blue), Haiku (green).
+- Accent colors: Accent (blue), Success (green), Warning (yellow), Error (red), Info (blue).
+
+**Icons (`icons.go`):**
+- Nerd Font codepoints. Requires a patched terminal font.
+- Icon set: Claude, User, System, Expanded/Collapsed, Thinking, Output, ToolOk/ToolErr, Subagent, Teammate, Clock, Token, Cursor, Dot, Selected.
 
 ## Functional Thinking
 
