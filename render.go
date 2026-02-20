@@ -144,7 +144,17 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 	}
 
 	contentWidth := contentWidth(maxWidth)
-	body := m.md.renderMarkdown(content, contentWidth)
+	var body string
+	if isExpanded && len(msg.items) > 0 {
+		// Structured item rows instead of raw markdown
+		var rows []string
+		for i, item := range msg.items {
+			rows = append(rows, m.renderDetailItemRow(item, i, -1, contentWidth))
+		}
+		body = strings.Join(rows, "\n")
+	} else {
+		body = m.md.renderMarkdown(content, contentWidth)
+	}
 
 	cardBorderColor := ColorBorder
 	if isSelected {
