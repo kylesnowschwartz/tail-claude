@@ -504,6 +504,20 @@ func TestToolSummary_Truncation(t *testing.T) {
 	}
 }
 
+func TestToolSummary_NewlinesCollapsed(t *testing.T) {
+	// Summaries must be single-line for item row rendering.
+	got := parser.ToolSummary("Bash", json.RawMessage(`{"command":"echo hello\necho world"}`))
+	if got != "echo hello echo world" {
+		t.Errorf("newlines not collapsed: got %q", got)
+	}
+
+	// Description with newlines.
+	got = parser.ToolSummary("Bash", json.RawMessage(`{"description":"Build and\nrun tests"}`))
+	if got != "Build and run tests" {
+		t.Errorf("newlines not collapsed: got %q", got)
+	}
+}
+
 func TestToolSummary_NotebookEdit(t *testing.T) {
 	tests := []struct {
 		name  string

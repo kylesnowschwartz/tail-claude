@@ -329,7 +329,9 @@ func getNumber(fields map[string]json.RawMessage, key string) int {
 }
 
 // truncate shortens a string to maxLen characters, appending "..." if truncated.
+// Collapses newlines to spaces since summaries are single-line display strings.
 func truncate(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
 	if len(s) <= maxLen {
 		return s
 	}
