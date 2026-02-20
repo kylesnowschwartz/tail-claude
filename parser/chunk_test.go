@@ -469,3 +469,147 @@ func TestBuildChunks_Items_NoBlocks(t *testing.T) {
 		t.Errorf("Text = %q, want 'plain answer'", chunks[0].Text)
 	}
 }
+
+// --- ItemSubagent tests ---
+
+func TestBuildChunks_Items_TaskToolCreatesSubagent(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	taskInput := json.RawMessage(`{"subagent_type":"Explore","description":"Find API endpoints","prompt":"Search the codebase for API endpoints"}`)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Task"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Task", ToolInput: taskInput},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+
+	item := items[0]
+	if item.Type != parser.ItemSubagent {
+		t.Errorf("Type = %d, want ItemSubagent", item.Type)
+	}
+	if item.SubagentType != "Explore" {
+		t.Errorf("SubagentType = %q, want Explore", item.SubagentType)
+	}
+	if item.SubagentDesc != "Find API endpoints" {
+		t.Errorf("SubagentDesc = %q, want 'Find API endpoints'", item.SubagentDesc)
+	}
+	if item.ToolName != "Task" {
+		t.Errorf("ToolName = %q, want Task", item.ToolName)
+	}
+	if item.ToolID != "call_1" {
+		t.Errorf("ToolID = %q, want call_1", item.ToolID)
+	}
+}
+
+func TestBuildChunks_Items_TaskToolPromptFallback(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	// No "description" field -- should fall back to truncated prompt
+	taskInput := json.RawMessage(`{"subagent_type":"general-purpose","prompt":"Implement the feature as described in the ticket above and make sure all tests pass"}`)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Task"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Task", ToolInput: taskInput},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+
+	item := items[0]
+	if item.Type != parser.ItemSubagent {
+		t.Errorf("Type = %d, want ItemSubagent", item.Type)
+	}
+	if item.SubagentType != "general-purpose" {
+		t.Errorf("SubagentType = %q, want general-purpose", item.SubagentType)
+	}
+	// Should be truncated to 80 chars
+	if len(item.SubagentDesc) > 83 { // 80 + "..."
+		t.Errorf("SubagentDesc too long: %d chars", len(item.SubagentDesc))
+	}
+	if item.SubagentDesc == "" {
+		t.Error("SubagentDesc should not be empty (prompt fallback)")
+	}
+}
+
+func TestBuildChunks_Items_TaskToolWithResult(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	t1 := t0.Add(5 * time.Second)
+	taskInput := json.RawMessage(`{"subagent_type":"Explore","description":"Find config"}`)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Task"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Task", ToolInput: taskInput},
+			},
+		},
+		parser.AIMsg{
+			Timestamp: t1,
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "call_1", Content: "Found config.yaml at /etc/app/config.yaml"},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+
+	item := items[0]
+	if item.Type != parser.ItemSubagent {
+		t.Errorf("Type = %d, want ItemSubagent", item.Type)
+	}
+	if item.ToolResult != "Found config.yaml at /etc/app/config.yaml" {
+		t.Errorf("ToolResult = %q", item.ToolResult)
+	}
+	if item.DurationMs != 5000 {
+		t.Errorf("DurationMs = %d, want 5000", item.DurationMs)
+	}
+}
+
+func TestBuildChunks_Items_NonTaskToolStillToolCall(t *testing.T) {
+	// Verify that non-Task tool_use blocks still produce ItemToolCall
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Read"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Read", ToolInput: json.RawMessage(`{"file_path":"/tmp/foo.go"}`)},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+	if items[0].Type != parser.ItemToolCall {
+		t.Errorf("Type = %d, want ItemToolCall (not ItemSubagent)", items[0].Type)
+	}
+}

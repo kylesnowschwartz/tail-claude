@@ -14,6 +14,7 @@ const (
 	IconOutput    = "\uF1C9" // nf-fa-file_code_o
 	IconToolOk    = "\uF00C" // nf-fa-check
 	IconToolErr   = "\uF00D" // nf-fa-times
+	IconSubagent  = "\uF0C0" // nf-fa-users
 	IconDot       = "\u00B7" // middle dot
 	IconSelected  = "\u2502" // box drawing vertical
 	IconClock     = "\uF017" // nf-fa-clock_o

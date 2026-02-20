@@ -21,7 +21,7 @@ type LastOutput struct {
 // FindLastOutput scans display items in reverse to find the last meaningful output.
 // Priority order (matching claude-devtools lastOutputDetector.ts):
 //  1. Last ItemOutput with non-empty Text
-//  2. Last ItemToolCall with non-empty ToolResult
+//  2. Last ItemToolCall or ItemSubagent with non-empty ToolResult
 //  3. nil (no output found)
 func FindLastOutput(items []DisplayItem) *LastOutput {
 	// First pass: look for last output text
@@ -35,10 +35,10 @@ func FindLastOutput(items []DisplayItem) *LastOutput {
 		}
 	}
 
-	// Second pass: look for last tool result
+	// Second pass: look for last tool result (includes subagent results)
 	for i := len(items) - 1; i >= 0; i-- {
 		item := items[i]
-		if item.Type == ItemToolCall && item.ToolResult != "" {
+		if (item.Type == ItemToolCall || item.Type == ItemSubagent) && item.ToolResult != "" {
 			return &LastOutput{
 				Type:       LastOutputToolResult,
 				ToolName:   item.ToolName,

@@ -315,6 +315,12 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 			indicator = green.Render(IconToolOk)
 		}
 		name = item.toolName
+	case parser.ItemSubagent:
+		indicator = blue.Render(IconSubagent)
+		name = item.subagentType
+		if name == "" {
+			name = "Subagent"
+		}
 	}
 
 	// Pad name to 12 chars
@@ -328,6 +334,11 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 		summary = truncate(item.text, 40)
 	case parser.ItemToolCall:
 		summary = item.toolSummary
+	case parser.ItemSubagent:
+		summary = item.subagentDesc
+		if summary == "" {
+			summary = item.toolSummary
+		}
 	}
 	summaryRendered := lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(summary)
 
@@ -368,7 +379,7 @@ func (m model) renderDetailItemExpanded(item displayItem, width int) string {
 		rendered := m.md.renderMarkdown(text, wrapWidth)
 		return indentBlock(rendered, indent)
 
-	case parser.ItemToolCall:
+	case parser.ItemToolCall, parser.ItemSubagent:
 		var sections []string
 
 		if item.toolInput != "" {
