@@ -11,19 +11,15 @@ import (
 // that survive noise filtering. Noise entries are dropped, not classified.
 type ClassifiedMsg interface {
 	classifiedMsg()
-	timestamp() time.Time
 }
 
 // UserMsg represents genuine user input that starts a new request cycle.
 type UserMsg struct {
 	Timestamp time.Time
 	Text      string // sanitized display text
-	IsSlash   bool   // was a /command
-	SlashName string // e.g. "model" if IsSlash
 }
 
-func (UserMsg) classifiedMsg()         {}
-func (m UserMsg) timestamp() time.Time { return m.Timestamp }
+func (UserMsg) classifiedMsg() {}
 
 // ContentBlock represents a single content block from an assistant or tool result message.
 type ContentBlock struct {
@@ -38,19 +34,18 @@ type ContentBlock struct {
 
 // AIMsg represents assistant responses and internal flow messages (tool results).
 type AIMsg struct {
-	Timestamp  time.Time
-	Model      string
-	Text       string // sanitized text content
-	Thinking   int    // count of thinking blocks
-	ToolCalls  []ToolCall
-	Blocks     []ContentBlock // ordered content blocks, nil until populated
-	Usage      Usage
-	StopReason string
-	IsMeta     bool // internal user message (tool results)
+	Timestamp     time.Time
+	Model         string
+	Text          string // sanitized text content
+	ThinkingCount int    // count of thinking blocks
+	ToolCalls     []ToolCall
+	Blocks        []ContentBlock // ordered content blocks, nil until populated
+	Usage         Usage
+	StopReason    string
+	IsMeta        bool // internal user message (tool results)
 }
 
-func (AIMsg) classifiedMsg()         {}
-func (m AIMsg) timestamp() time.Time { return m.Timestamp }
+func (AIMsg) classifiedMsg() {}
 
 // ToolCall is a tool invocation extracted from an assistant message.
 type ToolCall struct {
@@ -77,8 +72,7 @@ type SystemMsg struct {
 	Output    string // extracted from <local-command-stdout>/<local-command-stderr>
 }
 
-func (SystemMsg) classifiedMsg()         {}
-func (m SystemMsg) timestamp() time.Time { return m.Timestamp }
+func (SystemMsg) classifiedMsg() {}
 
 // --- Hard noise detection ---
 
@@ -191,13 +185,9 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 		}
 
 		if !excluded && hasUserContent(e.Message.Content, contentStr) {
-			text := SanitizeContent(contentStr)
-			isSlash, slashName := detectSlash(contentStr)
 			return UserMsg{
 				Timestamp: ts,
-				Text:      text,
-				IsSlash:   isSlash,
-				SlashName: slashName,
+				Text:      SanitizeContent(contentStr),
 			}, true
 		}
 	}
@@ -210,12 +200,12 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 			stopReason = *e.Message.StopReason
 		}
 		return AIMsg{
-			Timestamp: ts,
-			Model:     e.Message.Model,
-			Text:      SanitizeContent(ExtractText(e.Message.Content)),
-			Thinking:  thinking,
-			ToolCalls: toolCalls,
-			Blocks:    blocks,
+			Timestamp:     ts,
+			Model:         e.Message.Model,
+			Text:          SanitizeContent(ExtractText(e.Message.Content)),
+			ThinkingCount: thinking,
+			ToolCalls:     toolCalls,
+			Blocks:        blocks,
 			Usage: Usage{
 				InputTokens:         e.Message.Usage.InputTokens,
 				OutputTokens:        e.Message.Usage.OutputTokens,
@@ -258,15 +248,6 @@ func parseTimestamp(s string) time.Time {
 		return t
 	}
 	return time.Time{}
-}
-
-// detectSlash checks for <command-name>/xxx</command-name> and returns (true, "xxx").
-func detectSlash(content string) (bool, string) {
-	m := reCommandName.FindStringSubmatch(content)
-	if m == nil {
-		return false, ""
-	}
-	return true, strings.TrimSpace(m[1])
 }
 
 // hasUserContent checks whether the raw content has real user text or images.

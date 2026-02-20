@@ -107,8 +107,8 @@ func (m *model) ensurePickerVisible() {
 // viewPicker renders the session picker screen.
 func (m model) viewPicker() string {
 	width := m.width
-	if width > 120 {
-		width = 120
+	if width > maxContentWidth {
+		width = maxContentWidth
 	}
 
 	// Header
@@ -171,12 +171,7 @@ func (m model) viewPicker() string {
 		}
 
 		left := sel + previewStyle.Render(preview)
-		gap := width - lipgloss.Width(left) - rightWidth
-		if gap < 2 {
-			gap = 2
-		}
-
-		rows = append(rows, left+strings.Repeat(" ", gap)+right)
+		rows = append(rows, spaceBetween(left, right, width))
 	}
 
 	content := header + "\n" + strings.Join(rows, "\n")

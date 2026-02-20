@@ -118,10 +118,10 @@ func summaryEdit(f map[string]json.RawMessage) string {
 
 func summaryBash(f map[string]json.RawMessage) string {
 	if desc := getString(f, "description"); desc != "" {
-		return truncate(desc, 50)
+		return Truncate(desc, 50)
 	}
 	if cmd := getString(f, "command"); cmd != "" {
-		return truncate(cmd, 50)
+		return Truncate(cmd, 50)
 	}
 	return "Bash"
 }
@@ -131,7 +131,7 @@ func summaryGrep(f map[string]json.RawMessage) string {
 	if pattern == "" {
 		return "Grep"
 	}
-	patStr := `"` + truncate(pattern, 30) + `"`
+	patStr := `"` + Truncate(pattern, 30) + `"`
 
 	if glob := getString(f, "glob"); glob != "" {
 		return patStr + " in " + glob
@@ -147,7 +147,7 @@ func summaryGlob(f map[string]json.RawMessage) string {
 	if pattern == "" {
 		return "Glob"
 	}
-	patStr := `"` + truncate(pattern, 30) + `"`
+	patStr := `"` + Truncate(pattern, 30) + `"`
 
 	if p := getString(f, "path"); p != "" {
 		return patStr + " in " + filepath.Base(p)
@@ -167,7 +167,7 @@ func summaryTask(f map[string]json.RawMessage) string {
 		typePrefix = subType + " - "
 	}
 	if desc != "" {
-		return typePrefix + truncate(desc, 40)
+		return typePrefix + Truncate(desc, 40)
 	}
 	if subType != "" {
 		return subType
@@ -193,9 +193,9 @@ func summaryWebFetch(f map[string]json.RawMessage) string {
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Host == "" {
-		return truncate(rawURL, 50)
+		return Truncate(rawURL, 50)
 	}
-	return truncate(u.Hostname()+u.Path, 50)
+	return Truncate(u.Hostname()+u.Path, 50)
 }
 
 func summaryWebSearch(f map[string]json.RawMessage) string {
@@ -203,7 +203,7 @@ func summaryWebSearch(f map[string]json.RawMessage) string {
 	if q == "" {
 		return "WebSearch"
 	}
-	return `"` + truncate(q, 40) + `"`
+	return `"` + Truncate(q, 40) + `"`
 }
 
 func summaryTodoWrite(f map[string]json.RawMessage) string {
@@ -236,7 +236,7 @@ func summaryNotebookEdit(f map[string]json.RawMessage) string {
 
 func summaryTaskCreate(f map[string]json.RawMessage) string {
 	if subj := getString(f, "subject"); subj != "" {
-		return truncate(subj, 50)
+		return Truncate(subj, 50)
 	}
 	return "Create task"
 }
@@ -270,10 +270,10 @@ func summarySendMessage(f map[string]json.RawMessage) string {
 		return "Shutdown response"
 	}
 	if msgType == "broadcast" {
-		return "Broadcast: " + truncate(summary, 30)
+		return "Broadcast: " + Truncate(summary, 30)
 	}
 	if recipient != "" {
-		return "To " + recipient + ": " + truncate(summary, 30)
+		return "To " + recipient + ": " + Truncate(summary, 30)
 	}
 	return "Send message"
 }
@@ -286,7 +286,7 @@ func summaryDefault(name string, f map[string]json.RawMessage) string {
 	// Try common parameter names in order.
 	for _, key := range []string{"name", "path", "file", "query", "command"} {
 		if v := getString(f, key); v != "" {
-			return truncate(v, 50)
+			return Truncate(v, 50)
 		}
 	}
 
@@ -294,7 +294,7 @@ func summaryDefault(name string, f map[string]json.RawMessage) string {
 	for _, raw := range f {
 		var s string
 		if err := json.Unmarshal(raw, &s); err == nil && s != "" {
-			return truncate(s, 40)
+			return Truncate(s, 40)
 		}
 	}
 	return name
@@ -328,12 +328,14 @@ func getNumber(fields map[string]json.RawMessage, key string) int {
 	return int(n)
 }
 
-// truncate shortens a string to maxLen characters, appending "..." if truncated.
+// Truncate shortens a string to maxLen runes, appending an ellipsis if truncated.
+// The result is exactly maxLen runes when truncation occurs.
 // Collapses newlines to spaces since summaries are single-line display strings.
-func truncate(s string, maxLen int) string {
+func Truncate(s string, maxLen int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return string(runes[:maxLen-1]) + "\u2026"
 }

@@ -14,46 +14,16 @@ type SessionInfo struct {
 	Path         string
 	SessionID    string
 	ModTime      time.Time
-	Size         int64
 	FirstMessage string // first user message text, truncated
 	MessageCount int    // number of classified messages
 }
 
 // ReadSession reads a JSONL session file and returns the fully processed chunk list.
-// This is the only function in the package that performs IO.
 func ReadSession(path string) ([]Chunk, error) {
-	f, err := os.Open(path)
+	msgs, _, err := ReadSessionIncremental(path, 0)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-
-	var msgs []ClassifiedMsg
-
-	scanner := bufio.NewScanner(f)
-	// Default token size is 64KB. Session files can have very long lines
-	// (tool outputs, base64 images), so bump to 4MB.
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		entry, ok := ParseEntry(line)
-		if !ok {
-			continue
-		}
-		msg, ok := Classify(entry)
-		if !ok {
-			continue
-		}
-		msgs = append(msgs, msg)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
 	return BuildChunks(msgs), nil
 }
 
@@ -225,7 +195,6 @@ func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 			Path:         path,
 			SessionID:    strings.TrimSuffix(name, ".jsonl"),
 			ModTime:      info.ModTime(),
-			Size:         info.Size(),
 			FirstMessage: firstMsg,
 			MessageCount: msgCount,
 		})

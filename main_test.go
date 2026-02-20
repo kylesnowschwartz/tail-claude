@@ -89,14 +89,14 @@ func TestChunksToMessages(t *testing.T) {
 			UserText:  "Hello",
 		},
 		{
-			Type:       parser.AIChunk,
-			Timestamp:  ts.Add(1 * time.Second),
-			Model:      "claude-opus-4-6",
-			Text:       "Response here",
-			Thinking:   2,
-			ToolCalls:  []parser.ToolCall{{ID: "t1", Name: "Bash"}, {ID: "t2", Name: "Read"}},
-			Usage:      parser.Usage{InputTokens: 100, OutputTokens: 50},
-			DurationMs: 3500,
+			Type:          parser.AIChunk,
+			Timestamp:     ts.Add(1 * time.Second),
+			Model:         "claude-opus-4-6",
+			Text:          "Response here",
+			ThinkingCount: 2,
+			ToolCalls:     []parser.ToolCall{{ID: "t1", Name: "Bash"}, {ID: "t2", Name: "Read"}},
+			Usage:         parser.Usage{InputTokens: 100, OutputTokens: 50},
+			DurationMs:    3500,
 		},
 		{
 			Type:      parser.SystemChunk,
@@ -125,11 +125,11 @@ func TestChunksToMessages(t *testing.T) {
 	if msgs[1].model != "opus4.6" {
 		t.Errorf("msgs[1].model = %q, want %q", msgs[1].model, "opus4.6")
 	}
-	if msgs[1].thinking != 2 {
-		t.Errorf("msgs[1].thinking = %d, want 2", msgs[1].thinking)
+	if msgs[1].thinkingCount != 2 {
+		t.Errorf("msgs[1].thinkingCount = %d, want 2", msgs[1].thinkingCount)
 	}
-	if msgs[1].toolCalls != 2 {
-		t.Errorf("msgs[1].toolCalls = %d, want 2", msgs[1].toolCalls)
+	if msgs[1].toolCallCount != 2 {
+		t.Errorf("msgs[1].toolCallCount = %d, want 2", msgs[1].toolCallCount)
 	}
 	if msgs[1].tokensRaw != 150 {
 		t.Errorf("msgs[1].tokensRaw = %d, want 150", msgs[1].tokensRaw)
@@ -162,8 +162,8 @@ func TestChunksToMessages_EmptyToolCalls(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("len(msgs) = %d, want 1", len(msgs))
 	}
-	if msgs[0].toolCalls != 0 {
-		t.Errorf("toolCalls = %d, want 0 for nil ToolCalls slice", msgs[0].toolCalls)
+	if msgs[0].toolCallCount != 0 {
+		t.Errorf("toolCalls = %d, want 0 for nil ToolCalls slice", msgs[0].toolCallCount)
 	}
 }
 

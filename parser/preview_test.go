@@ -35,13 +35,6 @@ func metaUserEntry(uuid, ts, content string) string {
 	)
 }
 
-func sidechainUserEntry(uuid, ts, content string) string {
-	return fmt.Sprintf(
-		`{"uuid":%q,"type":"user","timestamp":%q,"isSidechain":true,"isMeta":false,"message":{"role":"user","content":%q}}`,
-		uuid, ts, content,
-	)
-}
-
 func assistantEntry(uuid, ts, text string) string {
 	return fmt.Sprintf(
 		`{"uuid":%q,"type":"assistant","timestamp":%q,"isSidechain":false,"isMeta":false,"message":{"role":"assistant","content":[{"type":"text","text":%q}],"model":"claude-opus-4-6","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}}`,

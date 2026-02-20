@@ -41,10 +41,6 @@ func withStopReason(r string) func(*parser.Entry) {
 	}
 }
 
-func withRole(r string) func(*parser.Entry) {
-	return func(e *parser.Entry) { e.Message.Role = r }
-}
-
 // --- Classify tests ---
 
 func TestClassify_UserMessage(t *testing.T) {
@@ -98,8 +94,8 @@ func TestClassify_AssistantMessage(t *testing.T) {
 	if ai.Text != "Here is my answer." {
 		t.Errorf("Text = %q, want %q", ai.Text, "Here is my answer.")
 	}
-	if ai.Thinking != 1 {
-		t.Errorf("Thinking = %d, want 1", ai.Thinking)
+	if ai.ThinkingCount != 1 {
+		t.Errorf("Thinking = %d, want 1", ai.ThinkingCount)
 	}
 	if len(ai.ToolCalls) != 2 {
 		t.Errorf("len(ToolCalls) = %d, want 2", len(ai.ToolCalls))
@@ -255,29 +251,6 @@ func TestParseTimestamp_Invalid(t *testing.T) {
 	}
 }
 
-// --- detectSlash tests ---
-
-func TestDetectSlash_WithCommandTag(t *testing.T) {
-	content := `<command-name>/model</command-name><command-args>opus</command-args>`
-	isSlash, name := parser.DetectSlash(content)
-	if !isSlash {
-		t.Fatal("expected slash command to be detected")
-	}
-	if name != "model" {
-		t.Errorf("name = %q, want %q", name, "model")
-	}
-}
-
-func TestDetectSlash_WithoutCommandTag(t *testing.T) {
-	isSlash, name := parser.DetectSlash("Just a regular message")
-	if isSlash {
-		t.Fatal("expected no slash command")
-	}
-	if name != "" {
-		t.Errorf("name = %q, want empty", name)
-	}
-}
-
 // --- ContentBlock tests ---
 
 func TestClassify_AssistantBlocks_ThinkingTextToolUse(t *testing.T) {
@@ -343,8 +316,8 @@ func TestClassify_AssistantBlocks_ThinkingTextCaptured(t *testing.T) {
 	ai := msg.(parser.AIMsg)
 
 	// Thinking count still correct for backward compat
-	if ai.Thinking != 2 {
-		t.Errorf("Thinking count = %d, want 2", ai.Thinking)
+	if ai.ThinkingCount != 2 {
+		t.Errorf("Thinking count = %d, want 2", ai.ThinkingCount)
 	}
 
 	// But blocks capture the actual text
@@ -423,8 +396,8 @@ func TestClassify_AssistantBlocks_BackwardCompat(t *testing.T) {
 	if ai.Text != "answer" {
 		t.Errorf("Text = %q, want 'answer'", ai.Text)
 	}
-	if ai.Thinking != 1 {
-		t.Errorf("Thinking = %d, want 1", ai.Thinking)
+	if ai.ThinkingCount != 1 {
+		t.Errorf("Thinking = %d, want 1", ai.ThinkingCount)
 	}
 	if len(ai.ToolCalls) != 1 || ai.ToolCalls[0].Name != "Read" {
 		t.Errorf("ToolCalls = %v, want [{t1 Read}]", ai.ToolCalls)

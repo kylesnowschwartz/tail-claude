@@ -107,8 +107,8 @@ func TestReadSession_NoiseFiltered(t *testing.T) {
 
 	// The AI chunk should have thinking and tool calls from the assistant message.
 	ai := chunks[1]
-	if ai.Thinking != 1 {
-		t.Errorf("AI Thinking = %d, want 1", ai.Thinking)
+	if ai.ThinkingCount != 1 {
+		t.Errorf("AI Thinking = %d, want 1", ai.ThinkingCount)
 	}
 	if len(ai.ToolCalls) != 1 {
 		t.Errorf("AI ToolCalls = %d, want 1", len(ai.ToolCalls))

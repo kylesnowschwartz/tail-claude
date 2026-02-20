@@ -53,20 +53,20 @@ func TestBuildChunks_ConsecutiveAIMerged(t *testing.T) {
 	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 	msgs := []parser.ClassifiedMsg{
 		parser.AIMsg{
-			Timestamp: t0,
-			Text:      "First response",
-			Model:     "claude-opus-4-6",
-			Thinking:  1,
-			ToolCalls: []parser.ToolCall{{ID: "t1", Name: "Bash"}},
-			Usage:     parser.Usage{InputTokens: 100, OutputTokens: 50},
+			Timestamp:     t0,
+			Text:          "First response",
+			Model:         "claude-opus-4-6",
+			ThinkingCount: 1,
+			ToolCalls:     []parser.ToolCall{{ID: "t1", Name: "Bash"}},
+			Usage:         parser.Usage{InputTokens: 100, OutputTokens: 50},
 		},
 		parser.AIMsg{
-			Timestamp: t0.Add(3 * time.Second),
-			Text:      "Continued response",
-			IsMeta:    true,
-			Thinking:  0,
-			ToolCalls: []parser.ToolCall{{ID: "t2", Name: "Read"}},
-			Usage:     parser.Usage{InputTokens: 200, OutputTokens: 75},
+			Timestamp:     t0.Add(3 * time.Second),
+			Text:          "Continued response",
+			IsMeta:        true,
+			ThinkingCount: 0,
+			ToolCalls:     []parser.ToolCall{{ID: "t2", Name: "Read"}},
+			Usage:         parser.Usage{InputTokens: 200, OutputTokens: 75},
 		},
 	}
 	chunks := parser.BuildChunks(msgs)
@@ -81,8 +81,8 @@ func TestBuildChunks_ConsecutiveAIMerged(t *testing.T) {
 	if c.Text != "First response\nContinued response" {
 		t.Errorf("Text = %q, want merged text", c.Text)
 	}
-	if c.Thinking != 1 {
-		t.Errorf("Thinking = %d, want 1", c.Thinking)
+	if c.ThinkingCount != 1 {
+		t.Errorf("Thinking = %d, want 1", c.ThinkingCount)
 	}
 	if len(c.ToolCalls) != 2 {
 		t.Errorf("len(ToolCalls) = %d, want 2", len(c.ToolCalls))
@@ -139,11 +139,11 @@ func TestBuildChunks_Items_ThinkingTextToolUse(t *testing.T) {
 	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 	msgs := []parser.ClassifiedMsg{
 		parser.AIMsg{
-			Timestamp: t0,
-			Model:     "claude-opus-4-6",
-			Text:      "Here is my answer.",
-			Thinking:  1,
-			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Read"}},
+			Timestamp:     t0,
+			Model:         "claude-opus-4-6",
+			Text:          "Here is my answer.",
+			ThinkingCount: 1,
+			ToolCalls:     []parser.ToolCall{{ID: "call_1", Name: "Read"}},
 			Blocks: []parser.ContentBlock{
 				{Type: "thinking", Text: "Let me think..."},
 				{Type: "text", Text: "Here is my answer."},
@@ -399,13 +399,13 @@ func TestBuildChunks_Items_FlatFieldsStillPopulated(t *testing.T) {
 	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 	msgs := []parser.ClassifiedMsg{
 		parser.AIMsg{
-			Timestamp:  t0,
-			Model:      "claude-opus-4-6",
-			Text:       "answer",
-			Thinking:   1,
-			ToolCalls:  []parser.ToolCall{{ID: "c1", Name: "Read"}},
-			StopReason: "end_turn",
-			Usage:      parser.Usage{InputTokens: 100, OutputTokens: 50},
+			Timestamp:     t0,
+			Model:         "claude-opus-4-6",
+			Text:          "answer",
+			ThinkingCount: 1,
+			ToolCalls:     []parser.ToolCall{{ID: "c1", Name: "Read"}},
+			StopReason:    "end_turn",
+			Usage:         parser.Usage{InputTokens: 100, OutputTokens: 50},
 			Blocks: []parser.ContentBlock{
 				{Type: "thinking", Text: "hmm"},
 				{Type: "text", Text: "answer"},
@@ -420,8 +420,8 @@ func TestBuildChunks_Items_FlatFieldsStillPopulated(t *testing.T) {
 	if c.Text != "answer" {
 		t.Errorf("Text = %q", c.Text)
 	}
-	if c.Thinking != 1 {
-		t.Errorf("Thinking = %d", c.Thinking)
+	if c.ThinkingCount != 1 {
+		t.Errorf("Thinking = %d", c.ThinkingCount)
 	}
 	if len(c.ToolCalls) != 1 {
 		t.Errorf("len(ToolCalls) = %d", len(c.ToolCalls))

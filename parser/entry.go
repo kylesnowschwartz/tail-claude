@@ -5,12 +5,11 @@ import "encoding/json"
 // Entry represents a raw JSONL line from a Claude Code session file.
 // Fields map directly to the on-disk format at ~/.claude/projects/{project}/{session}.jsonl.
 type Entry struct {
-	Type        string  `json:"type"`
-	UUID        string  `json:"uuid"`
-	ParentUUID  *string `json:"parentUuid"`
-	Timestamp   string  `json:"timestamp"`
-	IsSidechain bool    `json:"isSidechain"`
-	IsMeta      bool    `json:"isMeta"`
+	Type        string `json:"type"`
+	UUID        string `json:"uuid"`
+	Timestamp   string `json:"timestamp"`
+	IsSidechain bool   `json:"isSidechain"`
+	IsMeta      bool   `json:"isMeta"`
 	Message     struct {
 		Role       string          `json:"role"`
 		Content    json.RawMessage `json:"content"`
@@ -22,9 +21,6 @@ type Entry struct {
 			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
-		// Content blocks when content is an array (assistant messages).
-		// We also parse these in extractors; the raw Content field covers both string and array forms.
-		ID string `json:"id"`
 	} `json:"message"`
 }
 

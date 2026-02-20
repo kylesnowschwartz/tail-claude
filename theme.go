@@ -15,7 +15,6 @@ var (
 	ColorTextSecondary = lipgloss.AdaptiveColor{Light: "8", Dark: "245"}   // ANSI dark gray / gray
 	ColorTextDim       = lipgloss.AdaptiveColor{Light: "245", Dark: "243"} // medium gray / gray
 	ColorTextMuted     = lipgloss.AdaptiveColor{Light: "249", Dark: "240"} // light gray / dark gray
-	ColorTextKeyHint   = lipgloss.AdaptiveColor{Light: "0", Dark: "250"}   // black / light gray
 )
 
 // Accents
@@ -26,16 +25,9 @@ var (
 	ColorInfo    = lipgloss.AdaptiveColor{Light: "4", Dark: "69"}
 )
 
-// Phase badge
-var (
-	ColorPhaseFg = lipgloss.AdaptiveColor{Light: "5", Dark: "212"}
-	ColorPhaseBg = lipgloss.AdaptiveColor{Light: "13", Dark: "53"}
-)
-
 // Surfaces
 var (
-	ColorBorder      = lipgloss.AdaptiveColor{Light: "250", Dark: "60"}  // subtle gray / muted blue
-	ColorStatusBarBg = lipgloss.AdaptiveColor{Light: "254", Dark: "236"} // very light gray / dark gray
+	ColorBorder = lipgloss.AdaptiveColor{Light: "250", Dark: "60"} // subtle gray / muted blue
 )
 
 // Live badge

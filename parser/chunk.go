@@ -46,19 +46,17 @@ type Chunk struct {
 	Timestamp time.Time
 
 	// User chunk fields.
-	UserText  string
-	IsSlash   bool
-	SlashName string
+	UserText string
 
 	// AI chunk fields.
-	Model      string
-	Text       string
-	Thinking   int
-	ToolCalls  []ToolCall
-	Items      []DisplayItem // structured detail, nil until populated
-	Usage      Usage
-	StopReason string
-	DurationMs int64 // first to last message timestamp in chunk
+	Model         string
+	Text          string
+	ThinkingCount int
+	ToolCalls     []ToolCall
+	Items         []DisplayItem // structured detail, nil until populated
+	Usage         Usage
+	StopReason    string
+	DurationMs    int64 // first to last message timestamp in chunk
 
 	// System chunk fields.
 	Output string
@@ -87,8 +85,6 @@ func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 				Type:      UserChunk,
 				Timestamp: m.Timestamp,
 				UserText:  m.Text,
-				IsSlash:   m.IsSlash,
-				SlashName: m.SlashName,
 			})
 		case SystemMsg:
 			flush()
@@ -134,7 +130,7 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 		if m.Text != "" {
 			texts = append(texts, m.Text)
 		}
-		thinking += m.Thinking
+		thinking += m.ThinkingCount
 		toolCalls = append(toolCalls, m.ToolCalls...)
 		usage.InputTokens += m.Usage.InputTokens
 		usage.OutputTokens += m.Usage.OutputTokens
@@ -237,15 +233,15 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 	}
 
 	return Chunk{
-		Type:       AIChunk,
-		Timestamp:  ts,
-		Model:      model,
-		Text:       strings.Join(texts, "\n"),
-		Thinking:   thinking,
-		ToolCalls:  toolCalls,
-		Items:      finalItems,
-		Usage:      usage,
-		StopReason: stop,
-		DurationMs: dur,
+		Type:          AIChunk,
+		Timestamp:     ts,
+		Model:         model,
+		Text:          strings.Join(texts, "\n"),
+		ThinkingCount: thinking,
+		ToolCalls:     toolCalls,
+		Items:         finalItems,
+		Usage:         usage,
+		StopReason:    stop,
+		DurationMs:    dur,
 	}
 }

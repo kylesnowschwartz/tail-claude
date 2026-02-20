@@ -46,20 +46,16 @@ type displayItem struct {
 }
 
 type message struct {
-	role       string
-	model      string
-	content    string
-	thinking   int
-	toolCalls  int
-	messages   int
-	contextD   int
-	tokens     string
-	tokensRaw  int
-	phase      string
-	duration   string
-	durationMs int64
-	timestamp  string
-	items      []displayItem
+	role          string
+	model         string
+	content       string
+	thinkingCount int
+	toolCallCount int
+	messages      int
+	tokensRaw     int
+	durationMs    int64
+	timestamp     string
+	items         []displayItem
 }
 
 type model struct {
@@ -148,16 +144,16 @@ func chunksToMessages(chunks []parser.Chunk) []message {
 			})
 		case parser.AIChunk:
 			msgs = append(msgs, message{
-				role:       RoleClaude,
-				model:      shortModel(c.Model),
-				content:    c.Text,
-				thinking:   c.Thinking,
-				toolCalls:  len(c.ToolCalls),
-				messages:   countOutputItems(c.Items),
-				tokensRaw:  c.Usage.TotalTokens(),
-				durationMs: c.DurationMs,
-				timestamp:  formatTime(c.Timestamp),
-				items:      convertDisplayItems(c.Items),
+				role:          RoleClaude,
+				model:         shortModel(c.Model),
+				content:       c.Text,
+				thinkingCount: c.ThinkingCount,
+				toolCallCount: len(c.ToolCalls),
+				messages:      countOutputItems(c.Items),
+				tokensRaw:     c.Usage.TotalTokens(),
+				durationMs:    c.DurationMs,
+				timestamp:     formatTime(c.Timestamp),
+				items:         convertDisplayItems(c.Items),
 			})
 		case parser.SystemChunk:
 			msgs = append(msgs, message{
@@ -251,50 +247,6 @@ func initialModel(msgs []message, hasDarkBg bool) model {
 		cursor:         0,
 		detailExpanded: make(map[int]bool),
 		md:             newMdRenderer(hasDarkBg),
-	}
-}
-
-func sampleMessages() []message {
-	return []message{
-		{
-			role:      RoleClaude,
-			model:     "opus4.6",
-			content:   "Let me first smoke-test the Claude CLI to understand the exact message flow.",
-			thinking:  1,
-			toolCalls: 7,
-			messages:  1,
-			contextD:  3,
-			tokens:    "100.3k",
-			phase:     "Phase 1/3",
-			duration:  "1m 11s",
-			timestamp: "5:59:25 PM",
-		},
-		{
-			role:      RoleUser,
-			content:   "Hm this isn't working. Can you do a simple `claude -p \"hello\"`?",
-			timestamp: "6:00:55 PM",
-		},
-		{
-			role:      RoleClaude,
-			model:     "opus4.6",
-			content:   "That returned but with no visible output (just system noise from hooks). Let me check if the env unset is actually working:\n\nI'll try running it with verbose output to see what's happening under the hood. The issue might be that the CLAUDE_CODE_SSE_PORT env var is still set from a parent process.",
-			toolCalls: 2,
-			contextD:  2,
-			tokens:    "100.9k",
-			phase:     "Phase 1/3",
-			duration:  "35.8s",
-			timestamp: "6:01:18 PM",
-		},
-		{
-			role:      RoleUser,
-			content:   "/exit",
-			timestamp: "6:01:41 PM",
-		},
-		{
-			role:      RoleSystem,
-			content:   "Goodbye!",
-			timestamp: "6:01:41 PM",
-		},
 	}
 }
 
@@ -598,8 +550,8 @@ func (m *model) computeLineOffsets() {
 		return
 	}
 	width := m.width
-	if width > 120 {
-		width = 120
+	if width > maxContentWidth {
+		width = maxContentWidth
 	}
 
 	m.lineOffsets = make([]int, len(m.messages))
@@ -664,36 +616,12 @@ func (m *model) clampListScroll() {
 	}
 }
 
-// computeDetailMaxScroll renders the detail content for the current cursor
-// position and caches the maximum scroll offset. Called when entering detail
-// view and on window resize so that updateDetail can clamp scroll without
-// needing to re-render.
-func (m *model) computeDetailMaxScroll() {
-	if m.cursor < 0 || m.cursor >= len(m.messages) || m.width == 0 || m.height == 0 {
-		m.detailMaxScroll = 0
-		return
-	}
-
-	msg := m.messages[m.cursor]
-	width := m.width
-	if width > 120 {
-		width = 120
-	}
-
-	// For AI messages with items, use the items view renderer.
+// renderDetailContent renders the full detail content for the current message.
+// Used by both computeDetailMaxScroll and viewDetail to avoid duplication.
+func (m model) renderDetailContent(msg message, width int) string {
+	// AI messages with items get the structured items view.
 	if msg.role == RoleClaude && len(msg.items) > 0 {
-		content := m.renderDetailItemsContent(msg, width)
-		content = strings.TrimRight(content, "\n")
-		totalLines := strings.Count(content, "\n") + 1
-		viewHeight := m.height - statusBarHeight
-		if viewHeight <= 0 {
-			viewHeight = 1
-		}
-		m.detailMaxScroll = totalLines - viewHeight
-		if m.detailMaxScroll < 0 {
-			m.detailMaxScroll = 0
-		}
-		return
+		return m.renderDetailItemsContent(msg, width)
 	}
 
 	var header, body string
@@ -713,11 +641,28 @@ func (m *model) computeDetailMaxScroll() {
 		body = lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.content)
 	}
 
-	content := header + "\n\n" + body
-	content = strings.TrimRight(content, "\n")
+	return header + "\n\n" + body
+}
 
+// computeDetailMaxScroll caches the maximum scroll offset for the detail view.
+// Called when entering detail view and on window resize.
+func (m *model) computeDetailMaxScroll() {
+	if m.cursor < 0 || m.cursor >= len(m.messages) || m.width == 0 || m.height == 0 {
+		m.detailMaxScroll = 0
+		return
+	}
+
+	msg := m.messages[m.cursor]
+	width := m.width
+	if width > maxContentWidth {
+		width = maxContentWidth
+	}
+
+	content := m.renderDetailContent(msg, width)
+	content = strings.TrimRight(content, "\n")
 	totalLines := strings.Count(content, "\n") + 1
-	viewHeight := m.height - 1 // reserve 1 line for status bar
+
+	viewHeight := m.height - statusBarHeight
 	if viewHeight <= 0 {
 		viewHeight = 1
 	}
@@ -740,8 +685,8 @@ func (m *model) ensureDetailCursorVisible() {
 	}
 
 	width := m.width
-	if width > 120 {
-		width = 120
+	if width > maxContentWidth {
+		width = maxContentWidth
 	}
 
 	// Count header lines (header + blank separator)
@@ -839,8 +784,8 @@ func (m model) View() string {
 // viewList renders the message list (main view).
 func (m model) viewList() string {
 	width := m.width
-	if width > 120 {
-		width = 120
+	if width > maxContentWidth {
+		width = maxContentWidth
 	}
 
 	var rendered []string
@@ -889,33 +834,11 @@ func (m model) viewDetail() string {
 
 	msg := m.messages[m.cursor]
 	width := m.width
-	if width > 120 {
-		width = 120
+	if width > maxContentWidth {
+		width = maxContentWidth
 	}
 
-	var content string
-
-	// AI messages with items get the structured items view.
-	if msg.role == RoleClaude && len(msg.items) > 0 {
-		content = m.renderDetailItemsContent(msg, width)
-	} else {
-		// Existing text-based rendering for user, system, and simple AI messages.
-		var header, body string
-		switch msg.role {
-		case RoleClaude:
-			header = m.renderDetailHeader(msg, width)
-			body = m.md.renderMarkdown(msg.content, width-4)
-		case RoleUser:
-			header = lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("You") +
-				"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
-			body = m.md.renderMarkdown(msg.content, width-4)
-		case RoleSystem:
-			header = lipgloss.NewStyle().Foreground(ColorTextSecondary).Render("System") +
-				"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
-			body = lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.content)
-		}
-		content = header + "\n\n" + body
-	}
+	content := m.renderDetailContent(msg, width)
 
 	// Strip trailing newlines that lipgloss may add -- they create phantom blank
 	// lines when we split on \n, wasting a viewport line and pushing the status
@@ -1065,16 +988,8 @@ func (m model) renderDetailItemRow(item displayItem, index int, width int) strin
 	}
 	rightSide := strings.Join(rightParts, "  ")
 
-	// Build the row: cursor + indicator + " " + name + summary + gap + right
 	left := cursor + indicator + " " + nameRendered + " " + summaryRendered
-	leftWidth := lipgloss.Width(left)
-	rightWidth := lipgloss.Width(rightSide)
-	gap := width - leftWidth - rightWidth
-	if gap < 2 {
-		gap = 2
-	}
-
-	return left + strings.Repeat(" ", gap) + rightSide
+	return spaceBetween(left, rightSide, width)
 }
 
 // renderDetailItemExpanded renders the expanded content for a detail item.
@@ -1146,22 +1061,23 @@ func indentBlock(text string, indent string) string {
 }
 
 // renderDetailHeader renders metadata for the detail view header.
-// Matches the list view header layout for visual consistency.
-func (m model) renderDetailHeader(msg message, width int) string {
+// An optional leftSuffix is appended after the stats (used for the chevron
+// in list view). Matches the list view header layout for visual consistency.
+func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) string {
 	icon := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true).Render(IconClaude)
 	modelName := lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("Claude")
 	modelVer := lipgloss.NewStyle().Foreground(modelColor(msg.model)).Render(msg.model)
 
 	var statParts []string
-	if msg.thinking > 0 {
-		statParts = append(statParts, fmt.Sprintf("%d thinking", msg.thinking))
+	if msg.thinkingCount > 0 {
+		statParts = append(statParts, fmt.Sprintf("%d thinking", msg.thinkingCount))
 	}
-	if msg.toolCalls > 0 {
+	if msg.toolCallCount > 0 {
 		tcLabel := "tool calls"
-		if msg.toolCalls == 1 {
+		if msg.toolCallCount == 1 {
 			tcLabel = "tool call"
 		}
-		statParts = append(statParts, fmt.Sprintf("%d %s", msg.toolCalls, tcLabel))
+		statParts = append(statParts, fmt.Sprintf("%d %s", msg.toolCallCount, tcLabel))
 	}
 	if msg.messages > 0 {
 		label := "messages"
@@ -1178,50 +1094,25 @@ func (m model) renderDetailHeader(msg message, width int) string {
 	}
 
 	left := icon + " " + modelName + " " + modelVer + stats
+	for _, s := range leftSuffix {
+		left += " " + s
+	}
 
 	// Right-side metadata
 	var rightParts []string
 
-	if msg.contextD > 0 {
-		rightParts = append(rightParts, lipgloss.NewStyle().
-			Foreground(ColorAccent).
-			Background(ColorBadgeBg).
-			Padding(0, 1).
-			Render(fmt.Sprintf("Context +%d", msg.contextD)))
-	}
-
-	tokenStr := ""
 	if msg.tokensRaw > 0 {
-		tokenStr = formatTokens(msg.tokensRaw)
-	} else if msg.tokens != "" {
-		tokenStr = msg.tokens
-	}
-	if tokenStr != "" {
 		coin := lipgloss.NewStyle().Foreground(ColorTokenIcon).Render(IconToken)
 		rightParts = append(rightParts, coin+" "+lipgloss.NewStyle().
 			Foreground(ColorTextSecondary).
-			Render(tokenStr))
+			Render(formatTokens(msg.tokensRaw)))
 	}
 
-	if msg.phase != "" {
-		rightParts = append(rightParts, lipgloss.NewStyle().
-			Foreground(ColorPhaseFg).
-			Background(ColorPhaseBg).
-			Padding(0, 1).
-			Render(msg.phase))
-	}
-
-	durStr := ""
 	if msg.durationMs > 0 {
-		durStr = formatDuration(msg.durationMs)
-	} else if msg.duration != "" {
-		durStr = msg.duration
-	}
-	if durStr != "" {
 		clock := lipgloss.NewStyle().Foreground(ColorTextDim).Render(IconClock)
 		rightParts = append(rightParts, clock+" "+lipgloss.NewStyle().
 			Foreground(ColorTextSecondary).
-			Render(durStr))
+			Render(formatDuration(msg.durationMs)))
 	}
 
 	if msg.timestamp != "" {
@@ -1230,14 +1121,7 @@ func (m model) renderDetailHeader(msg message, width int) string {
 			Render(msg.timestamp))
 	}
 
-	right := strings.Join(rightParts, "  ")
-
-	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 2 {
-		gap = 2
-	}
-
-	return left + strings.Repeat(" ", gap) + right
+	return spaceBetween(left, strings.Join(rightParts, "  "), width)
 }
 
 // statusBarHeight is the number of rendered lines the status bar occupies.
@@ -1310,138 +1194,53 @@ func selectionIndicator(selected bool) string {
 	return "  "
 }
 
-// truncate cuts a string to maxLen and adds ellipsis
+// truncate delegates to parser.Truncate for consistent truncation behavior.
 func truncate(s string, maxLen int) string {
-	// Collapse newlines for the collapsed preview
-	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) > maxLen {
-		return s[:maxLen-1] + "…"
+	return parser.Truncate(s, maxLen)
+}
+
+// maxContentWidth is the maximum width for content rendering.
+const maxContentWidth = 120
+
+// contentWidth returns the inner width for card content, given a card width.
+// Subtracts border (2) + padding (4) and floors at 20.
+func contentWidth(cardWidth int) int {
+	w := cardWidth - 4
+	if w < 20 {
+		w = 20
 	}
-	return s
+	return w
+}
+
+// spaceBetween lays out left and right strings with gap-fill spacing to span width.
+func spaceBetween(left, right string, width int) string {
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 2 {
+		gap = 2
+	}
+	return left + strings.Repeat(" ", gap) + right
 }
 
 func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
 	sel := selectionIndicator(isSelected)
 	chev := chevron(isExpanded)
-	maxWidth := containerWidth - 6 // account for selection indicator + chevron + padding
+	maxWidth := containerWidth - 4 // selection indicator (2) + gutter (2)
 
-	// Header: icon + model + stats on left, metadata on right
-	icon := lipgloss.NewStyle().
-		Foreground(ColorInfo).
-		Bold(true).
-		Render(IconClaude)
+	// Delegate to renderDetailHeader with chevron appended after stats.
+	headerLine := sel + "  " + m.renderDetailHeader(msg, maxWidth, chev)
 
-	modelName := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorTextPrimary).
-		Render("Claude")
-
-	modelVersion := lipgloss.NewStyle().
-		Foreground(modelColor(msg.model)).
-		Render(msg.model)
-
-	// Activity summary: thinking, tool calls, messages
-	var statParts []string
-	if msg.thinking > 0 {
-		statParts = append(statParts, fmt.Sprintf("%d thinking", msg.thinking))
-	}
-	if msg.toolCalls > 0 {
-		tcLabel := "tool calls"
-		if msg.toolCalls == 1 {
-			tcLabel = "tool call"
-		}
-		statParts = append(statParts, fmt.Sprintf("%d %s", msg.toolCalls, tcLabel))
-	}
-	if msg.messages > 0 {
-		label := "messages"
-		if msg.messages == 1 {
-			label = "message"
-		}
-		statParts = append(statParts, fmt.Sprintf("%d %s", msg.messages, label))
-	}
-
-	stats := ""
-	if len(statParts) > 0 {
-		dot := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(" " + IconDot + " ")
-		stats = dot + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(strings.Join(statParts, ", "))
-	}
-
-	leftHeader := icon + " " + modelName + " " + modelVersion + stats + " " + chev
-
-	// Right-side metadata (conditional items, spaced apart)
-	var rightParts []string
-
-	if msg.contextD > 0 {
-		rightParts = append(rightParts, lipgloss.NewStyle().
-			Foreground(ColorAccent).
-			Background(ColorBadgeBg).
-			Padding(0, 1).
-			Render(fmt.Sprintf("Context +%d", msg.contextD)))
-	}
-
-	tokenStr := msg.tokens
-	if tokenStr == "" && msg.tokensRaw > 0 {
-		tokenStr = formatTokens(msg.tokensRaw)
-	}
-	if tokenStr != "" {
-		coin := lipgloss.NewStyle().Foreground(ColorTokenIcon).Render(IconToken)
-		rightParts = append(rightParts, coin+" "+lipgloss.NewStyle().
-			Foreground(ColorTextSecondary).
-			Render(tokenStr))
-	}
-
-	if msg.phase != "" {
-		rightParts = append(rightParts, lipgloss.NewStyle().
-			Foreground(ColorPhaseFg).
-			Background(ColorPhaseBg).
-			Padding(0, 1).
-			Render(msg.phase))
-	}
-
-	durStr := msg.duration
-	if durStr == "" && msg.durationMs > 0 {
-		durStr = formatDuration(msg.durationMs)
-	}
-	if durStr != "" {
-		clock := lipgloss.NewStyle().Foreground(ColorTextDim).Render(IconClock)
-		rightParts = append(rightParts, clock+" "+lipgloss.NewStyle().
-			Foreground(ColorTextSecondary).
-			Render(durStr))
-	}
-
-	if msg.timestamp != "" {
-		rightParts = append(rightParts, lipgloss.NewStyle().
-			Foreground(ColorTextDim).
-			Render(msg.timestamp))
-	}
-
-	rightHeader := strings.Join(rightParts, "  ")
-
-	// Lay out header on one line
-	rightLen := lipgloss.Width(rightHeader)
-	leftLen := lipgloss.Width(leftHeader)
-	gap := maxWidth - leftLen - rightLen
-	if gap < 2 {
-		gap = 2
-	}
-	headerLine := sel + "  " + leftHeader + strings.Repeat(" ", gap) + rightHeader
-
-	// Render the card body — truncate when collapsed
+	// Render the card body -- truncate when collapsed
 	content := msg.content
 	if !isExpanded {
 		lines := strings.Split(content, "\n")
 		if len(lines) > maxCollapsedLines {
 			content = strings.Join(lines[:maxCollapsedLines], "\n")
-			hint := fmt.Sprintf("… (%d lines hidden)", len(lines)-maxCollapsedLines)
+			hint := fmt.Sprintf("\u2026 (%d lines hidden)", len(lines)-maxCollapsedLines)
 			content += "\n" + hint
 		}
 	}
 
-	// Card padding: 2 each side = 4 cols (border is outside Width)
-	contentWidth := maxWidth - 4
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
+	contentWidth := contentWidth(maxWidth)
 	body := m.md.renderMarkdown(content, contentWidth)
 
 	cardBorderColor := ColorBorder
@@ -1599,7 +1398,7 @@ func main() {
 	}
 
 	if dumpMode {
-		width := 120
+		width := maxContentWidth
 		m := initialModel(result.messages, hasDarkBg)
 		m.width = width
 		m.height = 1_000_000

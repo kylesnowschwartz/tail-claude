@@ -132,7 +132,7 @@ func TestToolSummary_Bash(t *testing.T) {
 		{
 			name:  "long command truncated",
 			input: `{"command":"this is a very long command that should be truncated at fifty characters exactly here"}`,
-			want:  "this is a very long command that should be truncat...",
+			want:  "this is a very long command that should be trunca\u2026",
 		},
 		{
 			name:  "empty",
@@ -184,7 +184,7 @@ func TestToolSummary_Grep(t *testing.T) {
 		{
 			name:  "long pattern truncated",
 			input: `{"pattern":"this is a very long pattern that exceeds thirty chars"}`,
-			want:  `"this is a very long pattern th..."`,
+			want:  "\"this is a very long pattern t\u2026\"",
 		},
 	}
 	for _, tt := range tests {
@@ -493,14 +493,15 @@ func TestToolSummary_DefaultWithCommonFields(t *testing.T) {
 }
 
 func TestToolSummary_Truncation(t *testing.T) {
-	// Bash truncates at 50 chars
+	// Bash truncates at 50 runes (49 chars + ellipsis)
 	longCmd := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaXXX" // 53 chars
 	got := parser.ToolSummary("Bash", json.RawMessage(`{"command":"`+longCmd+`"}`))
-	if len(got) > 53 { // 50 + "..."
-		t.Errorf("truncation failed: len=%d, got %q", len(got), got)
+	if len([]rune(got)) > 50 {
+		t.Errorf("truncation failed: rune len=%d, got %q", len([]rune(got)), got)
 	}
-	if got != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..." {
-		t.Errorf("got %q", got)
+	want := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u2026"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
