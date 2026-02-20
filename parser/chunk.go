@@ -46,6 +46,7 @@ const (
 	UserChunk ChunkType = iota
 	AIChunk
 	SystemChunk
+	CompactChunk // context compression boundary
 )
 
 // Chunk is the output of the pipeline. Each chunk represents one visible unit
@@ -117,6 +118,13 @@ func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 					Text:   m.Text,
 					ToolID: m.TeammateID,
 				}},
+			})
+		case CompactMsg:
+			flush()
+			chunks = append(chunks, Chunk{
+				Type:      CompactChunk,
+				Timestamp: m.Timestamp,
+				Output:    m.Text,
 			})
 		}
 	}

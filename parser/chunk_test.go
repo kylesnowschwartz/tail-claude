@@ -698,3 +698,47 @@ func TestBuildChunks_TeammateMessageBeforeAI(t *testing.T) {
 		t.Errorf("Items[0].Type = %d, want ItemTeammateMessage", chunks[1].Items[0].Type)
 	}
 }
+
+// --- CompactChunk tests ---
+
+func TestBuildChunks_CompactMsgProducesCompactChunk(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.CompactMsg{
+			Timestamp: t0,
+			Text:      "Context compressed",
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+	if chunks[0].Type != parser.CompactChunk {
+		t.Errorf("Type = %d, want CompactChunk", chunks[0].Type)
+	}
+	if chunks[0].Output != "Context compressed" {
+		t.Errorf("Output = %q, want 'Context compressed'", chunks[0].Output)
+	}
+}
+
+func TestBuildChunks_CompactChunkFlushesAIBuffer(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{Timestamp: t0, Text: "First response", Model: "claude-opus-4-6"},
+		parser.CompactMsg{Timestamp: t0.Add(1 * time.Second), Text: "Summarized"},
+		parser.AIMsg{Timestamp: t0.Add(2 * time.Second), Text: "Second response", Model: "claude-opus-4-6"},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 3 {
+		t.Fatalf("len(chunks) = %d, want 3 (AI + compact + AI)", len(chunks))
+	}
+	if chunks[0].Type != parser.AIChunk {
+		t.Errorf("chunks[0].Type = %d, want AIChunk", chunks[0].Type)
+	}
+	if chunks[1].Type != parser.CompactChunk {
+		t.Errorf("chunks[1].Type = %d, want CompactChunk", chunks[1].Type)
+	}
+	if chunks[2].Type != parser.AIChunk {
+		t.Errorf("chunks[2].Type = %d, want AIChunk", chunks[2].Type)
+	}
+}

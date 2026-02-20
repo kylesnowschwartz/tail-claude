@@ -17,9 +17,10 @@ import (
 
 // Message roles
 const (
-	RoleClaude = "claude"
-	RoleUser   = "user"
-	RoleSystem = "system"
+	RoleClaude  = "claude"
+	RoleUser    = "user"
+	RoleSystem  = "system"
+	RoleCompact = "compact"
 )
 
 // View states
@@ -163,6 +164,12 @@ func chunksToMessages(chunks []parser.Chunk) []message {
 		case parser.SystemChunk:
 			msgs = append(msgs, message{
 				role:      RoleSystem,
+				content:   c.Output,
+				timestamp: formatTime(c.Timestamp),
+			})
+		case parser.CompactChunk:
+			msgs = append(msgs, message{
+				role:      RoleCompact,
 				content:   c.Output,
 				timestamp: formatTime(c.Timestamp),
 			})

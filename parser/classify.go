@@ -84,12 +84,21 @@ type TeammateMsg struct {
 
 func (TeammateMsg) classifiedMsg() {}
 
+// CompactMsg represents a context compression boundary (summary entries).
+// Displayed as a visual divider in the conversation timeline.
+type CompactMsg struct {
+	Timestamp time.Time
+	Text      string
+}
+
+func (CompactMsg) classifiedMsg() {}
+
 // --- Hard noise detection ---
 
 // noiseEntryTypes are entry types that never produce visible messages.
+// Note: "summary" is handled separately as CompactMsg, not noise.
 var noiseEntryTypes = map[string]bool{
 	"system":                true,
-	"summary":               true,
 	"file-history-snapshot": true,
 	"queue-operation":       true,
 	"progress":              true,
@@ -129,6 +138,15 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 	// 1. Hard noise: structural metadata types.
 	if noiseEntryTypes[e.Type] {
 		return nil, false
+	}
+
+	// Summary entries become CompactMsg (context compression boundary).
+	if e.Type == "summary" {
+		text := SanitizeContent(ExtractText(e.Message.Content))
+		return CompactMsg{
+			Timestamp: ts,
+			Text:      text,
+		}, true
 	}
 
 	// Hard noise: synthetic assistant messages.

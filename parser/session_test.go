@@ -82,7 +82,7 @@ func TestReadSession_NoiseFiltered(t *testing.T) {
 	// noise.jsonl has 11 lines total. After filtering:
 	// - u1 (user) -> UserChunk
 	// - n1 (system type) -> filtered
-	// - n2 (summary type) -> filtered
+	// - n2 (summary type) -> CompactChunk
 	// - a1 (assistant with thinking/tools) -> starts AI buffer
 	// - sc1 (sidechain) -> filtered
 	// - n3 (synthetic) -> filtered
@@ -91,22 +91,25 @@ func TestReadSession_NoiseFiltered(t *testing.T) {
 	// - n5 (empty stdout) -> filtered
 	// - n6 (interruption) -> filtered
 	// - u2 (user) -> flushes AI buffer -> UserChunk
-	// Result: UserChunk, AIChunk, UserChunk = 3 chunks
-	if len(chunks) != 3 {
-		t.Fatalf("len(chunks) = %d, want 3", len(chunks))
+	// Result: UserChunk, CompactChunk, AIChunk, UserChunk = 4 chunks
+	if len(chunks) != 4 {
+		t.Fatalf("len(chunks) = %d, want 4", len(chunks))
 	}
 	if chunks[0].Type != parser.UserChunk {
 		t.Errorf("chunks[0].Type = %d, want UserChunk", chunks[0].Type)
 	}
-	if chunks[1].Type != parser.AIChunk {
-		t.Errorf("chunks[1].Type = %d, want AIChunk", chunks[1].Type)
+	if chunks[1].Type != parser.CompactChunk {
+		t.Errorf("chunks[1].Type = %d, want CompactChunk", chunks[1].Type)
 	}
-	if chunks[2].Type != parser.UserChunk {
-		t.Errorf("chunks[2].Type = %d, want UserChunk", chunks[2].Type)
+	if chunks[2].Type != parser.AIChunk {
+		t.Errorf("chunks[2].Type = %d, want AIChunk", chunks[2].Type)
+	}
+	if chunks[3].Type != parser.UserChunk {
+		t.Errorf("chunks[3].Type = %d, want UserChunk", chunks[3].Type)
 	}
 
 	// The AI chunk should have thinking and tool calls from the assistant message.
-	ai := chunks[1]
+	ai := chunks[2]
 	if ai.ThinkingCount != 1 {
 		t.Errorf("AI Thinking = %d, want 1", ai.ThinkingCount)
 	}
