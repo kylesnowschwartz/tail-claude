@@ -22,6 +22,13 @@ type Entry struct {
 			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	} `json:"message"`
+
+	// Tool result metadata (present on isMeta user entries for tool results).
+	// ToolUseResult holds structured output from the tool execution (agentId,
+	// status, usage, etc.). SourceToolUseID links back to the originating
+	// tool_use block.
+	ToolUseResult   map[string]json.RawMessage `json:"toolUseResult"`
+	SourceToolUseID string                     `json:"sourceToolUseID"`
 }
 
 // ParseEntry parses a single JSONL line into an Entry.
