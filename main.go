@@ -502,6 +502,9 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailScroll = 0
 		}
 	case "G":
+		if hasItems {
+			m.detailCursor = len(m.messages[m.cursor].items) - 1
+		}
 		m.detailScroll = m.detailMaxScroll
 	case "g":
 		m.detailScroll = 0
