@@ -112,15 +112,15 @@ func (m model) viewPicker() string {
 	}
 
 	// Header
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("75"))
-	countStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+	countStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
 	header := titleStyle.Render("Sessions") + " " +
 		countStyle.Render(fmt.Sprintf("(%d)", len(m.pickerSessions)))
 	header += "\n"
 
 	// Error / empty states
 	if len(m.pickerSessions) == 0 {
-		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+		dim := lipgloss.NewStyle().Foreground(ColorTextDim)
 		return header + "\n" + dim.Render("No sessions found for this project.")
 	}
 
@@ -151,7 +151,7 @@ func (m model) viewPicker() string {
 		// Right side: message count + relative time
 		countStr := fmt.Sprintf("%d msgs", s.MessageCount)
 		timeStr := relativeTime(s.ModTime)
-		right := lipgloss.NewStyle().Foreground(lipgloss.Color("243")).
+		right := lipgloss.NewStyle().Foreground(ColorTextDim).
 			Render(countStr + "  " + timeStr)
 
 		rightWidth := lipgloss.Width(right)
@@ -165,9 +165,9 @@ func (m model) viewPicker() string {
 			preview = truncate(preview, previewMaxWidth)
 		}
 
-		previewStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+		previewStyle := lipgloss.NewStyle().Foreground(ColorTextPrimary)
 		if !isSelected {
-			previewStyle = previewStyle.Foreground(lipgloss.Color("245"))
+			previewStyle = previewStyle.Foreground(ColorTextSecondary)
 		}
 
 		left := sel + previewStyle.Render(preview)
