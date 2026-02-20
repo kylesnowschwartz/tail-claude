@@ -48,6 +48,19 @@ Each JSONL line is a JSON object with: `type`, `uuid`, `timestamp`, `isSidechain
 
 Content can be a JSON string (user messages) or JSON array of content blocks (assistant messages with text, thinking, tool_use blocks).
 
+### Session entry types
+
+Not all entries are conversation messages. Files may contain:
+- `type=user` / `type=assistant` -- conversation messages
+- `type=system` / `type=summary` -- noise, filtered by Classify
+- `type=file-history-snapshot` -- internal bookkeeping, no conversation content ("ghost sessions")
+- Teammate messages: `type=user` with `<teammate-message>` XML wrapper in content
+- Meta entries: `isMeta=true` on user entries marks tool results, classified as `AIMsg`
+
+### Preview extraction rule
+
+Process ALL `type=user` entries for session previews. Only skip command output and interruptions. Sanitize everything else. Commands are fallback. No isMeta/sidechain/teammate filtering.
+
 ## Development
 
 ```bash
