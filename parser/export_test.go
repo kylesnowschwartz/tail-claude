@@ -3,6 +3,7 @@ package parser
 // Exports for testing
 var ParseTimestamp = parseTimestamp
 var ScanSessionMetadataExport = scanSessionMetadata
+var ResolveGitRoot = resolveGitRoot
 
 // ScanSessionPreview wraps scanSessionMetadata to match the old (preview, turnCount)
 // signature used by external preview tests.

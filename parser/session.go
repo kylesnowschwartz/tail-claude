@@ -146,6 +146,9 @@ func DiscoverLatestSession() (string, error) {
 // to ~/.claude/projects/. Example:
 //
 //	/Users/kyle/Code/proj -> ~/.claude/projects/-Users-kyle-Code-proj
+//
+// If the CWD is inside a git worktree, resolves to the main working tree
+// root so we find sessions stored under the original project path.
 func CurrentProjectDir() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -156,9 +159,63 @@ func CurrentProjectDir() (string, error) {
 		return "", err
 	}
 
+	// If we're in a git worktree, the CWD differs from the main repo root.
+	// Claude stores sessions under the main repo path, so resolve it.
+	cwd = resolveGitRoot(cwd)
+
 	// Claude CLI encodes the path by replacing separator with "-".
 	encoded := strings.ReplaceAll(cwd, string(filepath.Separator), "-")
 	return filepath.Join(home, ".claude", "projects", encoded), nil
+}
+
+// resolveGitRoot returns the git toplevel for the given directory. If the
+// directory is inside a git worktree, it walks up to find the main working
+// tree root. Git worktrees have a .git *file* (not directory) containing
+// "gitdir: /path/to/main/.git/worktrees/<name>". We follow that chain to
+// find the real repo root whose path Claude uses for session storage.
+//
+// Falls back to the original path if anything fails (not a git repo, etc).
+func resolveGitRoot(dir string) string {
+	// Walk up looking for .git entry.
+	current := dir
+	for {
+		gitPath := filepath.Join(current, ".git")
+		info, err := os.Lstat(gitPath)
+		if err == nil {
+			if info.IsDir() {
+				// Normal git repo -- this directory is the root.
+				return current
+			}
+			// .git is a file -- this is a worktree (or submodule).
+			// Contents: "gitdir: /path/to/main/.git/worktrees/<name>"
+			data, err := os.ReadFile(gitPath)
+			if err != nil {
+				return dir
+			}
+			content := strings.TrimSpace(string(data))
+			if !strings.HasPrefix(content, "gitdir: ") {
+				return dir
+			}
+			gitdir := strings.TrimPrefix(content, "gitdir: ")
+			// gitdir points to something like /repo/.git/worktrees/foo
+			// The main repo's .git dir is two levels up from there.
+			mainGitDir := filepath.Clean(filepath.Join(gitdir, "..", ".."))
+			// The main repo root is the parent of .git.
+			mainRoot := filepath.Dir(mainGitDir)
+			// Sanity check: mainRoot/.git should be a directory.
+			if fi, err := os.Stat(filepath.Join(mainRoot, ".git")); err == nil && fi.IsDir() {
+				return mainRoot
+			}
+			return dir
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			// Hit filesystem root without finding .git.
+			return dir
+		}
+		current = parent
+	}
 }
 
 // DiscoverProjectSessions finds all session .jsonl files in a project directory,
