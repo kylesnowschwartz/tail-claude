@@ -51,4 +51,10 @@ var (
 // Token icon
 var (
 	ColorTokenIcon = lipgloss.AdaptiveColor{Light: "3", Dark: "178"} // gold/amber
+	ColorTokenHigh = lipgloss.AdaptiveColor{Light: "3", Dark: "208"} // amber/orange for >150k
+)
+
+// Ongoing indicator
+var (
+	ColorOngoing = lipgloss.AdaptiveColor{Light: "2", Dark: "76"} // green dot
 )

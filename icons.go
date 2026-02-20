@@ -18,4 +18,6 @@ const (
 	IconSelected  = "\u2502" // box drawing vertical
 	IconClock     = "\uF017" // nf-fa-clock_o
 	IconToken     = "\uE26B" // nf-fae-coins
+	IconLive      = "\u25CF" // filled circle (for ongoing indicator)
+	IconChat      = "\uF086" // nf-fa-comments (turn count badge)
 )

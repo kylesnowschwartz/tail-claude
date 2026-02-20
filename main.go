@@ -89,8 +89,10 @@ type model struct {
 
 	// Session picker state
 	pickerSessions []parser.SessionInfo
+	pickerItems    []pickerItem
 	pickerCursor   int
 	pickerScroll   int
+	pickerWatcher  *pickerWatcher
 }
 
 // loadResult holds everything needed to bootstrap the TUI and watcher.
@@ -297,9 +299,58 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pickerSessions = msg.sessions
-		m.pickerCursor = 0
+		m.pickerItems = rebuildPickerItems(msg.sessions)
 		m.pickerScroll = 0
 		m.view = viewPicker
+
+		// Set cursor to first session item (skip header).
+		m.pickerCursor = 0
+		for i, item := range m.pickerItems {
+			if item.typ == pickerItemSession {
+				m.pickerCursor = i
+				break
+			}
+		}
+
+		// Start picker directory watcher for live refresh.
+		var cmds []tea.Cmd
+		if m.pickerWatcher == nil {
+			projectDir, err := parser.CurrentProjectDir()
+			if err == nil {
+				pw := newPickerWatcher(projectDir)
+				go pw.run()
+				m.pickerWatcher = pw
+				cmds = append(cmds, waitForPickerRefresh(pw.sub))
+			}
+		}
+
+		return m, tea.Batch(cmds...)
+
+	case pickerRefreshMsg:
+		m.pickerSessions = msg.sessions
+		m.pickerItems = rebuildPickerItems(msg.sessions)
+
+		// Preserve cursor position by matching session ID.
+		oldSession := m.pickerSelectedSession()
+		if oldSession != nil {
+			for i, item := range m.pickerItems {
+				if item.typ == pickerItemSession && item.session.SessionID == oldSession.SessionID {
+					m.pickerCursor = i
+					break
+				}
+			}
+		}
+
+		// Clamp cursor.
+		if m.pickerCursor >= len(m.pickerItems) {
+			m.pickerCursorLast()
+		}
+		m.ensurePickerVisible()
+
+		// Re-subscribe for next refresh.
+		if m.pickerWatcher != nil {
+			return m, waitForPickerRefresh(m.pickerWatcher.sub)
+		}
 		return m, nil
 
 	case loadSessionMsg:

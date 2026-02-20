@@ -1,0 +1,2 @@
+{"uuid":"u1","type":"user","timestamp":"2025-01-15T10:00:00Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"Explain this code"}}
+{"uuid":"a1","type":"assistant","timestamp":"2025-01-15T10:00:05Z","isSidechain":false,"isMeta":false,"message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me analyze"},{"type":"text","text":"Here is my explanation of the code."}],"model":"claude-opus-4-6","stop_reason":"end_turn","usage":{"input_tokens":500,"output_tokens":200,"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}}
