@@ -149,11 +149,6 @@ func TestClassify_HardNoise(t *testing.T) {
 			content: json.RawMessage(`"system prompt"`),
 		},
 		{
-			name:    "summary type",
-			typ:     "summary",
-			content: json.RawMessage(`"conversation summary"`),
-		},
-		{
 			name:    "system-reminder wrapped",
 			typ:     "user",
 			content: json.RawMessage(`"<system-reminder>Remember this</system-reminder>"`),
@@ -496,4 +491,93 @@ func TestClassify_MetaUser_ToolResultWithArrayContent(t *testing.T) {
 	if ai.Blocks[0].Content == "" {
 		t.Error("Content should not be empty for array content")
 	}
+}
+
+// --- Teammate message classification tests ---
+
+func jsonStr(s string) json.RawMessage {
+	b, _ := json.Marshal(s)
+	return b
+}
+
+func TestClassify_TeammateMessageProducesTeammateMsg(t *testing.T) {
+	content := `<teammate-message teammate_id="researcher">Task #1 is done</teammate-message>`
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("teammate message should not be filtered")
+	}
+
+	tm, is := msg.(parser.TeammateMsg)
+	if !is {
+		t.Fatalf("got %T, want TeammateMsg", msg)
+	}
+	if tm.TeammateID != "researcher" {
+		t.Errorf("TeammateID = %q, want researcher", tm.TeammateID)
+	}
+	if tm.Text != "Task #1 is done" {
+		t.Errorf("Text = %q, want 'Task #1 is done'", tm.Text)
+	}
+}
+
+func TestClassify_TeammateMessageExtractsContent(t *testing.T) {
+	content := "<teammate-message teammate_id=\"lead\">You are working on task #1.\nPlease commit when done.</teammate-message>"
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("teammate message should not be filtered")
+	}
+
+	tm, is := msg.(parser.TeammateMsg)
+	if !is {
+		t.Fatalf("got %T, want TeammateMsg", msg)
+	}
+	if tm.TeammateID != "lead" {
+		t.Errorf("TeammateID = %q, want lead", tm.TeammateID)
+	}
+	if tm.Text == "" {
+		t.Error("Text should not be empty")
+	}
+}
+
+// --- CompactMsg classification tests ---
+
+func TestClassify_SummaryProducesCompactMsg(t *testing.T) {
+	e := makeEntry("summary", "s1", "2025-01-15T10:00:00Z",
+		json.RawMessage(`"conversation summary text"`))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("summary entry should be classified, not filtered")
+	}
+
+	cm, is := msg.(parser.CompactMsg)
+	if !is {
+		t.Fatalf("got %T, want CompactMsg", msg)
+	}
+	if cm.Text != "conversation summary text" {
+		t.Errorf("Text = %q, want 'conversation summary text'", cm.Text)
+	}
+	if cm.Timestamp.IsZero() {
+		t.Error("Timestamp should not be zero")
+	}
+}
+
+func TestClassify_SummaryEmptyContent(t *testing.T) {
+	e := makeEntry("summary", "s1", "2025-01-15T10:00:00Z",
+		json.RawMessage(`""`))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("summary entry should be classified even with empty content")
+	}
+
+	cm, is := msg.(parser.CompactMsg)
+	if !is {
+		t.Fatalf("got %T, want CompactMsg", msg)
+	}
+	// Empty content is fine -- the TUI fills in a default
+	_ = cm
 }

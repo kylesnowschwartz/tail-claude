@@ -17,9 +17,10 @@ import (
 
 // Message roles
 const (
-	RoleClaude = "claude"
-	RoleUser   = "user"
-	RoleSystem = "system"
+	RoleClaude  = "claude"
+	RoleUser    = "user"
+	RoleSystem  = "system"
+	RoleCompact = "compact"
 )
 
 // View states
@@ -34,15 +35,18 @@ const (
 // displayItem is a structured element within an AI message's detail view.
 // Mirrors parser.DisplayItem but with pre-formatted fields for rendering.
 type displayItem struct {
-	itemType    parser.DisplayItemType
-	text        string
-	toolName    string
-	toolSummary string
-	toolInput   string // formatted JSON for display
-	toolResult  string
-	toolError   bool
-	durationMs  int64
-	tokenCount  int
+	itemType     parser.DisplayItemType
+	text         string
+	toolName     string
+	toolSummary  string
+	toolInput    string // formatted JSON for display
+	toolResult   string
+	toolError    bool
+	durationMs   int64
+	tokenCount   int
+	subagentType string
+	subagentDesc string
+	teammateID   string
 }
 
 type message struct {
@@ -163,6 +167,12 @@ func chunksToMessages(chunks []parser.Chunk) []message {
 				content:   c.Output,
 				timestamp: formatTime(c.Timestamp),
 			})
+		case parser.CompactChunk:
+			msgs = append(msgs, message{
+				role:      RoleCompact,
+				content:   c.Output,
+				timestamp: formatTime(c.Timestamp),
+			})
 		}
 	}
 	return msgs
@@ -185,15 +195,18 @@ func convertDisplayItems(items []parser.DisplayItem) []displayItem {
 			}
 		}
 		out[i] = displayItem{
-			itemType:    it.Type,
-			text:        it.Text,
-			toolName:    it.ToolName,
-			toolSummary: it.ToolSummary,
-			toolInput:   input,
-			toolResult:  it.ToolResult,
-			toolError:   it.ToolError,
-			durationMs:  it.DurationMs,
-			tokenCount:  it.TokenCount,
+			itemType:     it.Type,
+			text:         it.Text,
+			toolName:     it.ToolName,
+			toolSummary:  it.ToolSummary,
+			toolInput:    input,
+			toolResult:   it.ToolResult,
+			toolError:    it.ToolError,
+			durationMs:   it.DurationMs,
+			tokenCount:   it.TokenCount,
+			subagentType: it.SubagentType,
+			subagentDesc: it.SubagentDesc,
+			teammateID:   it.TeammateID,
 		}
 	}
 	return out

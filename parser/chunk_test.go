@@ -469,3 +469,276 @@ func TestBuildChunks_Items_NoBlocks(t *testing.T) {
 		t.Errorf("Text = %q, want 'plain answer'", chunks[0].Text)
 	}
 }
+
+// --- ItemSubagent tests ---
+
+func TestBuildChunks_Items_TaskToolCreatesSubagent(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	taskInput := json.RawMessage(`{"subagent_type":"Explore","description":"Find API endpoints","prompt":"Search the codebase for API endpoints"}`)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Task"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Task", ToolInput: taskInput},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+
+	item := items[0]
+	if item.Type != parser.ItemSubagent {
+		t.Errorf("Type = %d, want ItemSubagent", item.Type)
+	}
+	if item.SubagentType != "Explore" {
+		t.Errorf("SubagentType = %q, want Explore", item.SubagentType)
+	}
+	if item.SubagentDesc != "Find API endpoints" {
+		t.Errorf("SubagentDesc = %q, want 'Find API endpoints'", item.SubagentDesc)
+	}
+	if item.ToolName != "Task" {
+		t.Errorf("ToolName = %q, want Task", item.ToolName)
+	}
+	if item.ToolID != "call_1" {
+		t.Errorf("ToolID = %q, want call_1", item.ToolID)
+	}
+}
+
+func TestBuildChunks_Items_TaskToolPromptFallback(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	// No "description" field -- should fall back to truncated prompt
+	taskInput := json.RawMessage(`{"subagent_type":"general-purpose","prompt":"Implement the feature as described in the ticket above and make sure all tests pass"}`)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Task"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Task", ToolInput: taskInput},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+
+	item := items[0]
+	if item.Type != parser.ItemSubagent {
+		t.Errorf("Type = %d, want ItemSubagent", item.Type)
+	}
+	if item.SubagentType != "general-purpose" {
+		t.Errorf("SubagentType = %q, want general-purpose", item.SubagentType)
+	}
+	// Should be truncated to 80 chars
+	if len(item.SubagentDesc) > 83 { // 80 + "..."
+		t.Errorf("SubagentDesc too long: %d chars", len(item.SubagentDesc))
+	}
+	if item.SubagentDesc == "" {
+		t.Error("SubagentDesc should not be empty (prompt fallback)")
+	}
+}
+
+func TestBuildChunks_Items_TaskToolWithResult(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	t1 := t0.Add(5 * time.Second)
+	taskInput := json.RawMessage(`{"subagent_type":"Explore","description":"Find config"}`)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Task"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Task", ToolInput: taskInput},
+			},
+		},
+		parser.AIMsg{
+			Timestamp: t1,
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "call_1", Content: "Found config.yaml at /etc/app/config.yaml"},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+
+	item := items[0]
+	if item.Type != parser.ItemSubagent {
+		t.Errorf("Type = %d, want ItemSubagent", item.Type)
+	}
+	if item.ToolResult != "Found config.yaml at /etc/app/config.yaml" {
+		t.Errorf("ToolResult = %q", item.ToolResult)
+	}
+	if item.DurationMs != 5000 {
+		t.Errorf("DurationMs = %d, want 5000", item.DurationMs)
+	}
+}
+
+func TestBuildChunks_Items_NonTaskToolStillToolCall(t *testing.T) {
+	// Verify that non-Task tool_use blocks still produce ItemToolCall
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Read"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Read", ToolInput: json.RawMessage(`{"file_path":"/tmp/foo.go"}`)},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+	if items[0].Type != parser.ItemToolCall {
+		t.Errorf("Type = %d, want ItemToolCall (not ItemSubagent)", items[0].Type)
+	}
+}
+
+// --- ItemTeammateMessage tests ---
+
+func TestBuildChunks_TeammateMessageFoldsIntoAITurn(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			Text:      "Working on it",
+			Blocks: []parser.ContentBlock{
+				{Type: "text", Text: "Working on it"},
+			},
+		},
+		parser.TeammateMsg{
+			Timestamp:  t0.Add(1 * time.Second),
+			Text:       "Task #1 is done",
+			TeammateID: "researcher",
+		},
+		parser.AIMsg{
+			Timestamp: t0.Add(2 * time.Second),
+			Model:     "claude-opus-4-6",
+			Text:      "Got the update",
+			Blocks: []parser.ContentBlock{
+				{Type: "text", Text: "Got the update"},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	// Should be a single AI chunk (teammate doesn't split the turn)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1 (teammate folds into AI turn)", len(chunks))
+	}
+
+	items := chunks[0].Items
+	// text + teammate + text = 3 items
+	if len(items) != 3 {
+		t.Fatalf("len(Items) = %d, want 3", len(items))
+	}
+
+	if items[0].Type != parser.ItemOutput {
+		t.Errorf("Items[0].Type = %d, want ItemOutput", items[0].Type)
+	}
+	if items[1].Type != parser.ItemTeammateMessage {
+		t.Errorf("Items[1].Type = %d, want ItemTeammateMessage", items[1].Type)
+	}
+	if items[1].TeammateID != "researcher" {
+		t.Errorf("Items[1].TeammateID = %q, want researcher", items[1].TeammateID)
+	}
+	if items[1].Text != "Task #1 is done" {
+		t.Errorf("Items[1].Text = %q, want 'Task #1 is done'", items[1].Text)
+	}
+	if items[2].Type != parser.ItemOutput {
+		t.Errorf("Items[2].Type = %d, want ItemOutput", items[2].Type)
+	}
+}
+
+func TestBuildChunks_TeammateMessageBeforeAI(t *testing.T) {
+	// Teammate message arrives before any AI response -- should still produce a chunk
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.UserMsg{Timestamp: t0, Text: "Go"},
+		parser.TeammateMsg{
+			Timestamp:  t0.Add(1 * time.Second),
+			Text:       "Starting work",
+			TeammateID: "worker-1",
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks) = %d, want 2 (user + AI from teammate)", len(chunks))
+	}
+	if chunks[0].Type != parser.UserChunk {
+		t.Errorf("chunks[0].Type = %d, want UserChunk", chunks[0].Type)
+	}
+	if chunks[1].Type != parser.AIChunk {
+		t.Errorf("chunks[1].Type = %d, want AIChunk", chunks[1].Type)
+	}
+	if len(chunks[1].Items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(chunks[1].Items))
+	}
+	if chunks[1].Items[0].Type != parser.ItemTeammateMessage {
+		t.Errorf("Items[0].Type = %d, want ItemTeammateMessage", chunks[1].Items[0].Type)
+	}
+}
+
+// --- CompactChunk tests ---
+
+func TestBuildChunks_CompactMsgProducesCompactChunk(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.CompactMsg{
+			Timestamp: t0,
+			Text:      "Context compressed",
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+	if chunks[0].Type != parser.CompactChunk {
+		t.Errorf("Type = %d, want CompactChunk", chunks[0].Type)
+	}
+	if chunks[0].Output != "Context compressed" {
+		t.Errorf("Output = %q, want 'Context compressed'", chunks[0].Output)
+	}
+}
+
+func TestBuildChunks_CompactChunkFlushesAIBuffer(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{Timestamp: t0, Text: "First response", Model: "claude-opus-4-6"},
+		parser.CompactMsg{Timestamp: t0.Add(1 * time.Second), Text: "Summarized"},
+		parser.AIMsg{Timestamp: t0.Add(2 * time.Second), Text: "Second response", Model: "claude-opus-4-6"},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 3 {
+		t.Fatalf("len(chunks) = %d, want 3 (AI + compact + AI)", len(chunks))
+	}
+	if chunks[0].Type != parser.AIChunk {
+		t.Errorf("chunks[0].Type = %d, want AIChunk", chunks[0].Type)
+	}
+	if chunks[1].Type != parser.CompactChunk {
+		t.Errorf("chunks[1].Type = %d, want CompactChunk", chunks[1].Type)
+	}
+	if chunks[2].Type != parser.AIChunk {
+		t.Errorf("chunks[2].Type = %d, want AIChunk", chunks[2].Type)
+	}
+}

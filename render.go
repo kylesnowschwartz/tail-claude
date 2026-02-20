@@ -108,6 +108,8 @@ func (m model) renderMessage(msg message, containerWidth int, isSelected, isExpa
 		return m.renderUserMessage(msg, containerWidth, isSelected, isExpanded)
 	case RoleSystem:
 		return renderSystemMessage(msg, containerWidth, isSelected, isExpanded)
+	case RoleCompact:
+		return renderCompactMessage(msg, containerWidth)
 	default:
 		return msg.content
 	}
@@ -276,6 +278,26 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 	return sel + sysIcon + " " + label + "  " + IconDot + "  " + ts + "  " + content
 }
 
+func renderCompactMessage(msg message, width int) string {
+	dim := lipgloss.NewStyle().Foreground(ColorTextMuted)
+	text := msg.content
+	if text == "" {
+		text = "Context compressed"
+	}
+	textWidth := lipgloss.Width(text) + 4 // " text " with spacing
+	leftPad := (width - textWidth) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	rightPad := width - leftPad - textWidth
+	if rightPad < 0 {
+		rightPad = 0
+	}
+	left := strings.Repeat("─", leftPad)
+	right := strings.Repeat("─", rightPad)
+	return dim.Render(left + " " + text + " " + right)
+}
+
 // -- Detail rendering ---------------------------------------------------------
 
 // renderDetailContent renders the full detail content for the current message.
@@ -301,6 +323,8 @@ func (m model) renderDetailContent(msg message, width int) string {
 			" " + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render("System") +
 			"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
 		body = lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.content)
+	case RoleCompact:
+		return renderCompactMessage(msg, width)
 	}
 
 	return header + "\n\n" + body
@@ -359,6 +383,18 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 			indicator = green.Render(IconToolOk)
 		}
 		name = item.toolName
+	case parser.ItemSubagent:
+		indicator = blue.Render(IconSubagent)
+		name = item.subagentType
+		if name == "" {
+			name = "Subagent"
+		}
+	case parser.ItemTeammateMessage:
+		indicator = lipgloss.NewStyle().Foreground(ColorWarning).Render(IconTeammate)
+		name = item.teammateID
+		if name == "" {
+			name = "Teammate"
+		}
 	}
 
 	// Pad name to 12 chars
@@ -372,6 +408,13 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 		summary = truncate(item.text, 40)
 	case parser.ItemToolCall:
 		summary = item.toolSummary
+	case parser.ItemSubagent:
+		summary = item.subagentDesc
+		if summary == "" {
+			summary = item.toolSummary
+		}
+	case parser.ItemTeammateMessage:
+		summary = truncate(item.text, 60)
 	}
 	summaryRendered := lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(summary)
 
@@ -404,7 +447,7 @@ func (m model) renderDetailItemExpanded(item displayItem, width int) string {
 	indent := "    "
 
 	switch item.itemType {
-	case parser.ItemThinking, parser.ItemOutput:
+	case parser.ItemThinking, parser.ItemOutput, parser.ItemTeammateMessage:
 		text := strings.TrimSpace(item.text)
 		if text == "" {
 			return ""
@@ -412,7 +455,7 @@ func (m model) renderDetailItemExpanded(item displayItem, width int) string {
 		rendered := m.md.renderMarkdown(text, wrapWidth)
 		return indentBlock(rendered, indent)
 
-	case parser.ItemToolCall:
+	case parser.ItemToolCall, parser.ItemSubagent:
 		var sections []string
 
 		if item.toolInput != "" {

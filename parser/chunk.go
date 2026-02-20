@@ -6,13 +6,15 @@ import (
 	"time"
 )
 
-// DisplayItemType discriminates the three display item categories.
+// DisplayItemType discriminates the display item categories.
 type DisplayItemType int
 
 const (
-	ItemThinking DisplayItemType = iota
+	ItemThinking        DisplayItemType = iota
 	ItemOutput
 	ItemToolCall
+	ItemSubagent        // Task tool spawned subagent
+	ItemTeammateMessage // message from a teammate agent
 )
 
 // DisplayItem is a structured element within an AI chunk's detail view.
@@ -28,15 +30,23 @@ type DisplayItem struct {
 	DurationMs  int64 // tool_use -> tool_result timestamp delta
 	TokenCount  int   // estimated tokens: len(text)/4
 	Timestamp   time.Time
+
+	// Subagent fields (ItemSubagent only)
+	SubagentType string // "Explore", "Plan", "general-purpose", etc.
+	SubagentDesc string // Task description
+
+	// Teammate fields (ItemTeammateMessage only)
+	TeammateID string
 }
 
-// ChunkType discriminates the three chunk categories.
+// ChunkType discriminates the chunk categories.
 type ChunkType int
 
 const (
 	UserChunk ChunkType = iota
 	AIChunk
 	SystemChunk
+	CompactChunk // context compression boundary
 )
 
 // Chunk is the output of the pipeline. Each chunk represents one visible unit
@@ -65,6 +75,7 @@ type Chunk struct {
 // BuildChunks folds classified messages into display chunks.
 // The algorithm buffers consecutive AI messages and flushes them into a single
 // AI chunk whenever a User or System message appears (or at end of input).
+// TeammateMsg entries fold into the current AI buffer rather than starting new chunks.
 func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 	var chunks []Chunk
 	var aiBuf []AIMsg
@@ -95,6 +106,26 @@ func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 			})
 		case AIMsg:
 			aiBuf = append(aiBuf, m)
+		case TeammateMsg:
+			// Fold teammate messages into the AI buffer as synthetic AIMsg
+			// with a "teammate" content block. This keeps them within the
+			// AI turn rather than splitting it.
+			aiBuf = append(aiBuf, AIMsg{
+				Timestamp: m.Timestamp,
+				IsMeta:    true,
+				Blocks: []ContentBlock{{
+					Type:   "teammate",
+					Text:   m.Text,
+					ToolID: m.TeammateID,
+				}},
+			})
+		case CompactMsg:
+			flush()
+			chunks = append(chunks, Chunk{
+				Type:      CompactChunk,
+				Timestamp: m.Timestamp,
+				Output:    m.Text,
+			})
 		}
 	}
 	flush()
@@ -170,16 +201,30 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 					})
 				case "tool_use":
 					inputLen := len(b.ToolInput)
-					item := DisplayItem{
-						Type:        ItemToolCall,
-						ToolName:    b.ToolName,
-						ToolID:      b.ToolID,
-						ToolInput:   b.ToolInput,
-						ToolSummary: ToolSummary(b.ToolName, b.ToolInput),
-						Timestamp:   m.Timestamp,
-						TokenCount:  inputLen / 4,
+					if b.ToolName == "Task" {
+						subType, subDesc := extractSubagentInfo(b.ToolInput)
+						items = append(items, DisplayItem{
+							Type:         ItemSubagent,
+							ToolName:     b.ToolName,
+							ToolID:       b.ToolID,
+							ToolInput:    b.ToolInput,
+							ToolSummary:  ToolSummary(b.ToolName, b.ToolInput),
+							SubagentType: subType,
+							SubagentDesc: subDesc,
+							Timestamp:    m.Timestamp,
+							TokenCount:   inputLen / 4,
+						})
+					} else {
+						items = append(items, DisplayItem{
+							Type:        ItemToolCall,
+							ToolName:    b.ToolName,
+							ToolID:      b.ToolID,
+							ToolInput:   b.ToolInput,
+							ToolSummary: ToolSummary(b.ToolName, b.ToolInput),
+							Timestamp:   m.Timestamp,
+							TokenCount:  inputLen / 4,
+						})
 					}
-					items = append(items, item)
 					pending[b.ToolID] = pendingTool{
 						index:     len(items) - 1,
 						timestamp: m.Timestamp,
@@ -187,26 +232,34 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 				}
 			}
 		} else {
-			// Meta messages: match tool_result blocks to pending tool_use items.
+			// Meta messages: match tool_result blocks and handle teammate blocks.
 			for _, b := range m.Blocks {
-				if b.Type != "tool_result" {
-					continue
-				}
-				if p, ok := pending[b.ToolID]; ok {
-					items[p.index].ToolResult = b.Content
-					items[p.index].ToolError = b.IsError
-					if !p.timestamp.IsZero() && !m.Timestamp.IsZero() {
-						items[p.index].DurationMs = m.Timestamp.Sub(p.timestamp).Milliseconds()
+				switch b.Type {
+				case "tool_result":
+					if p, ok := pending[b.ToolID]; ok {
+						items[p.index].ToolResult = b.Content
+						items[p.index].ToolError = b.IsError
+						if !p.timestamp.IsZero() && !m.Timestamp.IsZero() {
+							items[p.index].DurationMs = m.Timestamp.Sub(p.timestamp).Milliseconds()
+						}
+						items[p.index].TokenCount += len(b.Content) / 4
+						delete(pending, b.ToolID)
+					} else {
+						// Unmatched tool_result -> output item.
+						items = append(items, DisplayItem{
+							Type:       ItemOutput,
+							Text:       b.Content,
+							Timestamp:  m.Timestamp,
+							TokenCount: len(b.Content) / 4,
+						})
 					}
-					items[p.index].TokenCount += len(b.Content) / 4
-					delete(pending, b.ToolID)
-				} else {
-					// Unmatched tool_result -> output item.
+				case "teammate":
 					items = append(items, DisplayItem{
-						Type:       ItemOutput,
-						Text:       b.Content,
+						Type:       ItemTeammateMessage,
+						Text:       b.Text,
+						TeammateID: b.ToolID, // teammate_id stored in ToolID field
 						Timestamp:  m.Timestamp,
-						TokenCount: len(b.Content) / 4,
+						TokenCount: len(b.Text) / 4,
 					})
 				}
 			}
@@ -244,4 +297,27 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 		StopReason:    stop,
 		DurationMs:    dur,
 	}
+}
+
+// extractSubagentInfo extracts subagent_type and description from Task tool input JSON.
+func extractSubagentInfo(input json.RawMessage) (subagentType, description string) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(input, &fields); err != nil {
+		return "", ""
+	}
+	if raw, ok := fields["subagent_type"]; ok {
+		json.Unmarshal(raw, &subagentType)
+	}
+	// Try "description" first, then "prompt" as fallback
+	if raw, ok := fields["description"]; ok {
+		json.Unmarshal(raw, &description)
+	}
+	if description == "" {
+		if raw, ok := fields["prompt"]; ok {
+			var prompt string
+			json.Unmarshal(raw, &prompt)
+			description = Truncate(prompt, 80)
+		}
+	}
+	return
 }
