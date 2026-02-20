@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// Ellipsis is the Unicode horizontal ellipsis used for text truncation.
+const Ellipsis = "\u2026"
+
 // ToolSummary generates a human-readable summary for a tool call.
 // Returns the tool name as fallback when input is nil or unparseable.
 // Ported from claude-devtools toolSummaryHelpers.ts.
@@ -337,5 +340,5 @@ func Truncate(s string, maxLen int) string {
 	if len(runes) <= maxLen {
 		return s
 	}
-	return string(runes[:maxLen-1]) + "\u2026"
+	return string(runes[:maxLen-1]) + Ellipsis
 }

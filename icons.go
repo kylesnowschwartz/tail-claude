@@ -16,6 +16,8 @@ const (
 	IconToolErr   = "\uF00D" // nf-fa-times
 	IconSubagent  = "\uF0C0" // nf-fa-users
 	IconTeammate  = "\uF075" // nf-fa-comment
+	IconEllipsis  = "\u2026" // horizontal ellipsis (truncation hints)
+	IconHRule     = "\u2500" // box drawing horizontal (compact separators)
 	IconDot       = "\u00B7" // middle dot
 	IconSelected  = "\u2502" // box drawing vertical
 	IconClock     = "\uF017" // nf-fa-clock_o

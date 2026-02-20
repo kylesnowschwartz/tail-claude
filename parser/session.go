@@ -299,7 +299,7 @@ func scanSessionPreview(path string) (firstMsg string, msgCount int) {
 	if firstMsg != "" {
 		firstMsg = strings.ReplaceAll(firstMsg, "\n", " ")
 		if len(firstMsg) > 120 {
-			firstMsg = firstMsg[:119] + "…"
+			firstMsg = firstMsg[:119] + Ellipsis
 		}
 	}
 

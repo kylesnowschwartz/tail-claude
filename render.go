@@ -90,7 +90,7 @@ func formatToolResultPreview(lo *parser.LastOutput) string {
 
 	result := lo.ToolResult
 	if len(result) > 200 {
-		result = result[:200] + "\u2026"
+		result = result[:200] + IconEllipsis
 	}
 	// Collapse newlines for single-line preview
 	result = strings.ReplaceAll(result, "\n", " ")
@@ -132,7 +132,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 				content = msg.lastOutput.Text
 				truncated, hidden := truncateLines(content, maxCollapsedLines)
 				if hidden > 0 {
-					content = truncated + "\n" + fmt.Sprintf("\u2026 (%d lines hidden)", hidden)
+					content = truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", IconEllipsis, hidden)
 				}
 			case parser.LastOutputToolResult:
 				content = formatToolResultPreview(msg.lastOutput)
@@ -140,7 +140,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 		} else {
 			truncated, hidden := truncateLines(content, maxCollapsedLines)
 			if hidden > 0 {
-				content = truncated + "\n" + fmt.Sprintf("\u2026 (%d lines hidden)", hidden)
+				content = truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", IconEllipsis, hidden)
 			}
 		}
 	}
@@ -165,7 +165,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 			rows = append(rows, "", rendered) // blank line separator
 			if hidden > 0 {
 				hint := lipgloss.NewStyle().Foreground(ColorTextSecondary).
-					Render(fmt.Sprintf("… %d more lines — Enter for full text", hidden))
+					Render(fmt.Sprintf("%s %d more lines — Enter for full text", IconEllipsis, hidden))
 				rows = append(rows, hint)
 			}
 		}
@@ -310,8 +310,8 @@ func renderCompactMessage(msg message, width int) string {
 	if rightPad < 0 {
 		rightPad = 0
 	}
-	left := strings.Repeat("─", leftPad)
-	right := strings.Repeat("─", rightPad)
+	left := strings.Repeat(IconHRule, leftPad)
+	right := strings.Repeat(IconHRule, rightPad)
 	return dim.Render(left + " " + text + " " + right)
 }
 
