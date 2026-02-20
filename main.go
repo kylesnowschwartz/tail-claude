@@ -64,6 +64,7 @@ type model struct {
 	// Live tailing state
 	sessionPath string
 	watching    bool
+	watcher     *sessionWatcher
 	tailSub     chan []message
 	tailErrc    chan error
 
@@ -270,6 +271,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil || len(msg.messages) == 0 {
 			return m, nil
 		}
+		// Stop the old watcher before switching sessions.
+		if m.watcher != nil {
+			m.watcher.stop()
+		}
 		m.messages = msg.messages
 		m.expanded = make(map[int]bool)
 		m.cursor = 0
@@ -277,7 +282,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessionPath = msg.path
 		m.view = viewList
 		m.computeLineOffsets()
-		return m, nil
+
+		// Start a new watcher for the selected session.
+		w := newSessionWatcher(msg.path, msg.classified, msg.offset)
+		go w.run()
+		m.watcher = w
+		m.watching = true
+		m.tailSub = w.sub
+		m.tailErrc = w.errc
+		return m, tea.Batch(waitForTailUpdate(m.tailSub), waitForWatcherErr(m.tailErrc))
 
 	case tea.KeyMsg:
 		switch m.view {
@@ -1132,6 +1145,7 @@ func main() {
 	m := initialModel(result.messages)
 	m.sessionPath = result.path
 	m.watching = true
+	m.watcher = watcher
 	m.tailSub = watcher.sub
 	m.tailErrc = watcher.errc
 

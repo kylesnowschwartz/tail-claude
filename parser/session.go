@@ -233,9 +233,13 @@ func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 	return sessions, nil
 }
 
-// scanSessionPreview does a quick scan of a session file, counting classified
-// messages and capturing the first user message text. The preview is truncated
-// to 120 characters.
+// scanSessionPreview does a quick scan of a session file to extract a preview
+// and message count. The preview comes from the first real user message text,
+// falling back to the first slash command if no plain text is found.
+//
+// Works on raw entries rather than Classify output so that sessions started by
+// teammate messages, plans, or other filtered content still get a preview from
+// whatever user text exists in the first 200 lines.
 func scanSessionPreview(path string) (firstMsg string, msgCount int) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -246,6 +250,10 @@ func scanSessionPreview(path string) (firstMsg string, msgCount int) {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
+	var commandFallback string
+	linesRead := 0
+	const maxPreviewLines = 200
+
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -255,17 +263,50 @@ func scanSessionPreview(path string) (firstMsg string, msgCount int) {
 		if !ok {
 			continue
 		}
-		msg, ok := Classify(entry)
-		if !ok {
+
+		// Count classified messages for the badge.
+		if msg, ok := Classify(entry); ok {
+			_ = msg
+			msgCount++
+		}
+
+		// Preview extraction: scan raw user entries (first 200 lines only).
+		linesRead++
+		if firstMsg != "" || linesRead > maxPreviewLines {
 			continue
 		}
-		msgCount++
-
-		if firstMsg == "" {
-			if u, ok := msg.(UserMsg); ok && u.Text != "" {
-				firstMsg = u.Text
-			}
+		if entry.Type != "user" || entry.IsMeta || entry.IsSidechain {
+			continue
 		}
+
+		text := strings.TrimSpace(ExtractText(entry.Message.Content))
+		if text == "" {
+			continue
+		}
+
+		// Skip noise: command output, interruptions, system tags, teammate messages.
+		if IsCommandOutput(text) ||
+			strings.HasPrefix(text, "[Request interrupted by user") ||
+			strings.HasPrefix(text, "<system-reminder>") ||
+			strings.HasPrefix(text, "<local-command-caveat>") ||
+			teammateMessageRe.MatchString(text) {
+			continue
+		}
+
+		// Slash commands: keep as fallback, prefer real text.
+		if strings.HasPrefix(text, "<command-name>") {
+			if commandFallback == "" {
+				commandFallback = SanitizeContent(text)
+			}
+			continue
+		}
+
+		// Real user text -- use it.
+		firstMsg = SanitizeContent(text)
+	}
+
+	if firstMsg == "" {
+		firstMsg = commandFallback
 	}
 
 	// Collapse newlines and truncate for display.

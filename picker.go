@@ -17,11 +17,14 @@ type pickerSessionsMsg struct {
 	err      error
 }
 
-// loadSessionMsg delivers a parsed session ready for the list view.
+// loadSessionMsg delivers a parsed session ready for the list view,
+// including classified messages and offset for watcher handoff.
 type loadSessionMsg struct {
-	messages []message
-	path     string
-	err      error
+	messages   []message
+	path       string
+	classified []parser.ClassifiedMsg
+	offset     int64
+	err        error
 }
 
 // loadPickerSessionsCmd discovers sessions for the current project.
@@ -35,13 +38,21 @@ func loadPickerSessionsCmd() tea.Msg {
 }
 
 // loadSessionCmd returns a command that loads a session file into messages.
+// Uses ReadSessionIncremental so the result includes classified messages and
+// offset for handing off to a new watcher.
 func loadSessionCmd(path string) tea.Cmd {
 	return func() tea.Msg {
-		chunks, err := parser.ReadSession(path)
+		classified, offset, err := parser.ReadSessionIncremental(path, 0)
 		if err != nil {
 			return loadSessionMsg{err: err, path: path}
 		}
-		return loadSessionMsg{messages: chunksToMessages(chunks), path: path}
+		chunks := parser.BuildChunks(classified)
+		return loadSessionMsg{
+			messages:   chunksToMessages(chunks),
+			path:       path,
+			classified: classified,
+			offset:     offset,
+		}
 	}
 }
 
