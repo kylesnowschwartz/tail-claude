@@ -80,6 +80,9 @@ type model struct {
 	detailCursor    int          // selected item index within the detail message
 	detailExpanded  map[int]bool // which detail items are expanded
 
+	// Markdown rendering
+	md *mdRenderer
+
 	// Live tailing state
 	sessionPath string
 	watching    bool
@@ -220,6 +223,7 @@ func initialModel(msgs []message) model {
 		expanded:       make(map[int]bool), // all messages start collapsed
 		cursor:         0,
 		detailExpanded: make(map[int]bool),
+		md:             &mdRenderer{},
 	}
 }
 
@@ -576,7 +580,7 @@ func (m *model) computeLineOffsets() {
 	currentLine := 0
 	for i, msg := range m.messages {
 		m.lineOffsets[i] = currentLine
-		rendered := renderMessage(msg, width, false, m.expanded[i])
+		rendered := m.renderMessage(msg, width, false, m.expanded[i])
 		lineCount := strings.Count(rendered, "\n") + 1
 		m.messageLines[i] = lineCount
 		currentLine += lineCount
@@ -669,10 +673,7 @@ func (m *model) computeDetailMaxScroll() {
 	switch msg.role {
 	case RoleClaude:
 		header = m.renderDetailHeader(msg, width)
-		bodyStyle := lipgloss.NewStyle().
-			Foreground(ColorTextPrimary).
-			Width(width - 4)
-		body = bodyStyle.Render(msg.content)
+		body = m.md.renderMarkdown(msg.content, width-4)
 	case RoleUser:
 		header = lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("You") +
 			"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
@@ -820,7 +821,7 @@ func (m model) viewList() string {
 	for i, msg := range m.messages {
 		isSelected := i == m.cursor
 		isExpanded := m.expanded[i]
-		rendered = append(rendered, renderMessage(msg, width, isSelected, isExpanded))
+		rendered = append(rendered, m.renderMessage(msg, width, isSelected, isExpanded))
 	}
 
 	content := strings.Join(rendered, "\n\n")
@@ -877,10 +878,7 @@ func (m model) viewDetail() string {
 		switch msg.role {
 		case RoleClaude:
 			header = m.renderDetailHeader(msg, width)
-			bodyStyle := lipgloss.NewStyle().
-				Foreground(ColorTextPrimary).
-				Width(width - 4)
-			body = bodyStyle.Render(msg.content)
+			body = m.md.renderMarkdown(msg.content, width-4)
 		case RoleUser:
 			header = lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("You") +
 				"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
@@ -1071,11 +1069,8 @@ func (m model) renderDetailItemExpanded(item displayItem, width int) string {
 		if text == "" {
 			return ""
 		}
-		bodyStyle := lipgloss.NewStyle().
-			Foreground(ColorTextDim).
-			Width(wrapWidth)
-		wrapped := bodyStyle.Render(text)
-		return indentBlock(wrapped, indent)
+		rendered := m.md.renderMarkdown(text, wrapWidth)
+		return indentBlock(rendered, indent)
 
 	case parser.ItemToolCall:
 		var sections []string
@@ -1225,10 +1220,10 @@ func (m model) renderStatusBar(pairs ...string) string {
 	return statusStyle.Render(strings.Join(parts, "  "))
 }
 
-func renderMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
+func (m model) renderMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
 	switch msg.role {
 	case RoleClaude:
-		return renderClaudeMessage(msg, containerWidth, isSelected, isExpanded)
+		return m.renderClaudeMessage(msg, containerWidth, isSelected, isExpanded)
 	case RoleUser:
 		return renderUserMessage(msg, containerWidth, isSelected, isExpanded)
 	case RoleSystem:
@@ -1264,7 +1259,7 @@ func truncate(s string, maxLen int) string {
 	return s
 }
 
-func renderClaudeMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
+func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
 	sel := selectionIndicator(isSelected)
 	chev := chevron(isExpanded)
 	maxWidth := containerWidth - 6 // account for selection indicator + chevron + padding
@@ -1359,12 +1354,15 @@ func renderClaudeMessage(msg message, containerWidth int, isSelected, isExpanded
 		}
 	}
 
-	bodyStyle := lipgloss.NewStyle().
-		Foreground(ColorTextPrimary).
-		Width(maxWidth-4).
-		Padding(0, 2)
-
-	body := bodyStyle.Render(content)
+	wrapWidth := maxWidth - 8 // subtract body padding (2 each side)
+	if wrapWidth < 20 {
+		wrapWidth = 20
+	}
+	rendered := m.md.renderMarkdown(content, wrapWidth)
+	body := lipgloss.NewStyle().
+		Width(maxWidth - 4).
+		Padding(0, 2).
+		Render(rendered)
 
 	cardBorderColor := ColorBorder
 	if isSelected {
