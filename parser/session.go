@@ -45,6 +45,53 @@ func ReadSession(path string) ([]Chunk, error) {
 	return BuildChunks(msgs), nil
 }
 
+// ReadSessionIncremental reads new lines from a session file starting at the
+// given byte offset. Returns newly classified messages, the updated offset,
+// and any error. This is the building block for live tailing -- the caller
+// accumulates classified messages and re-runs BuildChunks after each call.
+func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, offset, err
+	}
+	defer f.Close()
+
+	if _, err := f.Seek(offset, 0); err != nil {
+		return nil, offset, err
+	}
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+
+	var msgs []ClassifiedMsg
+	bytesRead := offset
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		// +1 for the \n delimiter stripped by scanner. This assumes Unix line
+		// endings, which is correct -- Claude Code only runs on macOS/Linux.
+		bytesRead += int64(len(line)) + 1
+
+		if len(line) == 0 {
+			continue
+		}
+		entry, ok := ParseEntry(line)
+		if !ok {
+			continue
+		}
+		msg, ok := Classify(entry)
+		if !ok {
+			continue
+		}
+		msgs = append(msgs, msg)
+	}
+	if err := scanner.Err(); err != nil {
+		return msgs, bytesRead, err
+	}
+
+	return msgs, bytesRead, nil
+}
+
 // DiscoverLatestSession finds the most recently modified .jsonl file under
 // ~/.claude/projects/. Subagent files inside session UUID subdirectories
 // are excluded.
