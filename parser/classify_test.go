@@ -277,3 +277,250 @@ func TestDetectSlash_WithoutCommandTag(t *testing.T) {
 		t.Errorf("name = %q, want empty", name)
 	}
 }
+
+// --- ContentBlock tests ---
+
+func TestClassify_AssistantBlocks_ThinkingTextToolUse(t *testing.T) {
+	content := json.RawMessage(`[
+		{"type":"thinking","thinking":"Let me think about this..."},
+		{"type":"text","text":"Here is the answer."},
+		{"type":"tool_use","id":"call_1","name":"Read","input":{"file_path":"/tmp/foo.go"}}
+	]`)
+
+	e := makeEntry("assistant", "a1", "2025-01-15T10:00:00Z", content,
+		withModel("claude-opus-4-6"), withStopReason("end_turn"))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed")
+	}
+	ai := msg.(parser.AIMsg)
+
+	if len(ai.Blocks) != 3 {
+		t.Fatalf("len(Blocks) = %d, want 3", len(ai.Blocks))
+	}
+
+	// Block 0: thinking
+	if ai.Blocks[0].Type != "thinking" {
+		t.Errorf("Blocks[0].Type = %q, want thinking", ai.Blocks[0].Type)
+	}
+	if ai.Blocks[0].Text != "Let me think about this..." {
+		t.Errorf("Blocks[0].Text = %q, want thinking text", ai.Blocks[0].Text)
+	}
+
+	// Block 1: text
+	if ai.Blocks[1].Type != "text" {
+		t.Errorf("Blocks[1].Type = %q, want text", ai.Blocks[1].Type)
+	}
+	if ai.Blocks[1].Text != "Here is the answer." {
+		t.Errorf("Blocks[1].Text = %q, want text content", ai.Blocks[1].Text)
+	}
+
+	// Block 2: tool_use
+	if ai.Blocks[2].Type != "tool_use" {
+		t.Errorf("Blocks[2].Type = %q, want tool_use", ai.Blocks[2].Type)
+	}
+	if ai.Blocks[2].ToolID != "call_1" {
+		t.Errorf("Blocks[2].ToolID = %q, want call_1", ai.Blocks[2].ToolID)
+	}
+	if ai.Blocks[2].ToolName != "Read" {
+		t.Errorf("Blocks[2].ToolName = %q, want Read", ai.Blocks[2].ToolName)
+	}
+	if string(ai.Blocks[2].ToolInput) != `{"file_path":"/tmp/foo.go"}` {
+		t.Errorf("Blocks[2].ToolInput = %s, want file_path JSON", string(ai.Blocks[2].ToolInput))
+	}
+}
+
+func TestClassify_AssistantBlocks_ThinkingTextCaptured(t *testing.T) {
+	content := json.RawMessage(`[
+		{"type":"thinking","thinking":"Deep thoughts here"},
+		{"type":"thinking","thinking":"More deep thoughts"},
+		{"type":"text","text":"Output"}
+	]`)
+	e := makeEntry("assistant", "a1", "2025-01-15T10:00:00Z", content, withModel("claude-opus-4-6"))
+
+	msg, _ := parser.Classify(e)
+	ai := msg.(parser.AIMsg)
+
+	// Thinking count still correct for backward compat
+	if ai.Thinking != 2 {
+		t.Errorf("Thinking count = %d, want 2", ai.Thinking)
+	}
+
+	// But blocks capture the actual text
+	if ai.Blocks[0].Text != "Deep thoughts here" {
+		t.Errorf("Blocks[0].Text = %q, want first thinking text", ai.Blocks[0].Text)
+	}
+	if ai.Blocks[1].Text != "More deep thoughts" {
+		t.Errorf("Blocks[1].Text = %q, want second thinking text", ai.Blocks[1].Text)
+	}
+}
+
+func TestClassify_AssistantBlocks_ToolInputCaptured(t *testing.T) {
+	content := json.RawMessage(`[
+		{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test ./...","description":"Run tests"}}
+	]`)
+	e := makeEntry("assistant", "a1", "2025-01-15T10:00:00Z", content, withModel("claude-opus-4-6"))
+
+	msg, _ := parser.Classify(e)
+	ai := msg.(parser.AIMsg)
+
+	if len(ai.Blocks) != 1 {
+		t.Fatalf("len(Blocks) = %d, want 1", len(ai.Blocks))
+	}
+
+	// Verify the raw JSON is captured
+	var parsed map[string]string
+	if err := json.Unmarshal(ai.Blocks[0].ToolInput, &parsed); err != nil {
+		t.Fatalf("failed to parse ToolInput: %v", err)
+	}
+	if parsed["command"] != "go test ./..." {
+		t.Errorf("ToolInput.command = %q, want 'go test ./...'", parsed["command"])
+	}
+}
+
+func TestClassify_AssistantBlocks_OrderMatchesRawArray(t *testing.T) {
+	content := json.RawMessage(`[
+		{"type":"text","text":"first"},
+		{"type":"thinking","thinking":"middle"},
+		{"type":"tool_use","id":"t1","name":"Bash","input":{}},
+		{"type":"text","text":"last"}
+	]`)
+	e := makeEntry("assistant", "a1", "2025-01-15T10:00:00Z", content, withModel("claude-opus-4-6"))
+
+	msg, _ := parser.Classify(e)
+	ai := msg.(parser.AIMsg)
+
+	if len(ai.Blocks) != 4 {
+		t.Fatalf("len(Blocks) = %d, want 4", len(ai.Blocks))
+	}
+
+	wantTypes := []string{"text", "thinking", "tool_use", "text"}
+	for i, want := range wantTypes {
+		if ai.Blocks[i].Type != want {
+			t.Errorf("Blocks[%d].Type = %q, want %q", i, ai.Blocks[i].Type, want)
+		}
+	}
+}
+
+func TestClassify_AssistantBlocks_BackwardCompat(t *testing.T) {
+	// Verify flat fields are still populated correctly alongside Blocks
+	content := json.RawMessage(`[
+		{"type":"thinking","thinking":"hmm"},
+		{"type":"text","text":"answer"},
+		{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"x.go"}}
+	]`)
+
+	e := makeEntry("assistant", "a1", "2025-01-15T10:00:00Z", content,
+		withModel("claude-opus-4-6"), withStopReason("tool_use"))
+	e.Message.Usage.InputTokens = 50
+	e.Message.Usage.OutputTokens = 30
+
+	msg, _ := parser.Classify(e)
+	ai := msg.(parser.AIMsg)
+
+	// Flat fields
+	if ai.Text != "answer" {
+		t.Errorf("Text = %q, want 'answer'", ai.Text)
+	}
+	if ai.Thinking != 1 {
+		t.Errorf("Thinking = %d, want 1", ai.Thinking)
+	}
+	if len(ai.ToolCalls) != 1 || ai.ToolCalls[0].Name != "Read" {
+		t.Errorf("ToolCalls = %v, want [{t1 Read}]", ai.ToolCalls)
+	}
+	if ai.StopReason != "tool_use" {
+		t.Errorf("StopReason = %q, want 'tool_use'", ai.StopReason)
+	}
+	if ai.Usage.InputTokens != 50 || ai.Usage.OutputTokens != 30 {
+		t.Errorf("Usage = %+v, want {50 30 0 0}", ai.Usage)
+	}
+
+	// Blocks also populated
+	if len(ai.Blocks) != 3 {
+		t.Errorf("len(Blocks) = %d, want 3", len(ai.Blocks))
+	}
+}
+
+func TestClassify_MetaUser_ArrayWithToolResult(t *testing.T) {
+	content := json.RawMessage(`[
+		{"type":"tool_result","tool_use_id":"call_1","content":"file contents here","is_error":false},
+		{"type":"tool_result","tool_use_id":"call_2","content":"error: not found","is_error":true}
+	]`)
+	e := makeEntry("user", "m1", "2025-01-15T10:00:01Z", content, withMeta())
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected meta user to classify")
+	}
+	ai := msg.(parser.AIMsg)
+	if !ai.IsMeta {
+		t.Error("IsMeta should be true")
+	}
+
+	if len(ai.Blocks) != 2 {
+		t.Fatalf("len(Blocks) = %d, want 2", len(ai.Blocks))
+	}
+
+	// Block 0
+	if ai.Blocks[0].Type != "tool_result" {
+		t.Errorf("Blocks[0].Type = %q, want tool_result", ai.Blocks[0].Type)
+	}
+	if ai.Blocks[0].ToolID != "call_1" {
+		t.Errorf("Blocks[0].ToolID = %q, want call_1", ai.Blocks[0].ToolID)
+	}
+	if ai.Blocks[0].Content != "file contents here" {
+		t.Errorf("Blocks[0].Content = %q, want 'file contents here'", ai.Blocks[0].Content)
+	}
+	if ai.Blocks[0].IsError {
+		t.Error("Blocks[0].IsError should be false")
+	}
+
+	// Block 1
+	if ai.Blocks[1].ToolID != "call_2" {
+		t.Errorf("Blocks[1].ToolID = %q, want call_2", ai.Blocks[1].ToolID)
+	}
+	if !ai.Blocks[1].IsError {
+		t.Error("Blocks[1].IsError should be true")
+	}
+}
+
+func TestClassify_MetaUser_StringContent(t *testing.T) {
+	e := makeEntry("user", "m1", "2025-01-15T10:00:01Z",
+		json.RawMessage(`"plain text tool result"`), withMeta())
+
+	msg, _ := parser.Classify(e)
+	ai := msg.(parser.AIMsg)
+
+	if len(ai.Blocks) != 1 {
+		t.Fatalf("len(Blocks) = %d, want 1", len(ai.Blocks))
+	}
+	if ai.Blocks[0].Type != "text" {
+		t.Errorf("Blocks[0].Type = %q, want text", ai.Blocks[0].Type)
+	}
+	if ai.Blocks[0].Text != "plain text tool result" {
+		t.Errorf("Blocks[0].Text = %q, want original text", ai.Blocks[0].Text)
+	}
+}
+
+func TestClassify_MetaUser_ToolResultWithArrayContent(t *testing.T) {
+	// tool_result blocks can have structured content (array of text blocks)
+	content := json.RawMessage(`[
+		{"type":"tool_result","tool_use_id":"call_1","content":[{"type":"text","text":"structured result"}],"is_error":false}
+	]`)
+	e := makeEntry("user", "m1", "2025-01-15T10:00:01Z", content, withMeta())
+
+	msg, _ := parser.Classify(e)
+	ai := msg.(parser.AIMsg)
+
+	if len(ai.Blocks) != 1 {
+		t.Fatalf("len(Blocks) = %d, want 1", len(ai.Blocks))
+	}
+	if ai.Blocks[0].Type != "tool_result" {
+		t.Errorf("Type = %q, want tool_result", ai.Blocks[0].Type)
+	}
+	// Content should be stringified
+	if ai.Blocks[0].Content == "" {
+		t.Error("Content should not be empty for array content")
+	}
+}

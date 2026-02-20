@@ -1,9 +1,337 @@
 package parser
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"path/filepath"
+	"strings"
+)
 
 // ToolSummary generates a human-readable summary for a tool call.
 // Returns the tool name as fallback when input is nil or unparseable.
+// Ported from claude-devtools toolSummaryHelpers.ts.
 func ToolSummary(name string, input json.RawMessage) string {
+	if len(input) == 0 {
+		return name
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(input, &fields); err != nil {
+		return name
+	}
+
+	switch name {
+	case "Read":
+		return summaryRead(fields)
+	case "Write":
+		return summaryWrite(fields)
+	case "Edit":
+		return summaryEdit(fields)
+	case "Bash":
+		return summaryBash(fields)
+	case "Grep":
+		return summaryGrep(fields)
+	case "Glob":
+		return summaryGlob(fields)
+	case "Task":
+		return summaryTask(fields)
+	case "LSP":
+		return summaryLSP(fields)
+	case "WebFetch":
+		return summaryWebFetch(fields)
+	case "WebSearch":
+		return summaryWebSearch(fields)
+	case "TodoWrite":
+		return summaryTodoWrite(fields)
+	case "NotebookEdit":
+		return summaryNotebookEdit(fields)
+	case "TaskCreate":
+		return summaryTaskCreate(fields)
+	case "TaskUpdate":
+		return summaryTaskUpdate(fields)
+	case "SendMessage":
+		return summarySendMessage(fields)
+	default:
+		return summaryDefault(name, fields)
+	}
+}
+
+// --- Per-tool summary implementations ---
+
+func summaryRead(f map[string]json.RawMessage) string {
+	fp := getString(f, "file_path")
+	if fp == "" {
+		return "Read"
+	}
+	base := filepath.Base(fp)
+
+	limit := getNumber(f, "limit")
+	if limit > 0 {
+		offset := getNumber(f, "offset")
+		if offset == 0 {
+			offset = 1
+		}
+		return fmt.Sprintf("%s - lines %d-%d", base, offset, offset+limit-1)
+	}
+	return base
+}
+
+func summaryWrite(f map[string]json.RawMessage) string {
+	fp := getString(f, "file_path")
+	if fp == "" {
+		return "Write"
+	}
+	base := filepath.Base(fp)
+
+	content := getString(f, "content")
+	if content != "" {
+		lines := len(strings.Split(content, "\n"))
+		return fmt.Sprintf("%s - %d lines", base, lines)
+	}
+	return base
+}
+
+func summaryEdit(f map[string]json.RawMessage) string {
+	fp := getString(f, "file_path")
+	if fp == "" {
+		return "Edit"
+	}
+	base := filepath.Base(fp)
+
+	oldStr := getString(f, "old_string")
+	newStr := getString(f, "new_string")
+	if oldStr != "" && newStr != "" {
+		oldLines := len(strings.Split(oldStr, "\n"))
+		newLines := len(strings.Split(newStr, "\n"))
+		if oldLines == newLines {
+			s := ""
+			if oldLines > 1 {
+				s = "s"
+			}
+			return fmt.Sprintf("%s - %d line%s", base, oldLines, s)
+		}
+		return fmt.Sprintf("%s - %d -> %d lines", base, oldLines, newLines)
+	}
+	return base
+}
+
+func summaryBash(f map[string]json.RawMessage) string {
+	if desc := getString(f, "description"); desc != "" {
+		return truncate(desc, 50)
+	}
+	if cmd := getString(f, "command"); cmd != "" {
+		return truncate(cmd, 50)
+	}
+	return "Bash"
+}
+
+func summaryGrep(f map[string]json.RawMessage) string {
+	pattern := getString(f, "pattern")
+	if pattern == "" {
+		return "Grep"
+	}
+	patStr := `"` + truncate(pattern, 30) + `"`
+
+	if glob := getString(f, "glob"); glob != "" {
+		return patStr + " in " + glob
+	}
+	if p := getString(f, "path"); p != "" {
+		return patStr + " in " + filepath.Base(p)
+	}
+	return patStr
+}
+
+func summaryGlob(f map[string]json.RawMessage) string {
+	pattern := getString(f, "pattern")
+	if pattern == "" {
+		return "Glob"
+	}
+	patStr := `"` + truncate(pattern, 30) + `"`
+
+	if p := getString(f, "path"); p != "" {
+		return patStr + " in " + filepath.Base(p)
+	}
+	return patStr
+}
+
+func summaryTask(f map[string]json.RawMessage) string {
+	desc := getString(f, "description")
+	if desc == "" {
+		desc = getString(f, "prompt")
+	}
+	subType := getString(f, "subagentType")
+
+	typePrefix := ""
+	if subType != "" {
+		typePrefix = subType + " - "
+	}
+	if desc != "" {
+		return typePrefix + truncate(desc, 40)
+	}
+	if subType != "" {
+		return subType
+	}
+	return "Task"
+}
+
+func summaryLSP(f map[string]json.RawMessage) string {
+	op := getString(f, "operation")
+	if op == "" {
+		return "LSP"
+	}
+	if fp := getString(f, "filePath"); fp != "" {
+		return op + " - " + filepath.Base(fp)
+	}
+	return op
+}
+
+func summaryWebFetch(f map[string]json.RawMessage) string {
+	rawURL := getString(f, "url")
+	if rawURL == "" {
+		return "WebFetch"
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return truncate(rawURL, 50)
+	}
+	return truncate(u.Hostname()+u.Path, 50)
+}
+
+func summaryWebSearch(f map[string]json.RawMessage) string {
+	q := getString(f, "query")
+	if q == "" {
+		return "WebSearch"
+	}
+	return `"` + truncate(q, 40) + `"`
+}
+
+func summaryTodoWrite(f map[string]json.RawMessage) string {
+	raw, ok := f["todos"]
+	if !ok {
+		return "TodoWrite"
+	}
+	var todos []json.RawMessage
+	if err := json.Unmarshal(raw, &todos); err != nil {
+		return "TodoWrite"
+	}
+	s := "s"
+	if len(todos) == 1 {
+		s = ""
+	}
+	return fmt.Sprintf("%d item%s", len(todos), s)
+}
+
+func summaryNotebookEdit(f map[string]json.RawMessage) string {
+	nbPath := getString(f, "notebook_path")
+	if nbPath == "" {
+		return "NotebookEdit"
+	}
+	base := filepath.Base(nbPath)
+	if mode := getString(f, "edit_mode"); mode != "" {
+		return mode + " - " + base
+	}
+	return base
+}
+
+func summaryTaskCreate(f map[string]json.RawMessage) string {
+	if subj := getString(f, "subject"); subj != "" {
+		return truncate(subj, 50)
+	}
+	return "Create task"
+}
+
+func summaryTaskUpdate(f map[string]json.RawMessage) string {
+	var parts []string
+	if id := getString(f, "taskId"); id != "" {
+		parts = append(parts, "#"+id)
+	}
+	if status := getString(f, "status"); status != "" {
+		parts = append(parts, status)
+	}
+	if owner := getString(f, "owner"); owner != "" {
+		parts = append(parts, "-> "+owner)
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, " ")
+	}
+	return "Update task"
+}
+
+func summarySendMessage(f map[string]json.RawMessage) string {
+	msgType := getString(f, "type")
+	recipient := getString(f, "recipient")
+	summary := getString(f, "summary")
+
+	if msgType == "shutdown_request" && recipient != "" {
+		return "Shutdown " + recipient
+	}
+	if msgType == "shutdown_response" {
+		return "Shutdown response"
+	}
+	if msgType == "broadcast" {
+		return "Broadcast: " + truncate(summary, 30)
+	}
+	if recipient != "" {
+		return "To " + recipient + ": " + truncate(summary, 30)
+	}
+	return "Send message"
+}
+
+func summaryDefault(name string, f map[string]json.RawMessage) string {
+	if len(f) == 0 {
+		return name
+	}
+
+	// Try common parameter names in order.
+	for _, key := range []string{"name", "path", "file", "query", "command"} {
+		if v := getString(f, key); v != "" {
+			return truncate(v, 50)
+		}
+	}
+
+	// Fall back to first string value.
+	for _, raw := range f {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil && s != "" {
+			return truncate(s, 40)
+		}
+	}
 	return name
+}
+
+// --- Helpers ---
+
+// getString extracts a string field from a raw JSON map. Returns "" if missing or wrong type.
+func getString(fields map[string]json.RawMessage, key string) string {
+	raw, ok := fields[key]
+	if !ok {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return s
+}
+
+// getNumber extracts a numeric field from a raw JSON map. Returns 0 if missing or wrong type.
+func getNumber(fields map[string]json.RawMessage, key string) int {
+	raw, ok := fields[key]
+	if !ok {
+		return 0
+	}
+	var n float64
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return 0
+	}
+	return int(n)
+}
+
+// truncate shortens a string to maxLen characters, appending "..." if truncated.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

@@ -204,7 +204,7 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 
 	// 4. AI message: everything else (assistant messages, internal user messages with tool results).
 	if e.Type == "assistant" {
-		thinking, toolCalls := extractAssistantDetails(e.Message.Content)
+		thinking, toolCalls, blocks := extractAssistantDetails(e.Message.Content)
 		stopReason := ""
 		if e.Message.StopReason != nil {
 			stopReason = *e.Message.StopReason
@@ -215,6 +215,7 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 			Text:      SanitizeContent(ExtractText(e.Message.Content)),
 			Thinking:  thinking,
 			ToolCalls: toolCalls,
+			Blocks:    blocks,
 			Usage: Usage{
 				InputTokens:         e.Message.Usage.InputTokens,
 				OutputTokens:        e.Message.Usage.OutputTokens,
@@ -227,10 +228,12 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 
 	// Internal user messages (isMeta=true, tool results) -> AI message.
 	if e.Type == "user" && e.IsMeta {
+		blocks := extractMetaBlocks(e.Message.Content, contentStr)
 		return AIMsg{
 			Timestamp: ts,
 			Text:      contentStr,
 			IsMeta:    true,
+			Blocks:    blocks,
 		}, true
 	}
 
@@ -307,29 +310,127 @@ func isArrayInterruption(raw json.RawMessage) bool {
 	return false
 }
 
-// extractAssistantDetails pulls thinking count and tool calls from an assistant
-// message's content blocks.
-func extractAssistantDetails(raw json.RawMessage) (int, []ToolCall) {
+// extractAssistantDetails pulls thinking count, tool calls, and structured
+// content blocks from an assistant message's content array.
+func extractAssistantDetails(raw json.RawMessage) (int, []ToolCall, []ContentBlock) {
 	var blocks []struct {
-		Type string `json:"type"`
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		Type     string          `json:"type"`
+		ID       string          `json:"id"`
+		Name     string          `json:"name"`
+		Text     string          `json:"text"`
+		Thinking string          `json:"thinking"`
+		Input    json.RawMessage `json:"input"`
 	}
 	if err := json.Unmarshal(raw, &blocks); err != nil {
-		return 0, nil
+		return 0, nil, nil
 	}
 
 	thinking := 0
 	var calls []ToolCall
+	var cblocks []ContentBlock
 	for _, b := range blocks {
 		switch b.Type {
 		case "thinking":
 			thinking++
+			cblocks = append(cblocks, ContentBlock{
+				Type: "thinking",
+				Text: b.Thinking,
+			})
+		case "text":
+			cblocks = append(cblocks, ContentBlock{
+				Type: "text",
+				Text: b.Text,
+			})
 		case "tool_use":
 			if b.ID != "" && b.Name != "" {
 				calls = append(calls, ToolCall{ID: b.ID, Name: b.Name})
 			}
+			cblocks = append(cblocks, ContentBlock{
+				Type:      "tool_use",
+				ToolID:    b.ID,
+				ToolName:  b.Name,
+				ToolInput: b.Input,
+			})
+		default:
+			// Preserve unknown block types as-is.
+			cblocks = append(cblocks, ContentBlock{
+				Type: b.Type,
+				Text: b.Text,
+			})
 		}
 	}
-	return thinking, calls
+	return thinking, calls, cblocks
+}
+
+// extractMetaBlocks parses isMeta user content (tool results) into ContentBlocks.
+// Falls back to a single text block if content isn't a JSON array of tool_result blocks.
+func extractMetaBlocks(raw json.RawMessage, textFallback string) []ContentBlock {
+	var blocks []struct {
+		Type      string          `json:"type"`
+		ToolUseID string          `json:"tool_use_id"`
+		Content   json.RawMessage `json:"content"`
+		IsError   bool            `json:"is_error"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		// String content or unparseable -> single text block.
+		return []ContentBlock{{Type: "text", Text: textFallback}}
+	}
+
+	// Verify we got actual tool_result blocks, not some other array.
+	hasToolResult := false
+	for _, b := range blocks {
+		if b.Type == "tool_result" {
+			hasToolResult = true
+			break
+		}
+	}
+	if !hasToolResult {
+		return []ContentBlock{{Type: "text", Text: textFallback}}
+	}
+
+	var cblocks []ContentBlock
+	for _, b := range blocks {
+		if b.Type != "tool_result" {
+			continue
+		}
+		content := stringifyContent(b.Content)
+		cblocks = append(cblocks, ContentBlock{
+			Type:    "tool_result",
+			ToolID:  b.ToolUseID,
+			Content: content,
+			IsError: b.IsError,
+		})
+	}
+	return cblocks
+}
+
+// stringifyContent converts tool_result content (string or array of text blocks) to a string.
+func stringifyContent(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	// Try string first.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+
+	// Try array of text blocks.
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		var parts []string
+		for _, b := range blocks {
+			if b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+
+	// Last resort: raw JSON string.
+	return string(raw)
 }

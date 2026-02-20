@@ -106,7 +106,14 @@ func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 	return chunks
 }
 
+// pendingTool tracks a tool_use DisplayItem awaiting its result.
+type pendingTool struct {
+	index     int       // index into the items slice
+	timestamp time.Time // tool_use message timestamp
+}
+
 // mergeAIBuffer collapses a buffer of consecutive AI messages into one AI chunk.
+// Populates both flat fields (backward compat) and structured Items.
 func mergeAIBuffer(buf []AIMsg) Chunk {
 	var (
 		texts     []string
@@ -117,7 +124,13 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 		stop      string
 	)
 
+	// Structured items built from ContentBlocks.
+	var items []DisplayItem
+	pending := make(map[string]pendingTool) // ToolID -> pending info
+	hasBlocks := false
+
 	for _, m := range buf {
+		// --- Flat field accumulation (unchanged) ---
 		if m.Text != "" {
 			texts = append(texts, m.Text)
 		}
@@ -128,29 +141,99 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 		usage.CacheReadTokens += m.Usage.CacheReadTokens
 		usage.CacheCreationTokens += m.Usage.CacheCreationTokens
 
-		// Model from first assistant-type (non-meta) message.
 		if model == "" && !m.IsMeta && m.Model != "" {
 			model = m.Model
 		}
-		// StopReason from last assistant-type (non-meta) message.
 		if !m.IsMeta && m.StopReason != "" {
 			stop = m.StopReason
+		}
+
+		// --- Structured item building ---
+		if len(m.Blocks) == 0 {
+			continue
+		}
+		hasBlocks = true
+
+		if !m.IsMeta {
+			// Non-meta messages: create display items from blocks.
+			for _, b := range m.Blocks {
+				switch b.Type {
+				case "thinking":
+					items = append(items, DisplayItem{
+						Type:       ItemThinking,
+						Text:       b.Text,
+						Timestamp:  m.Timestamp,
+						TokenCount: len(b.Text) / 4,
+					})
+				case "text":
+					items = append(items, DisplayItem{
+						Type:       ItemOutput,
+						Text:       b.Text,
+						Timestamp:  m.Timestamp,
+						TokenCount: len(b.Text) / 4,
+					})
+				case "tool_use":
+					inputLen := len(b.ToolInput)
+					item := DisplayItem{
+						Type:        ItemToolCall,
+						ToolName:    b.ToolName,
+						ToolID:      b.ToolID,
+						ToolInput:   b.ToolInput,
+						ToolSummary: ToolSummary(b.ToolName, b.ToolInput),
+						Timestamp:   m.Timestamp,
+						TokenCount:  inputLen / 4,
+					}
+					items = append(items, item)
+					pending[b.ToolID] = pendingTool{
+						index:     len(items) - 1,
+						timestamp: m.Timestamp,
+					}
+				}
+			}
+		} else {
+			// Meta messages: match tool_result blocks to pending tool_use items.
+			for _, b := range m.Blocks {
+				if b.Type != "tool_result" {
+					continue
+				}
+				if p, ok := pending[b.ToolID]; ok {
+					items[p.index].ToolResult = b.Content
+					items[p.index].ToolError = b.IsError
+					if !p.timestamp.IsZero() && !m.Timestamp.IsZero() {
+						items[p.index].DurationMs = m.Timestamp.Sub(p.timestamp).Milliseconds()
+					}
+					items[p.index].TokenCount += len(b.Content) / 4
+					delete(pending, b.ToolID)
+				} else {
+					// Unmatched tool_result -> output item.
+					items = append(items, DisplayItem{
+						Type:       ItemOutput,
+						Text:       b.Content,
+						Timestamp:  m.Timestamp,
+						TokenCount: len(b.Content) / 4,
+					})
+				}
+			}
 		}
 	}
 
 	first := buf[0].Timestamp
 	last := buf[len(buf)-1].Timestamp
 
-	// Only compute duration when both timestamps are valid.
 	var dur int64
 	if !first.IsZero() && !last.IsZero() {
 		dur = last.Sub(first).Milliseconds()
 	}
 
-	// Use the first valid timestamp for the chunk.
 	ts := first
 	if ts.IsZero() {
 		ts = last
+	}
+
+	// Only set Items if we had any blocks to process.
+	var finalItems []DisplayItem
+	if hasBlocks {
+		finalItems = items
 	}
 
 	return Chunk{
@@ -160,6 +243,7 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 		Text:       strings.Join(texts, "\n"),
 		Thinking:   thinking,
 		ToolCalls:  toolCalls,
+		Items:      finalItems,
 		Usage:      usage,
 		StopReason: stop,
 		DurationMs: dur,
