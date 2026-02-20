@@ -4,9 +4,9 @@
 build:
     go build -o ./tail-claude .
 
-# Build and run vet
+# Build, vet, and static analysis
 check:
-    go build ./... && go vet ./...
+    go build ./... && go vet ./... && staticcheck ./...
 
 # Run tests
 test:
