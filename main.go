@@ -971,7 +971,7 @@ func (m model) renderDetailItemsContent(msg message, width int) string {
 		row := m.renderDetailItemRow(item, i, width)
 
 		if m.detailExpanded[i] {
-			expanded := strings.TrimRight(m.renderDetailItemExpanded(item, width), "\n ")
+			expanded := m.renderDetailItemExpanded(item, width)
 			if expanded != "" {
 				row += "\n" + expanded
 			}
