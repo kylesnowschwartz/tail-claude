@@ -32,6 +32,16 @@ const (
 	viewPicker                  // session picker
 )
 
+// tickMsg drives the activity indicator animation.
+type tickMsg time.Time
+
+// tickCmd returns a Bubble Tea command that fires a tickMsg every 150ms.
+func tickCmd() tea.Cmd {
+	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
 // displayItem is a structured element within an AI message's detail view.
 // Mirrors parser.DisplayItem but with pre-formatted fields for rendering.
 type displayItem struct {
@@ -86,11 +96,13 @@ type model struct {
 	md *mdRenderer
 
 	// Live tailing state
-	sessionPath string
-	watching    bool
-	watcher     *sessionWatcher
-	tailSub     chan []message
-	tailErrc    chan error
+	sessionPath    string
+	watching       bool
+	watcher        *sessionWatcher
+	tailSub        chan tailUpdate
+	tailErrc       chan error
+	sessionOngoing bool // whether the watched session is still in progress
+	animFrame      int  // animation frame counter for activity indicator
 
 	// Session picker state
 	pickerSessions []parser.SessionInfo
@@ -104,6 +116,7 @@ type loadResult struct {
 	path       string
 	classified []parser.ClassifiedMsg
 	offset     int64
+	ongoing    bool
 }
 
 // loadSession reads a JSONL session file and converts chunks to display messages.
@@ -133,6 +146,7 @@ func loadSession(path string) (loadResult, error) {
 		path:       path,
 		classified: classified,
 		offset:     offset,
+		ongoing:    parser.IsOngoing(chunks),
 	}, nil
 }
 
@@ -267,10 +281,14 @@ func initialModel(msgs []message, hasDarkBg bool) model {
 
 func (m model) Init() tea.Cmd {
 	if m.watching {
-		return tea.Batch(
+		cmds := []tea.Cmd{
 			waitForTailUpdate(m.tailSub),
 			waitForWatcherErr(m.tailErrc),
-		)
+		}
+		if m.sessionOngoing {
+			cmds = append(cmds, tickCmd())
+		}
+		return tea.Batch(cmds...)
 	}
 	return nil
 }
@@ -287,6 +305,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tickMsg:
+		if m.watching && m.sessionOngoing {
+			m.animFrame++
+			return m, tickCmd()
+		}
+		return m, nil
+
 	case tailUpdateMsg:
 		// Auto-follow: if cursor was on the last message, track the new tail.
 		wasAtEnd := m.cursor >= len(m.messages)-1
@@ -300,7 +325,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.computeLineOffsets()
 		m.ensureCursorVisible()
-		return m, waitForTailUpdate(m.tailSub)
+
+		// Start or stop the animation tick based on ongoing state.
+		wasOngoing := m.sessionOngoing
+		m.sessionOngoing = msg.ongoing
+		cmds := []tea.Cmd{waitForTailUpdate(m.tailSub)}
+		if m.sessionOngoing && !wasOngoing {
+			cmds = append(cmds, tickCmd())
+		}
+		return m, tea.Batch(cmds...)
 
 	case watcherErrMsg:
 		// Transient watcher errors: re-subscribe and keep going.
@@ -332,6 +365,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scroll = 0
 		m.detailCursor = 0
 		m.sessionPath = msg.path
+		m.sessionOngoing = msg.ongoing
+		m.animFrame = 0
 		m.view = viewList
 		m.computeLineOffsets()
 
@@ -342,7 +377,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.watching = true
 		m.tailSub = w.sub
 		m.tailErrc = w.errc
-		return m, tea.Batch(waitForTailUpdate(m.tailSub), waitForWatcherErr(m.tailErrc))
+		cmds := []tea.Cmd{waitForTailUpdate(m.tailSub), waitForWatcherErr(m.tailErrc)}
+		if m.sessionOngoing {
+			cmds = append(cmds, tickCmd())
+		}
+		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
 		switch m.view {
@@ -597,7 +636,7 @@ func (m *model) ensureCursorVisible() {
 	if len(m.lineOffsets) == 0 || m.height == 0 {
 		return
 	}
-	viewHeight := m.height - statusBarHeight - 1 // content area above status bar
+	viewHeight := m.height - statusBarHeight - m.activityIndicatorHeight() - 1 // content area above status bar
 	if viewHeight <= 0 {
 		return
 	}
@@ -618,7 +657,7 @@ func (m *model) ensureCursorVisible() {
 
 // clampListScroll caps the list scroll offset so it can't exceed the content.
 func (m *model) clampListScroll() {
-	viewHeight := m.height - statusBarHeight - 1 // content area above status bar
+	viewHeight := m.height - statusBarHeight - m.activityIndicatorHeight() - 1 // content area above status bar
 	maxScroll := m.totalRenderedLines - viewHeight
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -649,7 +688,7 @@ func (m *model) computeDetailMaxScroll() {
 	content = strings.TrimRight(content, "\n")
 	totalLines := strings.Count(content, "\n") + 1
 
-	viewHeight := m.height - statusBarHeight
+	viewHeight := m.height - statusBarHeight - m.activityIndicatorHeight()
 	if viewHeight <= 0 {
 		viewHeight = 1
 	}
@@ -702,7 +741,7 @@ func (m *model) ensureDetailCursorVisible() {
 		}
 	}
 
-	viewHeight := m.height - statusBarHeight
+	viewHeight := m.height - statusBarHeight - m.activityIndicatorHeight()
 	if viewHeight <= 0 {
 		viewHeight = 1
 	}
@@ -791,13 +830,20 @@ func (m model) viewList() string {
 		lines = lines[m.scroll:]
 	}
 
-	// Truncate to viewport height minus status bar
-	viewHeight := m.height - statusBarHeight - 1
+	// Truncate to viewport height minus status bar and activity indicator
+	indicatorHeight := m.activityIndicatorHeight()
+	viewHeight := m.height - statusBarHeight - indicatorHeight - 1
 	if viewHeight > 0 && len(lines) > viewHeight {
 		lines = lines[:viewHeight]
 	}
 
 	output := strings.Join(lines, "\n")
+
+	// Activity indicator (above status bar, only when ongoing)
+	indicator := m.renderActivityIndicator(m.width)
+	if indicator != "" {
+		output += "\n" + indicator
+	}
 
 	// Status bar
 	status := m.renderStatusBar(
@@ -836,8 +882,9 @@ func (m model) viewDetail() string {
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
 
-	// Reserve lines for the status bar.
-	viewHeight := m.height - statusBarHeight
+	// Reserve lines for the status bar and activity indicator.
+	indicatorHeight := m.activityIndicatorHeight()
+	viewHeight := m.height - statusBarHeight - indicatorHeight
 	if viewHeight <= 0 {
 		viewHeight = 1
 	}
@@ -867,6 +914,12 @@ func (m model) viewDetail() string {
 			pct = scroll * 100 / maxScroll
 		}
 		scrollInfo = fmt.Sprintf("  %d%% (%d/%d)", pct, scroll+viewHeight, totalLines)
+	}
+
+	// Activity indicator (above status bar, only when ongoing)
+	indicator := m.renderActivityIndicator(m.width)
+	if indicator != "" {
+		output += "\n" + indicator
 	}
 
 	// Status bar varies by message type
@@ -951,6 +1004,7 @@ func main() {
 	m.watcher = watcher
 	m.tailSub = watcher.sub
 	m.tailErrc = watcher.errc
+	m.sessionOngoing = result.ongoing
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {

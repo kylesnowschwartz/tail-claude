@@ -24,6 +24,7 @@ type loadSessionMsg struct {
 	path       string
 	classified []parser.ClassifiedMsg
 	offset     int64
+	ongoing    bool
 	err        error
 }
 
@@ -52,6 +53,7 @@ func loadSessionCmd(path string) tea.Cmd {
 			path:       path,
 			classified: classified,
 			offset:     offset,
+			ongoing:    parser.IsOngoing(chunks),
 		}
 	}
 }
