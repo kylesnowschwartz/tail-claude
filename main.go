@@ -56,6 +56,7 @@ type message struct {
 	durationMs    int64
 	timestamp     string
 	items         []displayItem
+	lastOutput    *parser.LastOutput
 }
 
 type model struct {
@@ -154,6 +155,7 @@ func chunksToMessages(chunks []parser.Chunk) []message {
 				durationMs:    c.DurationMs,
 				timestamp:     formatTime(c.Timestamp),
 				items:         convertDisplayItems(c.Items),
+				lastOutput:    parser.FindLastOutput(c.Items),
 			})
 		case parser.SystemChunk:
 			msgs = append(msgs, message{
