@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -183,9 +184,20 @@ func TestDiscoverSubagents_EmptySubagentsDir(t *testing.T) {
 
 // --- LinkSubagents tests ---
 
-// makeTaskChunk builds an AI chunk with a Task tool call and tool result.
-func makeTaskChunk(toolID, agentID, subagentType, desc string) parser.Chunk {
-	result := "Task completed successfully.\nagentId: " + agentID + "\ntotalTokens: 500"
+// writeParentSession creates a temp JSONL file with tool result entries
+// containing structured toolUseResult and sourceToolUseID fields.
+func writeParentSession(t *testing.T, entries []string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "parent.jsonl")
+	content := strings.Join(entries, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// makeTaskChunk builds an AI chunk with a Task tool call DisplayItem.
+func makeTaskChunk(toolID, subagentType, desc string) parser.Chunk {
 	input, _ := json.Marshal(map[string]string{
 		"subagent_type": subagentType,
 		"description":   desc,
@@ -199,7 +211,6 @@ func makeTaskChunk(toolID, agentID, subagentType, desc string) parser.Chunk {
 				ToolName:     "Task",
 				ToolID:       toolID,
 				ToolInput:    json.RawMessage(input),
-				ToolResult:   result,
 				SubagentType: subagentType,
 				SubagentDesc: desc,
 			},
@@ -213,11 +224,17 @@ func TestLinkSubagents_ResultBased(t *testing.T) {
 		{ID: "def5678", StartTime: time.Date(2025, 6, 15, 10, 1, 0, 0, time.UTC)},
 	}
 	chunks := []parser.Chunk{
-		makeTaskChunk("tool-1", "abc1234", "Explore", "Search codebase"),
-		makeTaskChunk("tool-2", "def5678", "Plan", "Design architecture"),
+		makeTaskChunk("tool-1", "Explore", "Search codebase"),
+		makeTaskChunk("tool-2", "Plan", "Design architecture"),
 	}
 
-	parser.LinkSubagents(procs, chunks)
+	// Parent session with structured toolUseResult entries.
+	parentPath := writeParentSession(t, []string{
+		`{"uuid":"r1","type":"user","timestamp":"2025-06-15T10:00:05Z","isMeta":true,"sourceToolUseID":"tool-1","toolUseResult":{"agentId":"abc1234","status":"completed"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"Done."}]}}`,
+		`{"uuid":"r2","type":"user","timestamp":"2025-06-15T10:01:10Z","isMeta":true,"sourceToolUseID":"tool-2","toolUseResult":{"agentId":"def5678","status":"completed"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-2","content":"Done."}]}}`,
+	})
+
+	parser.LinkSubagents(procs, chunks, parentPath)
 
 	if procs[0].ParentTaskID != "tool-1" {
 		t.Errorf("procs[0].ParentTaskID = %q, want %q", procs[0].ParentTaskID, "tool-1")
@@ -237,12 +254,31 @@ func TestLinkSubagents_ResultBased(t *testing.T) {
 	}
 }
 
+func TestLinkSubagents_SnakeCaseAgentID(t *testing.T) {
+	// claude-devtools checks both agentId and agent_id (snake_case for team spawns).
+	procs := []parser.SubagentProcess{
+		{ID: "team-abc", StartTime: time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)},
+	}
+	chunks := []parser.Chunk{
+		makeTaskChunk("tool-team", "general-purpose", "Team work"),
+	}
+
+	parentPath := writeParentSession(t, []string{
+		`{"uuid":"r1","type":"user","timestamp":"2025-06-15T10:00:05Z","isMeta":true,"sourceToolUseID":"tool-team","toolUseResult":{"agent_id":"team-abc","status":"teammate_spawned"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-team","content":"Spawned."}]}}`,
+	})
+
+	parser.LinkSubagents(procs, chunks, parentPath)
+
+	if procs[0].ParentTaskID != "tool-team" {
+		t.Errorf("procs[0].ParentTaskID = %q, want %q", procs[0].ParentTaskID, "tool-team")
+	}
+}
+
 func TestLinkSubagents_PositionalFallback(t *testing.T) {
 	procs := []parser.SubagentProcess{
 		{ID: "nomatch1", StartTime: time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)},
 	}
 
-	// Task call with no agentId in result.
 	input, _ := json.Marshal(map[string]string{
 		"subagent_type": "general-purpose",
 		"description":   "Fix the bug",
@@ -257,7 +293,6 @@ func TestLinkSubagents_PositionalFallback(t *testing.T) {
 					ToolName:     "Task",
 					ToolID:       "tool-99",
 					ToolInput:    json.RawMessage(input),
-					ToolResult:   "Done, no agentId here.",
 					SubagentType: "general-purpose",
 					SubagentDesc: "Fix the bug",
 				},
@@ -265,7 +300,12 @@ func TestLinkSubagents_PositionalFallback(t *testing.T) {
 		},
 	}
 
-	parser.LinkSubagents(procs, chunks)
+	// Empty parent session -- no structured links, falls back to positional.
+	parentPath := writeParentSession(t, []string{
+		`{"uuid":"x","type":"user","timestamp":"2025-01-01T00:00:00Z","message":{"role":"user","content":"hi"}}`,
+	})
+
+	parser.LinkSubagents(procs, chunks, parentPath)
 
 	if procs[0].ParentTaskID != "tool-99" {
 		t.Errorf("procs[0].ParentTaskID = %q, want %q (positional fallback)", procs[0].ParentTaskID, "tool-99")
@@ -280,7 +320,7 @@ func TestLinkSubagents_UnmatchedKeepsEmpty(t *testing.T) {
 		{ID: "orphan1"},
 	}
 	// No parent chunks at all.
-	parser.LinkSubagents(procs, nil)
+	parser.LinkSubagents(procs, nil, "")
 
 	if procs[0].ParentTaskID != "" {
 		t.Errorf("unmatched procs[0].ParentTaskID = %q, want empty", procs[0].ParentTaskID)
@@ -292,10 +332,10 @@ func TestLinkSubagents_UnmatchedKeepsEmpty(t *testing.T) {
 
 func TestLinkSubagents_NoProcesses(t *testing.T) {
 	chunks := []parser.Chunk{
-		makeTaskChunk("tool-1", "abc", "Explore", "Search"),
+		makeTaskChunk("tool-1", "Explore", "Search"),
 	}
 	// Should not panic with empty processes.
-	parser.LinkSubagents(nil, chunks)
+	parser.LinkSubagents(nil, chunks, "")
 }
 
 func TestLinkSubagents_MixedMatching(t *testing.T) {
@@ -317,7 +357,6 @@ func TestLinkSubagents_MixedMatching(t *testing.T) {
 					ToolName:     "Task",
 					ToolID:       "tool-A",
 					ToolInput:    json.RawMessage(input1),
-					ToolResult:   "agentId: matched1\nDone.",
 					SubagentType: "Explore",
 					SubagentDesc: "Find files",
 				},
@@ -326,7 +365,6 @@ func TestLinkSubagents_MixedMatching(t *testing.T) {
 					ToolName:     "Task",
 					ToolID:       "tool-B",
 					ToolInput:    json.RawMessage(input2),
-					ToolResult:   "Completed without agentId.",
 					SubagentType: "Plan",
 					SubagentDesc: "Plan work",
 				},
@@ -334,9 +372,14 @@ func TestLinkSubagents_MixedMatching(t *testing.T) {
 		},
 	}
 
-	parser.LinkSubagents(procs, chunks)
+	// Parent session only has a structured link for matched1, not unmatched1.
+	parentPath := writeParentSession(t, []string{
+		`{"uuid":"r1","type":"user","timestamp":"2025-06-15T10:00:05Z","isMeta":true,"sourceToolUseID":"tool-A","toolUseResult":{"agentId":"matched1","status":"completed"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-A","content":"Done."}]}}`,
+	})
 
-	// matched1 linked by agentId.
+	parser.LinkSubagents(procs, chunks, parentPath)
+
+	// matched1 linked by structured agentId.
 	if procs[0].ParentTaskID != "tool-A" {
 		t.Errorf("procs[0].ParentTaskID = %q, want %q", procs[0].ParentTaskID, "tool-A")
 	}
