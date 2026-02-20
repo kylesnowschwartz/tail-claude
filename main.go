@@ -993,12 +993,14 @@ func (m model) renderDetailItemRow(item displayItem, index int, width int) strin
 	green := lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
 	red := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 
+	blue := lipgloss.NewStyle().Foreground(lipgloss.Color("69"))
+
 	switch item.itemType {
 	case parser.ItemThinking:
 		indicator = dim.Render("\u25cb") // open circle
 		name = "Thinking"
 	case parser.ItemOutput:
-		indicator = dim.Render("\u25cb")
+		indicator = blue.Render("\u25cb")
 		name = "Output"
 	case parser.ItemToolCall:
 		if item.toolError {
