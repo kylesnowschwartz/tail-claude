@@ -216,6 +216,11 @@ func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 		path := filepath.Join(projectDir, name)
 		firstMsg, msgCount := scanSessionPreview(path)
 
+		// Skip ghost sessions (e.g. only file-history-snapshot entries).
+		if msgCount == 0 {
+			continue
+		}
+
 		sessions = append(sessions, SessionInfo{
 			Path:         path,
 			SessionID:    strings.TrimSuffix(name, ".jsonl"),
