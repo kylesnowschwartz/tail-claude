@@ -21,6 +21,7 @@ var (
 var (
 	ColorAccent  = lipgloss.AdaptiveColor{Light: "4", Dark: "75"}
 	ColorSuccess = lipgloss.AdaptiveColor{Light: "2", Dark: "76"}
+	ColorWarning = lipgloss.AdaptiveColor{Light: "3", Dark: "214"} // yellow/orange
 	ColorError   = lipgloss.AdaptiveColor{Light: "1", Dark: "196"}
 	ColorInfo    = lipgloss.AdaptiveColor{Light: "4", Dark: "69"}
 )

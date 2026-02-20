@@ -45,6 +45,7 @@ type displayItem struct {
 	tokenCount   int
 	subagentType string
 	subagentDesc string
+	teammateID   string
 }
 
 type message struct {
@@ -198,6 +199,7 @@ func convertDisplayItems(items []parser.DisplayItem) []displayItem {
 			tokenCount:   it.TokenCount,
 			subagentType: it.SubagentType,
 			subagentDesc: it.SubagentDesc,
+			teammateID:   it.TeammateID,
 		}
 	}
 	return out

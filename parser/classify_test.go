@@ -497,3 +497,52 @@ func TestClassify_MetaUser_ToolResultWithArrayContent(t *testing.T) {
 		t.Error("Content should not be empty for array content")
 	}
 }
+
+// --- Teammate message classification tests ---
+
+func jsonStr(s string) json.RawMessage {
+	b, _ := json.Marshal(s)
+	return b
+}
+
+func TestClassify_TeammateMessageProducesTeammateMsg(t *testing.T) {
+	content := `<teammate-message teammate_id="researcher">Task #1 is done</teammate-message>`
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("teammate message should not be filtered")
+	}
+
+	tm, is := msg.(parser.TeammateMsg)
+	if !is {
+		t.Fatalf("got %T, want TeammateMsg", msg)
+	}
+	if tm.TeammateID != "researcher" {
+		t.Errorf("TeammateID = %q, want researcher", tm.TeammateID)
+	}
+	if tm.Text != "Task #1 is done" {
+		t.Errorf("Text = %q, want 'Task #1 is done'", tm.Text)
+	}
+}
+
+func TestClassify_TeammateMessageExtractsContent(t *testing.T) {
+	content := "<teammate-message teammate_id=\"lead\">You are working on task #1.\nPlease commit when done.</teammate-message>"
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("teammate message should not be filtered")
+	}
+
+	tm, is := msg.(parser.TeammateMsg)
+	if !is {
+		t.Fatalf("got %T, want TeammateMsg", msg)
+	}
+	if tm.TeammateID != "lead" {
+		t.Errorf("TeammateID = %q, want lead", tm.TeammateID)
+	}
+	if tm.Text == "" {
+		t.Error("Text should not be empty")
+	}
+}

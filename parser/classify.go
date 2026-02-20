@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// ClassifiedMsg is a sealed interface representing the three message categories
+// ClassifiedMsg is a sealed interface representing the message categories
 // that survive noise filtering. Noise entries are dropped, not classified.
 type ClassifiedMsg interface {
 	classifiedMsg()
@@ -74,6 +74,16 @@ type SystemMsg struct {
 
 func (SystemMsg) classifiedMsg() {}
 
+// TeammateMsg represents a message from a teammate agent.
+// Folded into the AI turn during chunk building rather than starting a new user chunk.
+type TeammateMsg struct {
+	Timestamp  time.Time
+	Text       string // sanitized inner content
+	TeammateID string
+}
+
+func (TeammateMsg) classifiedMsg() {}
+
 // --- Hard noise detection ---
 
 // noiseEntryTypes are entry types that never produce visible messages.
@@ -103,8 +113,10 @@ var emptyStdout = "<local-command-stdout></local-command-stdout>"
 var emptyStderr = "<local-command-stderr></local-command-stderr>"
 
 var teammateMessageRe = regexp.MustCompile(`^<teammate-message\s+teammate_id="[^"]+"`)
+var teammateIDRe = regexp.MustCompile(`teammate_id="([^"]+)"`)
+var teammateContentRe = regexp.MustCompile(`(?s)<teammate-message[^>]*>(.*)</teammate-message>`)
 
-// Classify maps a raw Entry to one of the three ClassifiedMsg types.
+// Classify maps a raw Entry to one of the classified message types.
 // Returns false for noise entries (filtered out) and sidechain messages.
 func Classify(e Entry) (ClassifiedMsg, bool) {
 	// Filter sidechain messages - we only care about main thread.
@@ -154,9 +166,15 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 			return nil, false
 		}
 
-		// Teammate messages are filtered (rendered separately in the TUI).
+		// Teammate messages: classify as TeammateMsg instead of filtering.
 		if teammateMessageRe.MatchString(trimmed) {
-			return nil, false
+			teammateID := extractTeammateID(trimmed)
+			text := SanitizeContent(extractTeammateContent(trimmed))
+			return TeammateMsg{
+				Timestamp:  ts,
+				Text:       text,
+				TeammateID: teammateID,
+			}, true
 		}
 	}
 
@@ -233,6 +251,24 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 		Text:      contentStr,
 		IsMeta:    true,
 	}, true
+}
+
+// extractTeammateID extracts the teammate_id attribute from a teammate-message XML tag.
+func extractTeammateID(s string) string {
+	m := teammateIDRe.FindStringSubmatch(s)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+// extractTeammateContent extracts the inner text content from a teammate-message XML wrapper.
+func extractTeammateContent(s string) string {
+	m := teammateContentRe.FindStringSubmatch(s)
+	if m == nil {
+		return s // fallback to full string if no match
+	}
+	return strings.TrimSpace(m[1])
 }
 
 // parseTimestamp parses an ISO 8601 timestamp. Returns zero time on failure.

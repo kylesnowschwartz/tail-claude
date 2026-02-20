@@ -613,3 +613,88 @@ func TestBuildChunks_Items_NonTaskToolStillToolCall(t *testing.T) {
 		t.Errorf("Type = %d, want ItemToolCall (not ItemSubagent)", items[0].Type)
 	}
 }
+
+// --- ItemTeammateMessage tests ---
+
+func TestBuildChunks_TeammateMessageFoldsIntoAITurn(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			Text:      "Working on it",
+			Blocks: []parser.ContentBlock{
+				{Type: "text", Text: "Working on it"},
+			},
+		},
+		parser.TeammateMsg{
+			Timestamp:  t0.Add(1 * time.Second),
+			Text:       "Task #1 is done",
+			TeammateID: "researcher",
+		},
+		parser.AIMsg{
+			Timestamp: t0.Add(2 * time.Second),
+			Model:     "claude-opus-4-6",
+			Text:      "Got the update",
+			Blocks: []parser.ContentBlock{
+				{Type: "text", Text: "Got the update"},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	// Should be a single AI chunk (teammate doesn't split the turn)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1 (teammate folds into AI turn)", len(chunks))
+	}
+
+	items := chunks[0].Items
+	// text + teammate + text = 3 items
+	if len(items) != 3 {
+		t.Fatalf("len(Items) = %d, want 3", len(items))
+	}
+
+	if items[0].Type != parser.ItemOutput {
+		t.Errorf("Items[0].Type = %d, want ItemOutput", items[0].Type)
+	}
+	if items[1].Type != parser.ItemTeammateMessage {
+		t.Errorf("Items[1].Type = %d, want ItemTeammateMessage", items[1].Type)
+	}
+	if items[1].TeammateID != "researcher" {
+		t.Errorf("Items[1].TeammateID = %q, want researcher", items[1].TeammateID)
+	}
+	if items[1].Text != "Task #1 is done" {
+		t.Errorf("Items[1].Text = %q, want 'Task #1 is done'", items[1].Text)
+	}
+	if items[2].Type != parser.ItemOutput {
+		t.Errorf("Items[2].Type = %d, want ItemOutput", items[2].Type)
+	}
+}
+
+func TestBuildChunks_TeammateMessageBeforeAI(t *testing.T) {
+	// Teammate message arrives before any AI response -- should still produce a chunk
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.UserMsg{Timestamp: t0, Text: "Go"},
+		parser.TeammateMsg{
+			Timestamp:  t0.Add(1 * time.Second),
+			Text:       "Starting work",
+			TeammateID: "worker-1",
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks) = %d, want 2 (user + AI from teammate)", len(chunks))
+	}
+	if chunks[0].Type != parser.UserChunk {
+		t.Errorf("chunks[0].Type = %d, want UserChunk", chunks[0].Type)
+	}
+	if chunks[1].Type != parser.AIChunk {
+		t.Errorf("chunks[1].Type = %d, want AIChunk", chunks[1].Type)
+	}
+	if len(chunks[1].Items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(chunks[1].Items))
+	}
+	if chunks[1].Items[0].Type != parser.ItemTeammateMessage {
+		t.Errorf("Items[0].Type = %d, want ItemTeammateMessage", chunks[1].Items[0].Type)
+	}
+}

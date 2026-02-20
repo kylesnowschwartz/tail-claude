@@ -10,10 +10,11 @@ import (
 type DisplayItemType int
 
 const (
-	ItemThinking DisplayItemType = iota
+	ItemThinking        DisplayItemType = iota
 	ItemOutput
 	ItemToolCall
-	ItemSubagent // Task tool spawned subagent
+	ItemSubagent        // Task tool spawned subagent
+	ItemTeammateMessage // message from a teammate agent
 )
 
 // DisplayItem is a structured element within an AI chunk's detail view.
@@ -33,9 +34,12 @@ type DisplayItem struct {
 	// Subagent fields (ItemSubagent only)
 	SubagentType string // "Explore", "Plan", "general-purpose", etc.
 	SubagentDesc string // Task description
+
+	// Teammate fields (ItemTeammateMessage only)
+	TeammateID string
 }
 
-// ChunkType discriminates the three chunk categories.
+// ChunkType discriminates the chunk categories.
 type ChunkType int
 
 const (
@@ -70,6 +74,7 @@ type Chunk struct {
 // BuildChunks folds classified messages into display chunks.
 // The algorithm buffers consecutive AI messages and flushes them into a single
 // AI chunk whenever a User or System message appears (or at end of input).
+// TeammateMsg entries fold into the current AI buffer rather than starting new chunks.
 func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 	var chunks []Chunk
 	var aiBuf []AIMsg
@@ -100,6 +105,19 @@ func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 			})
 		case AIMsg:
 			aiBuf = append(aiBuf, m)
+		case TeammateMsg:
+			// Fold teammate messages into the AI buffer as synthetic AIMsg
+			// with a "teammate" content block. This keeps them within the
+			// AI turn rather than splitting it.
+			aiBuf = append(aiBuf, AIMsg{
+				Timestamp: m.Timestamp,
+				IsMeta:    true,
+				Blocks: []ContentBlock{{
+					Type:   "teammate",
+					Text:   m.Text,
+					ToolID: m.TeammateID,
+				}},
+			})
 		}
 	}
 	flush()
@@ -206,26 +224,34 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 				}
 			}
 		} else {
-			// Meta messages: match tool_result blocks to pending tool_use items.
+			// Meta messages: match tool_result blocks and handle teammate blocks.
 			for _, b := range m.Blocks {
-				if b.Type != "tool_result" {
-					continue
-				}
-				if p, ok := pending[b.ToolID]; ok {
-					items[p.index].ToolResult = b.Content
-					items[p.index].ToolError = b.IsError
-					if !p.timestamp.IsZero() && !m.Timestamp.IsZero() {
-						items[p.index].DurationMs = m.Timestamp.Sub(p.timestamp).Milliseconds()
+				switch b.Type {
+				case "tool_result":
+					if p, ok := pending[b.ToolID]; ok {
+						items[p.index].ToolResult = b.Content
+						items[p.index].ToolError = b.IsError
+						if !p.timestamp.IsZero() && !m.Timestamp.IsZero() {
+							items[p.index].DurationMs = m.Timestamp.Sub(p.timestamp).Milliseconds()
+						}
+						items[p.index].TokenCount += len(b.Content) / 4
+						delete(pending, b.ToolID)
+					} else {
+						// Unmatched tool_result -> output item.
+						items = append(items, DisplayItem{
+							Type:       ItemOutput,
+							Text:       b.Content,
+							Timestamp:  m.Timestamp,
+							TokenCount: len(b.Content) / 4,
+						})
 					}
-					items[p.index].TokenCount += len(b.Content) / 4
-					delete(pending, b.ToolID)
-				} else {
-					// Unmatched tool_result -> output item.
+				case "teammate":
 					items = append(items, DisplayItem{
-						Type:       ItemOutput,
-						Text:       b.Content,
+						Type:       ItemTeammateMessage,
+						Text:       b.Text,
+						TeammateID: b.ToolID, // teammate_id stored in ToolID field
 						Timestamp:  m.Timestamp,
-						TokenCount: len(b.Content) / 4,
+						TokenCount: len(b.Text) / 4,
 					})
 				}
 			}

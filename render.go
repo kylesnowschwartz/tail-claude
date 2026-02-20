@@ -321,6 +321,12 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 		if name == "" {
 			name = "Subagent"
 		}
+	case parser.ItemTeammateMessage:
+		indicator = lipgloss.NewStyle().Foreground(ColorWarning).Render(IconTeammate)
+		name = item.teammateID
+		if name == "" {
+			name = "Teammate"
+		}
 	}
 
 	// Pad name to 12 chars
@@ -339,6 +345,8 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 		if summary == "" {
 			summary = item.toolSummary
 		}
+	case parser.ItemTeammateMessage:
+		summary = truncate(item.text, 60)
 	}
 	summaryRendered := lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(summary)
 
@@ -371,7 +379,7 @@ func (m model) renderDetailItemExpanded(item displayItem, width int) string {
 	indent := "    "
 
 	switch item.itemType {
-	case parser.ItemThinking, parser.ItemOutput:
+	case parser.ItemThinking, parser.ItemOutput, parser.ItemTeammateMessage:
 		text := strings.TrimSpace(item.text)
 		if text == "" {
 			return ""
