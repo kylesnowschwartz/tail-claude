@@ -677,10 +677,7 @@ func (m *model) computeDetailMaxScroll() {
 	case RoleUser:
 		header = lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("You") +
 			"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
-		bodyStyle := lipgloss.NewStyle().
-			Foreground(ColorTextPrimary).
-			Width(width - 4)
-		body = bodyStyle.Render(msg.content)
+		body = m.md.renderMarkdown(msg.content, width-4)
 	case RoleSystem:
 		header = lipgloss.NewStyle().Foreground(ColorTextSecondary).Render("System") +
 			"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
@@ -882,10 +879,7 @@ func (m model) viewDetail() string {
 		case RoleUser:
 			header = lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("You") +
 				"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
-			bodyStyle := lipgloss.NewStyle().
-				Foreground(ColorTextPrimary).
-				Width(width - 4)
-			body = bodyStyle.Render(msg.content)
+			body = m.md.renderMarkdown(msg.content, width-4)
 		case RoleSystem:
 			header = lipgloss.NewStyle().Foreground(ColorTextSecondary).Render("System") +
 				"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
@@ -1225,7 +1219,7 @@ func (m model) renderMessage(msg message, containerWidth int, isSelected, isExpa
 	case RoleClaude:
 		return m.renderClaudeMessage(msg, containerWidth, isSelected, isExpanded)
 	case RoleUser:
-		return renderUserMessage(msg, containerWidth, isSelected, isExpanded)
+		return m.renderUserMessage(msg, containerWidth, isSelected, isExpanded)
 	case RoleSystem:
 		return renderSystemMessage(msg, containerWidth, isSelected, isExpanded)
 	default:
@@ -1354,15 +1348,12 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 		}
 	}
 
-	wrapWidth := maxWidth - 8 // subtract body padding (2 each side)
-	if wrapWidth < 20 {
-		wrapWidth = 20
+	// Card padding: 2 each side = 4 cols (border is outside Width)
+	contentWidth := maxWidth - 4
+	if contentWidth < 20 {
+		contentWidth = 20
 	}
-	rendered := m.md.renderMarkdown(content, wrapWidth)
-	body := lipgloss.NewStyle().
-		Width(maxWidth - 4).
-		Padding(0, 2).
-		Render(rendered)
+	body := m.md.renderMarkdown(content, contentWidth)
 
 	cardBorderColor := ColorBorder
 	if isSelected {
@@ -1373,7 +1364,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(cardBorderColor).
 		Width(maxWidth).
-		Padding(0, 1)
+		Padding(0, 2)
 
 	card := cardStyle.Render(body)
 
@@ -1390,7 +1381,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 // maxCollapsedLines is the maximum content lines shown when a message is collapsed.
 const maxCollapsedLines = 6
 
-func renderUserMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
+func (m model) renderUserMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
 	sel := selectionIndicator(isSelected)
 	maxBubbleWidth := containerWidth * 3 / 4
 
@@ -1419,27 +1410,35 @@ func renderUserMessage(msg message, containerWidth int, isSelected, isExpanded b
 	}
 
 	content := msg.content
+	var hint string
 
 	// Truncate long user messages when collapsed
 	if !isExpanded {
 		lines := strings.Split(content, "\n")
 		if len(lines) > maxCollapsedLines {
 			content = strings.Join(lines[:maxCollapsedLines], "\n")
-			hint := lipgloss.NewStyle().Foreground(ColorTextDim).
+			hint = lipgloss.NewStyle().Foreground(ColorTextDim).
 				Render(fmt.Sprintf("… (%d lines hidden)", len(lines)-maxCollapsedLines))
-			content += "\n" + hint
 		}
+	}
+
+	// Render markdown content inside the bubble, then append the hint
+	bubbleInnerWidth := maxBubbleWidth - 6 // subtract border (2) + padding (4)
+	if bubbleInnerWidth < 20 {
+		bubbleInnerWidth = 20
+	}
+	rendered := m.md.renderMarkdown(content, bubbleInnerWidth)
+	if hint != "" {
+		rendered += "\n" + hint
 	}
 
 	bubbleStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(bubbleBorderColor).
-		Background(ColorBubbleBg).
-		Foreground(ColorTextPrimary).
 		Padding(0, 2).
 		MaxWidth(maxBubbleWidth)
 
-	bubble := bubbleStyle.Render(content)
+	bubble := bubbleStyle.Render(rendered)
 	alignedBubble := lipgloss.PlaceHorizontal(containerWidth, lipgloss.Right, bubble)
 
 	return header + "\n" + alignedBubble
