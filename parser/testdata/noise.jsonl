@@ -1,0 +1,11 @@
+{"uuid":"u1","type":"user","timestamp":"2025-01-15T10:00:00.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"What files are in this directory?"}}
+{"uuid":"n1","type":"system","timestamp":"2025-01-15T10:00:01.000Z","isSidechain":false,"isMeta":false,"message":{"role":"system","content":"You are Claude."}}
+{"uuid":"n2","type":"summary","timestamp":"2025-01-15T10:00:01.500Z","isSidechain":false,"isMeta":false,"message":{"role":"assistant","content":"Summary of conversation."}}
+{"uuid":"a1","type":"assistant","timestamp":"2025-01-15T10:00:02.000Z","isSidechain":false,"isMeta":false,"message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think about this..."},{"type":"text","text":"Here are the files in the directory."},{"type":"tool_use","id":"tool_1","name":"Bash","input":{"command":"ls"}}],"model":"claude-sonnet-4-5-20251001","stop_reason":"tool_use","usage":{"input_tokens":200,"output_tokens":75,"cache_read_input_tokens":50,"cache_creation_input_tokens":10}}}
+{"uuid":"sc1","type":"assistant","timestamp":"2025-01-15T10:00:02.500Z","isSidechain":true,"isMeta":false,"message":{"role":"assistant","content":[{"type":"text","text":"Sidechain message"}],"model":"claude-opus-4-6"}}
+{"uuid":"n3","type":"assistant","timestamp":"2025-01-15T10:00:03.000Z","isSidechain":false,"isMeta":false,"message":{"role":"assistant","content":"synthetic response","model":"<synthetic>"}}
+{"uuid":"m1","type":"user","timestamp":"2025-01-15T10:00:03.500Z","isSidechain":false,"isMeta":true,"message":{"role":"user","content":"Tool result: file1.go file2.go"}}
+{"uuid":"n4","type":"user","timestamp":"2025-01-15T10:00:04.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"<system-reminder>Remember to be helpful.</system-reminder>"}}
+{"uuid":"n5","type":"user","timestamp":"2025-01-15T10:00:04.500Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"<local-command-stdout></local-command-stdout>"}}
+{"uuid":"n6","type":"user","timestamp":"2025-01-15T10:00:05.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"[Request interrupted by user at 2025-01-15T10:00:05Z]"}}
+{"uuid":"u2","type":"user","timestamp":"2025-01-15T10:00:06.000Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"Thanks, that's helpful!"}}
