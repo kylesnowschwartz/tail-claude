@@ -25,6 +25,7 @@ type viewState int
 const (
 	viewList   viewState = iota // message list (main view)
 	viewDetail                  // full-screen single message
+	viewPicker                  // session picker
 )
 
 type message struct {
@@ -65,6 +66,11 @@ type model struct {
 	watching    bool
 	tailSub     chan []message
 	tailErrc    chan error
+
+	// Session picker state
+	pickerSessions []parser.SessionInfo
+	pickerCursor   int
+	pickerScroll   int
 }
 
 // loadResult holds everything needed to bootstrap the TUI and watcher.
@@ -249,11 +255,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Transient watcher errors: re-subscribe and keep going.
 		return m, waitForWatcherErr(m.tailErrc)
 
-	case tea.KeyMsg:
-		if m.view == viewDetail {
-			return m.updateDetail(msg)
+	case pickerSessionsMsg:
+		if msg.err != nil {
+			// Fall back to list view on error.
+			return m, nil
 		}
-		return m.updateList(msg)
+		m.pickerSessions = msg.sessions
+		m.pickerCursor = 0
+		m.pickerScroll = 0
+		m.view = viewPicker
+		return m, nil
+
+	case loadSessionMsg:
+		if msg.err != nil || len(msg.messages) == 0 {
+			return m, nil
+		}
+		m.messages = msg.messages
+		m.expanded = make(map[int]bool)
+		m.cursor = 0
+		m.scroll = 0
+		m.sessionPath = msg.path
+		m.view = viewList
+		m.computeLineOffsets()
+		return m, nil
+
+	case tea.KeyMsg:
+		switch m.view {
+		case viewDetail:
+			return m.updateDetail(msg)
+		case viewPicker:
+			return m.updatePicker(msg)
+		default:
+			return m.updateList(msg)
+		}
 
 	case tea.MouseMsg:
 		if m.view == viewDetail {
@@ -326,6 +360,9 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.computeLineOffsets()
 		m.ensureCursorVisible()
+	case "s":
+		// Open session picker
+		return m, loadPickerSessionsCmd
 	case "J", "ctrl+d":
 		// Scroll viewport down (half page)
 		m.scroll += m.height / 2
@@ -567,10 +604,14 @@ func (m model) View() string {
 		return "Loading..."
 	}
 
-	if m.view == viewDetail {
+	switch m.view {
+	case viewDetail:
 		return m.viewDetail()
+	case viewPicker:
+		return m.viewPicker()
+	default:
+		return m.viewList()
 	}
-	return m.viewList()
 }
 
 // viewList renders the message list (main view).
@@ -611,6 +652,7 @@ func (m model) viewList() string {
 		"tab", "toggle",
 		"enter", "detail",
 		"e/c", "expand/collapse",
+		"s", "sessions",
 		"q", "quit",
 	)
 
