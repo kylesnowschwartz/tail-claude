@@ -1,1 +1,18 @@
+# Binary
 tail-claude
+
+# Agent artifacts
+.agent-history/
+.cloned-sources/
+.worktrees/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
