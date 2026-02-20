@@ -988,7 +988,7 @@ func (m model) renderDetailItemRow(item displayItem, index int, width int) strin
 	// Cursor indicator
 	cursor := "  "
 	if index == m.detailCursor {
-		cursor = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent).Render("> ")
+		cursor = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent).Render(IconCursor + " ")
 	}
 
 	// Type indicator and name
@@ -1001,16 +1001,16 @@ func (m model) renderDetailItemRow(item displayItem, index int, width int) strin
 
 	switch item.itemType {
 	case parser.ItemThinking:
-		indicator = dim.Render("\u25cb") // open circle
+		indicator = dim.Render(IconThinking)
 		name = "Thinking"
 	case parser.ItemOutput:
-		indicator = blue.Render("\u25cb")
+		indicator = blue.Render(IconOutput)
 		name = "Output"
 	case parser.ItemToolCall:
 		if item.toolError {
-			indicator = red.Render("\u25cf") // filled circle
+			indicator = red.Render(IconToolErr)
 		} else {
-			indicator = green.Render("\u25cf")
+			indicator = green.Render(IconToolOk)
 		}
 		name = item.toolName
 	}
@@ -1129,7 +1129,7 @@ func indentBlock(text string, indent string) string {
 
 // renderDetailHeader renders metadata for the detail view header.
 func (m model) renderDetailHeader(msg message, width int) string {
-	icon := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true).Render("C")
+	icon := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true).Render(IconClaude)
 	modelName := lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("Claude")
 	modelVer := lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(msg.model)
 
@@ -1241,15 +1241,15 @@ func renderMessage(msg message, containerWidth int, isSelected, isExpanded bool)
 // chevron returns the expand/collapse indicator
 func chevron(expanded bool) string {
 	if expanded {
-		return lipgloss.NewStyle().Foreground(ColorTextPrimary).Render("▼")
+		return lipgloss.NewStyle().Foreground(ColorTextPrimary).Render(IconExpanded)
 	}
-	return lipgloss.NewStyle().Foreground(ColorTextDim).Render("▶")
+	return lipgloss.NewStyle().Foreground(ColorTextDim).Render(IconCollapsed)
 }
 
 // selectionIndicator returns a left-margin marker for the selected message
 func selectionIndicator(selected bool) string {
 	if selected {
-		return lipgloss.NewStyle().Foreground(ColorAccent).Render("│ ")
+		return lipgloss.NewStyle().Foreground(ColorAccent).Render(IconSelected + " ")
 	}
 	return "  "
 }
@@ -1273,7 +1273,7 @@ func renderClaudeMessage(msg message, containerWidth int, isSelected, isExpanded
 	icon := lipgloss.NewStyle().
 		Foreground(ColorInfo).
 		Bold(true).
-		Render("C")
+		Render(IconClaude)
 
 	modelName := lipgloss.NewStyle().
 		Bold(true).
@@ -1463,7 +1463,7 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 		Foreground(ColorTextDim).
 		Render(msg.content)
 
-	return sel + label + "  ·  " + ts + "  " + content
+	return sel + label + "  " + IconDot + "  " + ts + "  " + content
 }
 
 func main() {
