@@ -153,6 +153,7 @@ func chunksToMessages(chunks []parser.Chunk) []message {
 				content:    c.Text,
 				thinking:   c.Thinking,
 				toolCalls:  len(c.ToolCalls),
+				messages:   countOutputItems(c.Items),
 				tokensRaw:  c.Usage.TotalTokens(),
 				durationMs: c.DurationMs,
 				timestamp:  formatTime(c.Timestamp),
@@ -208,6 +209,31 @@ func shortModel(m string) string {
 		return parts[0] + strings.ReplaceAll(parts[1], "-", ".")
 	}
 	return m
+}
+
+// modelColor returns a color based on the Claude model family.
+func modelColor(model string) lipgloss.AdaptiveColor {
+	switch {
+	case strings.Contains(model, "opus"):
+		return ColorModelOpus
+	case strings.Contains(model, "sonnet"):
+		return ColorModelSonnet
+	case strings.Contains(model, "haiku"):
+		return ColorModelHaiku
+	default:
+		return ColorTextSecondary
+	}
+}
+
+// countOutputItems counts text output items in a display items slice.
+func countOutputItems(items []parser.DisplayItem) int {
+	n := 0
+	for _, it := range items {
+		if it.Type == parser.ItemOutput {
+			n++
+		}
+	}
+	return n
 }
 
 // formatTime renders a timestamp for the message header.
@@ -676,11 +702,13 @@ func (m *model) computeDetailMaxScroll() {
 		header = m.renderDetailHeader(msg, width)
 		body = m.md.renderMarkdown(msg.content, width-4)
 	case RoleUser:
-		header = lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("You") +
-			"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
+		header = lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp) +
+			"  " + lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("You") +
+			" " + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(IconUser)
 		body = m.md.renderMarkdown(msg.content, width-4)
 	case RoleSystem:
-		header = lipgloss.NewStyle().Foreground(ColorTextSecondary).Render("System") +
+		header = lipgloss.NewStyle().Foreground(ColorTextMuted).Render(IconSystem) +
+			" " + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render("System") +
 			"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
 		body = lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.content)
 	}
@@ -1118,22 +1146,48 @@ func indentBlock(text string, indent string) string {
 }
 
 // renderDetailHeader renders metadata for the detail view header.
+// Matches the list view header layout for visual consistency.
 func (m model) renderDetailHeader(msg message, width int) string {
 	icon := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true).Render(IconClaude)
 	modelName := lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("Claude")
-	modelVer := lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(msg.model)
+	modelVer := lipgloss.NewStyle().Foreground(modelColor(msg.model)).Render(msg.model)
 
-	var parts []string
+	var statParts []string
 	if msg.thinking > 0 {
-		parts = append(parts, fmt.Sprintf("%d thinking", msg.thinking))
+		statParts = append(statParts, fmt.Sprintf("%d thinking", msg.thinking))
 	}
 	if msg.toolCalls > 0 {
-		parts = append(parts, fmt.Sprintf("%d tool calls", msg.toolCalls))
+		tcLabel := "tool calls"
+		if msg.toolCalls == 1 {
+			tcLabel = "tool call"
+		}
+		statParts = append(statParts, fmt.Sprintf("%d %s", msg.toolCalls, tcLabel))
+	}
+	if msg.messages > 0 {
+		label := "messages"
+		if msg.messages == 1 {
+			label = "message"
+		}
+		statParts = append(statParts, fmt.Sprintf("%d %s", msg.messages, label))
 	}
 
 	stats := ""
-	if len(parts) > 0 {
-		stats = "  " + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(strings.Join(parts, ", "))
+	if len(statParts) > 0 {
+		dot := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(" " + IconDot + " ")
+		stats = dot + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(strings.Join(statParts, ", "))
+	}
+
+	left := icon + " " + modelName + " " + modelVer + stats
+
+	// Right-side metadata
+	var rightParts []string
+
+	if msg.contextD > 0 {
+		rightParts = append(rightParts, lipgloss.NewStyle().
+			Foreground(ColorAccent).
+			Background(ColorBadgeBg).
+			Padding(0, 1).
+			Render(fmt.Sprintf("Context +%d", msg.contextD)))
 	}
 
 	tokenStr := ""
@@ -1142,6 +1196,20 @@ func (m model) renderDetailHeader(msg message, width int) string {
 	} else if msg.tokens != "" {
 		tokenStr = msg.tokens
 	}
+	if tokenStr != "" {
+		coin := lipgloss.NewStyle().Foreground(ColorTokenIcon).Render(IconToken)
+		rightParts = append(rightParts, coin+" "+lipgloss.NewStyle().
+			Foreground(ColorTextSecondary).
+			Render(tokenStr))
+	}
+
+	if msg.phase != "" {
+		rightParts = append(rightParts, lipgloss.NewStyle().
+			Foreground(ColorPhaseFg).
+			Background(ColorPhaseBg).
+			Padding(0, 1).
+			Render(msg.phase))
+	}
 
 	durStr := ""
 	if msg.durationMs > 0 {
@@ -1149,27 +1217,21 @@ func (m model) renderDetailHeader(msg message, width int) string {
 	} else if msg.duration != "" {
 		durStr = msg.duration
 	}
-
-	dim := lipgloss.NewStyle().Foreground(ColorTextMuted).Render
-
-	right := ""
-	if tokenStr != "" {
-		right += lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(tokenStr)
-	}
 	if durStr != "" {
-		if right != "" {
-			right += dim(" | ")
-		}
-		right += lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(durStr)
-	}
-	if msg.timestamp != "" {
-		if right != "" {
-			right += "  "
-		}
-		right += lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
+		clock := lipgloss.NewStyle().Foreground(ColorTextDim).Render(IconClock)
+		rightParts = append(rightParts, clock+" "+lipgloss.NewStyle().
+			Foreground(ColorTextSecondary).
+			Render(durStr))
 	}
 
-	left := icon + " " + modelName + " " + modelVer + stats
+	if msg.timestamp != "" {
+		rightParts = append(rightParts, lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Render(msg.timestamp))
+	}
+
+	right := strings.Join(rightParts, "  ")
+
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 2 {
 		gap = 2
@@ -1263,7 +1325,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 	chev := chevron(isExpanded)
 	maxWidth := containerWidth - 6 // account for selection indicator + chevron + padding
 
-	// Header: icon + model + stats on left, metadata badges on right
+	// Header: icon + model + stats on left, metadata on right
 	icon := lipgloss.NewStyle().
 		Foreground(ColorInfo).
 		Bold(true).
@@ -1275,63 +1337,85 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 		Render("Claude")
 
 	modelVersion := lipgloss.NewStyle().
-		Foreground(ColorTextSecondary).
+		Foreground(modelColor(msg.model)).
 		Render(msg.model)
 
-	// Tool call summary
+	// Activity summary: thinking, tool calls, messages
 	var statParts []string
 	if msg.thinking > 0 {
 		statParts = append(statParts, fmt.Sprintf("%d thinking", msg.thinking))
 	}
 	if msg.toolCalls > 0 {
-		statParts = append(statParts, fmt.Sprintf("%d tool calls", msg.toolCalls))
+		tcLabel := "tool calls"
+		if msg.toolCalls == 1 {
+			tcLabel = "tool call"
+		}
+		statParts = append(statParts, fmt.Sprintf("%d %s", msg.toolCalls, tcLabel))
 	}
 	if msg.messages > 0 {
-		statParts = append(statParts, fmt.Sprintf("%d message", msg.messages))
+		label := "messages"
+		if msg.messages == 1 {
+			label = "message"
+		}
+		statParts = append(statParts, fmt.Sprintf("%d %s", msg.messages, label))
 	}
 
-	stats := lipgloss.NewStyle().
-		Foreground(ColorTextSecondary).
-		Render("  " + strings.Join(statParts, ", "))
+	stats := ""
+	if len(statParts) > 0 {
+		dot := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(" " + IconDot + " ")
+		stats = dot + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(strings.Join(statParts, ", "))
+	}
 
-	leftHeader := icon + " " + modelName + " " + modelVersion + stats
+	leftHeader := icon + " " + modelName + " " + modelVersion + stats + " " + chev
 
-	// Right-side metadata badges
-	dim := lipgloss.NewStyle().Foreground(ColorTextMuted).Render
+	// Right-side metadata (conditional items, spaced apart)
+	var rightParts []string
 
-	contextBadge := lipgloss.NewStyle().
-		Foreground(ColorAccent).
-		Render(fmt.Sprintf("Ctx +%d", msg.contextD))
+	if msg.contextD > 0 {
+		rightParts = append(rightParts, lipgloss.NewStyle().
+			Foreground(ColorAccent).
+			Background(ColorBadgeBg).
+			Padding(0, 1).
+			Render(fmt.Sprintf("Context +%d", msg.contextD)))
+	}
 
-	// Token display: prefer pre-formatted string, fall back to raw count
 	tokenStr := msg.tokens
 	if tokenStr == "" && msg.tokensRaw > 0 {
 		tokenStr = formatTokens(msg.tokensRaw)
 	}
-	tokenCount := lipgloss.NewStyle().
-		Foreground(ColorTextSecondary).
-		Render(tokenStr)
+	if tokenStr != "" {
+		coin := lipgloss.NewStyle().Foreground(ColorTokenIcon).Render(IconToken)
+		rightParts = append(rightParts, coin+" "+lipgloss.NewStyle().
+			Foreground(ColorTextSecondary).
+			Render(tokenStr))
+	}
 
-	phaseBadge := lipgloss.NewStyle().
-		Foreground(ColorPhaseFg).
-		Background(ColorPhaseBg).
-		Padding(0, 1).
-		Render(msg.phase)
+	if msg.phase != "" {
+		rightParts = append(rightParts, lipgloss.NewStyle().
+			Foreground(ColorPhaseFg).
+			Background(ColorPhaseBg).
+			Padding(0, 1).
+			Render(msg.phase))
+	}
 
-	// Duration display: prefer pre-formatted string, fall back to raw ms
 	durStr := msg.duration
 	if durStr == "" && msg.durationMs > 0 {
 		durStr = formatDuration(msg.durationMs)
 	}
-	dur := lipgloss.NewStyle().
-		Foreground(ColorTextSecondary).
-		Render(durStr)
+	if durStr != "" {
+		clock := lipgloss.NewStyle().Foreground(ColorTextDim).Render(IconClock)
+		rightParts = append(rightParts, clock+" "+lipgloss.NewStyle().
+			Foreground(ColorTextSecondary).
+			Render(durStr))
+	}
 
-	ts := lipgloss.NewStyle().
-		Foreground(ColorTextDim).
-		Render(msg.timestamp)
+	if msg.timestamp != "" {
+		rightParts = append(rightParts, lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Render(msg.timestamp))
+	}
 
-	rightHeader := contextBadge + dim(" | ") + tokenCount + " " + phaseBadge + dim(" | ") + dur + " " + ts
+	rightHeader := strings.Join(rightParts, "  ")
 
 	// Lay out header on one line
 	rightLen := lipgloss.Width(rightHeader)
@@ -1340,7 +1424,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 	if gap < 2 {
 		gap = 2
 	}
-	headerLine := sel + chev + " " + leftHeader + strings.Repeat(" ", gap) + rightHeader
+	headerLine := sel + "  " + leftHeader + strings.Repeat(" ", gap) + rightHeader
 
 	// Render the card body — truncate when collapsed
 	content := msg.content
@@ -1397,7 +1481,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 		alignWidth = containerWidth
 	}
 
-	// Header: timestamp + You, right-aligned to terminal edge
+	// Header: timestamp + You + icon, right-aligned to terminal edge
 	ts := lipgloss.NewStyle().
 		Foreground(ColorTextDim).
 		Render(msg.timestamp)
@@ -1407,7 +1491,11 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 		Foreground(ColorTextPrimary).
 		Render("You")
 
-	rightPart := ts + "  " + youLabel
+	userIcon := lipgloss.NewStyle().
+		Foreground(ColorTextSecondary).
+		Render(IconUser)
+
+	rightPart := ts + "  " + youLabel + " " + userIcon
 	leftPart := sel
 
 	headerGap := alignWidth - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
@@ -1460,6 +1548,10 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 	// System messages always show inline -- they're short
 	sel := selectionIndicator(isSelected)
 
+	sysIcon := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render(IconSystem)
+
 	label := lipgloss.NewStyle().
 		Foreground(ColorTextSecondary).
 		Render("System")
@@ -1472,7 +1564,7 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 		Foreground(ColorTextDim).
 		Render(msg.content)
 
-	return sel + label + "  " + IconDot + "  " + ts + "  " + content
+	return sel + sysIcon + " " + label + "  " + IconDot + "  " + ts + "  " + content
 }
 
 func main() {

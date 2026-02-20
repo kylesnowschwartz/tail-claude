@@ -43,3 +43,20 @@ var (
 	ColorLiveBg = lipgloss.AdaptiveColor{Light: "2", Dark: "28"}
 	ColorLiveFg = lipgloss.AdaptiveColor{Light: "15", Dark: "255"}
 )
+
+// Model family colors (matches claude-devtools color coding)
+var (
+	ColorModelOpus   = lipgloss.AdaptiveColor{Light: "1", Dark: "204"} // red/coral
+	ColorModelSonnet = lipgloss.AdaptiveColor{Light: "4", Dark: "75"}  // blue
+	ColorModelHaiku  = lipgloss.AdaptiveColor{Light: "2", Dark: "114"} // green
+)
+
+// Badge backgrounds
+var (
+	ColorBadgeBg = lipgloss.AdaptiveColor{Light: "254", Dark: "237"} // subtle bg for inline badges
+)
+
+// Token icon
+var (
+	ColorTokenIcon = lipgloss.AdaptiveColor{Light: "3", Dark: "178"} // gold/amber
+)
