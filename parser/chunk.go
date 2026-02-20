@@ -114,11 +114,22 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 
 	first := buf[0].Timestamp
 	last := buf[len(buf)-1].Timestamp
-	dur := last.Sub(first).Milliseconds()
+
+	// Only compute duration when both timestamps are valid.
+	var dur int64
+	if !first.IsZero() && !last.IsZero() {
+		dur = last.Sub(first).Milliseconds()
+	}
+
+	// Use the first valid timestamp for the chunk.
+	ts := first
+	if ts.IsZero() {
+		ts = last
+	}
 
 	return Chunk{
 		Type:       AIChunk,
-		Timestamp:  first,
+		Timestamp:  ts,
 		Model:      model,
 		Text:       strings.Join(texts, "\n"),
 		Thinking:   thinking,

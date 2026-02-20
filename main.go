@@ -58,32 +58,34 @@ type model struct {
 	lineOffsets  []int // starting line of each message in rendered output
 	messageLines []int // number of rendered lines per message
 
+	totalRenderedLines int // total lines in list view, updated by computeLineOffsets
+
 	// Detail view state
-	view         viewState
-	detailScroll int // scroll offset within the detail view
+	view            viewState
+	detailScroll    int // scroll offset within the detail view
+	detailMaxScroll int // cached max scroll for detail view, updated on enter/resize
 }
 
 // loadSession reads a JSONL session file and converts chunks to display messages.
-// Auto-discovers the latest session when path is empty. Falls back to sample data on error.
-func loadSession(path string) []message {
+// Auto-discovers the latest session when path is empty.
+func loadSession(path string) ([]message, error) {
 	if path == "" {
 		discovered, err := parser.DiscoverLatestSession()
 		if err != nil {
-			return sampleMessages()
+			return nil, fmt.Errorf("no session found: %w", err)
 		}
 		path = discovered
 	}
 
 	chunks, err := parser.ReadSession(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: %v (using sample data)\n", err)
-		return sampleMessages()
+		return nil, fmt.Errorf("reading session %s: %w", path, err)
 	}
 	if len(chunks) == 0 {
-		return sampleMessages()
+		return nil, fmt.Errorf("session %s has no messages", path)
 	}
 
-	return chunksToMessages(chunks)
+	return chunksToMessages(chunks), nil
 }
 
 // chunksToMessages maps parser output into the TUI's message type.
@@ -138,15 +140,9 @@ func formatTime(t time.Time) string {
 }
 
 func initialModel(msgs []message) model {
-	expanded := make(map[int]bool)
-	for i, msg := range msgs {
-		if msg.role == RoleClaude {
-			expanded[i] = true
-		}
-	}
 	return model{
 		messages: msgs,
-		expanded: expanded,
+		expanded: make(map[int]bool), // all messages start collapsed
 		cursor:   0,
 	}
 }
@@ -206,15 +202,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.computeLineOffsets()
 		m.ensureCursorVisible()
+		if m.view == viewDetail {
+			m.computeDetailMaxScroll()
+		}
 		return m, nil
 
 	case newChunksMsg:
 		m.messages = append(m.messages, msg.messages...)
-		for i := len(m.messages) - len(msg.messages); i < len(m.messages); i++ {
-			if m.messages[i].role == RoleClaude {
-				m.expanded[i] = true
-			}
-		}
 		m.cursor = len(m.messages) - 1
 		m.computeLineOffsets()
 		m.ensureCursorVisible()
@@ -277,6 +271,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.messages) > 0 {
 			m.view = viewDetail
 			m.detailScroll = 0
+			m.computeDetailMaxScroll()
 		}
 	case "e":
 		// Expand all Claude messages
@@ -299,6 +294,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "J", "ctrl+d":
 		// Scroll viewport down (half page)
 		m.scroll += m.height / 2
+		m.clampListScroll()
 	case "K", "ctrl+u":
 		// Scroll viewport up (half page)
 		m.scroll -= m.height / 2
@@ -328,12 +324,18 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailScroll = 0
 		}
 	case "G":
-		// Jump to bottom — set scroll high, clamp in view
-		m.detailScroll = 1_000_000
+		m.detailScroll = m.detailMaxScroll
 	case "g":
 		m.detailScroll = 0
 	case "ctrl+c":
 		return m, tea.Quit
+	}
+	// Clamp to valid range after any modification
+	if m.detailScroll > m.detailMaxScroll {
+		m.detailScroll = m.detailMaxScroll
+	}
+	if m.detailScroll < 0 {
+		m.detailScroll = 0
 	}
 	return m, nil
 }
@@ -350,6 +352,7 @@ func (m model) updateListMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseButtonWheelDown:
 		m.scroll += 3
+		m.clampListScroll()
 	}
 	return m, nil
 }
@@ -366,6 +369,9 @@ func (m model) updateDetailMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseButtonWheelDown:
 		m.detailScroll += 3
+		if m.detailScroll > m.detailMaxScroll {
+			m.detailScroll = m.detailMaxScroll
+		}
 	}
 	return m, nil
 }
@@ -394,6 +400,13 @@ func (m *model) computeLineOffsets() {
 			currentLine++ // blank line from "\n\n" join separator
 		}
 	}
+
+	if len(m.messages) > 0 {
+		last := len(m.messages) - 1
+		m.totalRenderedLines = m.lineOffsets[last] + m.messageLines[last]
+	} else {
+		m.totalRenderedLines = 0
+	}
 }
 
 // ensureCursorVisible adjusts scroll so the cursor's message is within
@@ -418,6 +431,72 @@ func (m *model) ensureCursorVisible() {
 	}
 	if m.scroll < 0 {
 		m.scroll = 0
+	}
+}
+
+// clampListScroll caps the list scroll offset so it can't exceed the content.
+func (m *model) clampListScroll() {
+	viewHeight := m.height - 2 // reserve for status bar
+	maxScroll := m.totalRenderedLines - viewHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.scroll > maxScroll {
+		m.scroll = maxScroll
+	}
+	if m.scroll < 0 {
+		m.scroll = 0
+	}
+}
+
+// computeDetailMaxScroll renders the detail content for the current cursor
+// position and caches the maximum scroll offset. Called when entering detail
+// view and on window resize so that updateDetail can clamp scroll without
+// needing to re-render.
+func (m *model) computeDetailMaxScroll() {
+	if m.cursor < 0 || m.cursor >= len(m.messages) || m.width == 0 || m.height == 0 {
+		m.detailMaxScroll = 0
+		return
+	}
+
+	msg := m.messages[m.cursor]
+	width := m.width
+	if width > 120 {
+		width = 120
+	}
+
+	var header, body string
+	switch msg.role {
+	case RoleClaude:
+		header = m.renderDetailHeader(msg, width)
+		bodyStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252")).
+			Width(width - 4)
+		body = bodyStyle.Render(msg.content)
+	case RoleUser:
+		header = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Render("You") +
+			"  " + lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(msg.timestamp)
+		bodyStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252")).
+			Width(width - 4)
+		body = bodyStyle.Render(msg.content)
+	case RoleSystem:
+		header = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Render("System") +
+			"  " + lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(msg.timestamp)
+		body = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(msg.content)
+	}
+
+	content := header + "\n\n" + body
+	content = strings.TrimRight(content, "\n")
+
+	totalLines := strings.Count(content, "\n") + 1
+	viewHeight := m.height - 1 // reserve 1 line for status bar
+	if viewHeight <= 0 {
+		viewHeight = 1
+	}
+	m.detailMaxScroll = totalLines - viewHeight
+	if m.detailMaxScroll < 0 {
+		m.detailMaxScroll = 0
 	}
 }
 
@@ -800,21 +879,23 @@ func renderClaudeMessage(msg message, containerWidth int, isSelected, isExpanded
 	}
 	headerLine := sel + chev + " " + leftHeader + strings.Repeat(" ", gap) + rightHeader
 
+	// Render the card body — truncate when collapsed
+	content := msg.content
 	if !isExpanded {
-		// Collapsed: header + one-line content preview
-		preview := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245")).
-			Render(truncate(msg.content, maxWidth-4))
-		return headerLine + "\n" + sel + "    " + preview
+		lines := strings.Split(content, "\n")
+		if len(lines) > maxCollapsedLines {
+			content = strings.Join(lines[:maxCollapsedLines], "\n")
+			hint := fmt.Sprintf("… (%d lines hidden)", len(lines)-maxCollapsedLines)
+			content += "\n" + hint
+		}
 	}
 
-	// Expanded: header + full card
 	bodyStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("252")).
 		Width(maxWidth-4).
 		Padding(0, 2)
 
-	body := bodyStyle.Render(msg.content)
+	body := bodyStyle.Render(content)
 
 	cardBorderColor := lipgloss.Color("60")
 	if isSelected {
@@ -918,12 +999,15 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 
 func main() {
 	dumpMode := false
+	expandAll := false
 	var sessionPath string
 
 	for _, arg := range os.Args[1:] {
 		switch {
 		case arg == "--dump":
 			dumpMode = true
+		case arg == "--expand":
+			expandAll = true
 		case strings.HasPrefix(arg, "-"):
 			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", arg)
 			os.Exit(1)
@@ -932,14 +1016,22 @@ func main() {
 		}
 	}
 
-	msgs := loadSession(sessionPath)
+	msgs, err := loadSession(sessionPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 
 	if dumpMode {
 		width := 120
 		m := initialModel(msgs)
 		m.width = width
-		// Set height large enough to avoid viewport truncation.
 		m.height = 1_000_000
+		if expandAll {
+			for i := range m.messages {
+				m.expanded[i] = true
+			}
+		}
 		fmt.Println(m.View())
 		return
 	}

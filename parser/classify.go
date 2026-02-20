@@ -230,7 +230,7 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 	}, true
 }
 
-// parseTimestamp parses an ISO 8601 timestamp, falling back to now on failure.
+// parseTimestamp parses an ISO 8601 timestamp. Returns zero time on failure.
 func parseTimestamp(s string) time.Time {
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return t
@@ -242,7 +242,7 @@ func parseTimestamp(s string) time.Time {
 	if t, err := time.Parse("2006-01-02T15:04:05.999999999", s); err == nil {
 		return t
 	}
-	return time.Now()
+	return time.Time{}
 }
 
 // detectSlash checks for <command-name>/xxx</command-name> and returns (true, "xxx").
