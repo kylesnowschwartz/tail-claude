@@ -162,7 +162,7 @@ func waitForTailUpdate(sub chan tailUpdate) tea.Cmd {
 		if !ok {
 			return nil
 		}
-		return tailUpdateMsg{messages: u.messages, ongoing: u.ongoing}
+		return tailUpdateMsg(u)
 	}
 }
 

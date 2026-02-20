@@ -15,7 +15,7 @@ JSONL line -> ParseEntry -> Classify -> BuildChunks -> chunksToMessages -> TUI
 Pure data transformation -- no side effects except file IO in `ReadSession` / `ReadSessionIncremental`.
 
 - **entry.go** -- JSONL line to `Entry` struct (raw deserialization)
-- **classify.go** -- `Entry` to `ClassifiedMsg` (sealed interface: `UserMsg`, `AIMsg`, `SystemMsg`). Noise filtering lives here.
+- **classify.go** -- `Entry` to `ClassifiedMsg` (sealed interface: `UserMsg`, `AIMsg`, `SystemMsg`, `TeammateMsg`, `CompactMsg`). Noise filtering lives here.
 - **sanitize.go** -- XML tag stripping, command display formatting, text extraction from JSON content blocks
 - **chunk.go** -- `[]ClassifiedMsg` to `[]Chunk`. Merges consecutive AI messages into single display units.
 - **session.go** -- File IO: `ReadSession` (full), `ReadSessionIncremental` (from offset), session discovery
@@ -104,7 +104,8 @@ Content can be a JSON string (user messages) or JSON array of content blocks (as
 
 Not all entries are conversation messages. Files may contain:
 - `type=user` / `type=assistant` -- conversation messages
-- `type=system` / `type=summary` -- noise, filtered by Classify
+- `type=system` -- noise, filtered by Classify
+- `type=summary` -- context compression boundaries, classified as `CompactMsg`
 - `type=file-history-snapshot` -- internal bookkeeping, no conversation content ("ghost sessions")
 - Teammate messages: `type=user` with `<teammate-message>` XML wrapper in content
 - Meta entries: `isMeta=true` on user entries marks tool results, classified as `AIMsg`
