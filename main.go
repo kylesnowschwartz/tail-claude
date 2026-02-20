@@ -1067,13 +1067,14 @@ func (m model) renderDetailItemExpanded(item displayItem, width int) string {
 
 	switch item.itemType {
 	case parser.ItemThinking, parser.ItemOutput:
-		if item.text == "" {
+		text := strings.TrimSpace(item.text)
+		if text == "" {
 			return ""
 		}
 		bodyStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243")).
 			Width(wrapWidth)
-		wrapped := bodyStyle.Render(item.text)
+		wrapped := bodyStyle.Render(text)
 		return indentBlock(wrapped, indent)
 
 	case parser.ItemToolCall:
