@@ -968,14 +968,16 @@ func (m model) renderDetailItemsContent(msg message, width int) string {
 
 	var itemLines []string
 	for i, item := range msg.items {
-		itemLines = append(itemLines, m.renderDetailItemRow(item, i, width))
+		row := m.renderDetailItemRow(item, i, width)
 
 		if m.detailExpanded[i] {
 			expanded := m.renderDetailItemExpanded(item, width)
 			if expanded != "" {
-				itemLines = append(itemLines, expanded)
+				// Attach expanded content directly below its item row.
+				row += "\n" + expanded
 			}
 		}
+		itemLines = append(itemLines, row)
 	}
 
 	return header + "\n\n" + strings.Join(itemLines, "\n")
