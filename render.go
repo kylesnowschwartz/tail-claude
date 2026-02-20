@@ -262,7 +262,7 @@ func (m model) renderDetailItemsContent(msg message, width int) string {
 
 	var itemLines []string
 	for i, item := range msg.items {
-		row := m.renderDetailItemRow(item, i, width)
+		row := m.renderDetailItemRow(item, i, m.detailCursor, width)
 
 		if m.detailExpanded[i] {
 			expanded := m.renderDetailItemExpanded(item, width)
@@ -278,10 +278,10 @@ func (m model) renderDetailItemsContent(msg message, width int) string {
 
 // renderDetailItemRow renders a single item row in the detail view.
 // Format: {cursor} {indicator} {name:<12} {summary}  {tokens} {duration}
-func (m model) renderDetailItemRow(item displayItem, index int, width int) string {
+func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width int) string {
 	// Cursor indicator
 	cursor := "  "
-	if index == m.detailCursor {
+	if index == cursorIndex {
 		cursor = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent).Render(IconCursor + " ")
 	}
 
