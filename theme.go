@@ -4,16 +4,18 @@ import "github.com/charmbracelet/lipgloss"
 
 // -- Colors ---------------------------------------------------------------
 // All colors use AdaptiveColor for dark/light terminal support.
-// Light values use ANSI base 16 (0-15) which adapt to the terminal's palette.
-// Dark values use ANSI 256-color codes tuned for dark backgrounds.
+// Light values: ANSI 0-15 for accents (palette-adaptive), 256-color for grays
+// (predictable). ANSI 7/15 (white) are invisible on light backgrounds — never
+// use them for Light values.
+// Dark values: ANSI 256-color codes tuned for dark backgrounds.
 
 // Text hierarchy
 var (
-	ColorTextPrimary  = lipgloss.AdaptiveColor{Light: "0", Dark: "252"}
-	ColorTextSecondary = lipgloss.AdaptiveColor{Light: "8", Dark: "245"}
-	ColorTextDim      = lipgloss.AdaptiveColor{Light: "8", Dark: "243"}
-	ColorTextMuted    = lipgloss.AdaptiveColor{Light: "7", Dark: "240"}
-	ColorTextKeyHint  = lipgloss.AdaptiveColor{Light: "0", Dark: "250"}
+	ColorTextPrimary   = lipgloss.AdaptiveColor{Light: "0", Dark: "252"}   // black / light gray
+	ColorTextSecondary = lipgloss.AdaptiveColor{Light: "8", Dark: "245"}   // ANSI dark gray / gray
+	ColorTextDim       = lipgloss.AdaptiveColor{Light: "245", Dark: "243"} // medium gray / gray
+	ColorTextMuted     = lipgloss.AdaptiveColor{Light: "249", Dark: "240"} // light gray / dark gray
+	ColorTextKeyHint   = lipgloss.AdaptiveColor{Light: "0", Dark: "250"}   // black / light gray
 )
 
 // Accents
@@ -32,9 +34,8 @@ var (
 
 // Surfaces
 var (
-	ColorBorder      = lipgloss.AdaptiveColor{Light: "7", Dark: "60"}
-	ColorStatusBarBg = lipgloss.AdaptiveColor{Light: "7", Dark: "236"}
-	ColorBubbleBg    = lipgloss.AdaptiveColor{Light: "15", Dark: "237"}
+	ColorBorder      = lipgloss.AdaptiveColor{Light: "250", Dark: "60"}  // subtle gray / muted blue
+	ColorStatusBarBg = lipgloss.AdaptiveColor{Light: "254", Dark: "236"} // very light gray / dark gray
 )
 
 // Live badge

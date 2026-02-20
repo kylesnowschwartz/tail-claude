@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 // Message roles
@@ -217,13 +218,13 @@ func formatTime(t time.Time) string {
 	return t.Local().Format("3:04:05 PM")
 }
 
-func initialModel(msgs []message) model {
+func initialModel(msgs []message, hasDarkBg bool) model {
 	return model{
 		messages:       msgs,
 		expanded:       make(map[int]bool), // all messages start collapsed
 		cursor:         0,
 		detailExpanded: make(map[int]bool),
-		md:             &mdRenderer{},
+		md:             newMdRenderer(hasDarkBg),
 	}
 }
 
@@ -603,7 +604,7 @@ func (m *model) ensureCursorVisible() {
 	if len(m.lineOffsets) == 0 || m.height == 0 {
 		return
 	}
-	viewHeight := m.height - 2 // reserve for status bar
+	viewHeight := m.height - statusBarHeight - 1 // content area above status bar
 	if viewHeight <= 0 {
 		return
 	}
@@ -624,7 +625,7 @@ func (m *model) ensureCursorVisible() {
 
 // clampListScroll caps the list scroll offset so it can't exceed the content.
 func (m *model) clampListScroll() {
-	viewHeight := m.height - 2 // reserve for status bar
+	viewHeight := m.height - statusBarHeight - 1 // content area above status bar
 	maxScroll := m.totalRenderedLines - viewHeight
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -658,7 +659,7 @@ func (m *model) computeDetailMaxScroll() {
 		content := m.renderDetailItemsContent(msg, width)
 		content = strings.TrimRight(content, "\n")
 		totalLines := strings.Count(content, "\n") + 1
-		viewHeight := m.height - 1
+		viewHeight := m.height - statusBarHeight
 		if viewHeight <= 0 {
 			viewHeight = 1
 		}
@@ -741,7 +742,7 @@ func (m *model) ensureDetailCursorVisible() {
 		}
 	}
 
-	viewHeight := m.height - 1 // reserve status bar
+	viewHeight := m.height - statusBarHeight
 	if viewHeight <= 0 {
 		viewHeight = 1
 	}
@@ -830,8 +831,8 @@ func (m model) viewList() string {
 		lines = lines[m.scroll:]
 	}
 
-	// Truncate to viewport height minus status bar (2 lines)
-	viewHeight := m.height - 2
+	// Truncate to viewport height minus status bar
+	viewHeight := m.height - statusBarHeight - 1
 	if viewHeight > 0 && len(lines) > viewHeight {
 		lines = lines[:viewHeight]
 	}
@@ -897,8 +898,8 @@ func (m model) viewDetail() string {
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
 
-	// Reserve 1 line for the status bar.
-	viewHeight := m.height - 1
+	// Reserve lines for the status bar.
+	viewHeight := m.height - statusBarHeight
 	if viewHeight <= 0 {
 		viewHeight = 1
 	}
@@ -1177,25 +1178,23 @@ func (m model) renderDetailHeader(msg message, width int) string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
-// renderStatusBar renders a key-hint status bar from alternating key/description pairs.
+// statusBarHeight is the number of rendered lines the status bar occupies.
+// Rounded border: top + content + bottom = 3 lines.
+const statusBarHeight = 3
+
+// renderStatusBar renders key hints in a rounded-border box.
 // When m.watching is true, a green LIVE badge is prepended.
 func (m model) renderStatusBar(pairs ...string) string {
-	statusStyle := lipgloss.NewStyle().
-		Background(ColorStatusBarBg).
-		Foreground(ColorTextPrimary).
-		Width(m.width).
-		Padding(0, 1)
-
-	dimKey := lipgloss.NewStyle().
-		Background(ColorStatusBarBg).
-		Foreground(ColorTextKeyHint).
+	keyStyle := lipgloss.NewStyle().
+		Foreground(ColorAccent).
 		Bold(true)
 
-	dimDesc := lipgloss.NewStyle().
-		Background(ColorStatusBarBg).
+	descStyle := lipgloss.NewStyle().
 		Foreground(ColorTextDim)
 
-	var parts []string
+	sep := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(" " + IconDot + " ")
+
+	var hints []string
 
 	if m.watching {
 		liveBadge := lipgloss.NewStyle().
@@ -1204,14 +1203,20 @@ func (m model) renderStatusBar(pairs ...string) string {
 			Bold(true).
 			Padding(0, 1).
 			Render("LIVE")
-		parts = append(parts, liveBadge)
+		hints = append(hints, liveBadge)
 	}
 
 	for i := 0; i+1 < len(pairs); i += 2 {
-		parts = append(parts, dimKey.Render(pairs[i])+dimDesc.Render(":"+pairs[i+1]))
+		hints = append(hints, keyStyle.Render(pairs[i])+" "+descStyle.Render(pairs[i+1]))
 	}
 
-	return statusStyle.Render(strings.Join(parts, "  "))
+	barStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorBorder).
+		Width(m.width-2). // border chars take 2 columns
+		Padding(0, 1)
+
+	return barStyle.Render(strings.Join(hints, sep))
 }
 
 func (m model) renderMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
@@ -1385,7 +1390,14 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 	sel := selectionIndicator(isSelected)
 	maxBubbleWidth := containerWidth * 3 / 4
 
-	// Header: timestamp + You, right-aligned
+	// Use full terminal width for alignment so user messages right-align to
+	// the terminal edge, not just within the 120-col content area.
+	alignWidth := m.width
+	if alignWidth < containerWidth {
+		alignWidth = containerWidth
+	}
+
+	// Header: timestamp + You, right-aligned to terminal edge
 	ts := lipgloss.NewStyle().
 		Foreground(ColorTextDim).
 		Render(msg.timestamp)
@@ -1398,7 +1410,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 	rightPart := ts + "  " + youLabel
 	leftPart := sel
 
-	headerGap := containerWidth - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
+	headerGap := alignWidth - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
 	if headerGap < 0 {
 		headerGap = 0
 	}
@@ -1439,7 +1451,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 		MaxWidth(maxBubbleWidth)
 
 	bubble := bubbleStyle.Render(rendered)
-	alignedBubble := lipgloss.PlaceHorizontal(containerWidth, lipgloss.Right, bubble)
+	alignedBubble := lipgloss.PlaceHorizontal(alignWidth, lipgloss.Right, bubble)
 
 	return header + "\n" + alignedBubble
 }
@@ -1464,6 +1476,12 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 }
 
 func main() {
+	// Detect terminal background ONCE, before Bubble Tea takes over.
+	// termenv queries via OSC 11 which can fail in alt-screen mode.
+	// Tell lipgloss explicitly so AdaptiveColor agrees with glamour.
+	hasDarkBg := termenv.HasDarkBackground()
+	lipgloss.SetHasDarkBackground(hasDarkBg)
+
 	dumpMode := false
 	expandAll := false
 	var sessionPath string
@@ -1490,7 +1508,7 @@ func main() {
 
 	if dumpMode {
 		width := 120
-		m := initialModel(result.messages)
+		m := initialModel(result.messages, hasDarkBg)
 		m.width = width
 		m.height = 1_000_000
 		if expandAll {
@@ -1506,7 +1524,7 @@ func main() {
 	watcher := newSessionWatcher(result.path, result.classified, result.offset)
 	go watcher.run()
 
-	m := initialModel(result.messages)
+	m := initialModel(result.messages, hasDarkBg)
 	m.sessionPath = result.path
 	m.watching = true
 	m.watcher = watcher

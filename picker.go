@@ -92,7 +92,7 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // ensurePickerVisible adjusts pickerScroll so the cursor is visible.
 func (m *model) ensurePickerVisible() {
-	viewHeight := m.height - 4 // header (2 lines) + status bar (2 lines)
+	viewHeight := m.height - 2 - statusBarHeight - 1 // header (2 lines) + status bar + separator
 	if viewHeight <= 0 {
 		return
 	}
