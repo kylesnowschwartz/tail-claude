@@ -233,13 +233,15 @@ func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 	return sessions, nil
 }
 
-// scanSessionPreview does a quick scan of a session file to extract a preview
-// and message count. The preview comes from the first real user message text,
-// falling back to the first slash command if no plain text is found.
+// scanSessionPreview extracts a preview string and classified message count
+// from a session file. Ported from claude-devtools' extractFirstUserMessagePreview
+// in metadataExtraction.ts -- processes ALL type=user entries without filtering
+// isMeta or sidechain, skips only command output and interruptions, and uses
+// SanitizeContent on everything else.
 //
-// Works on raw entries rather than Classify output so that sessions started by
-// teammate messages, plans, or other filtered content still get a preview from
-// whatever user text exists in the first 200 lines.
+// Fallback chain: real user text > slash command > "".
+// Preview search covers the first 200 raw lines; message counting covers the
+// entire file.
 func scanSessionPreview(path string) (firstMsg string, msgCount int) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -251,11 +253,15 @@ func scanSessionPreview(path string) (firstMsg string, msgCount int) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
 	var commandFallback string
+	previewFound := false
 	linesRead := 0
 	const maxPreviewLines = 200
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
+		// Count ALL lines toward the limit (matching claude-devtools behavior).
+		linesRead++
+
 		if len(line) == 0 {
 			continue
 		}
@@ -264,52 +270,58 @@ func scanSessionPreview(path string) (firstMsg string, msgCount int) {
 			continue
 		}
 
-		// Count classified messages for the badge.
-		if msg, ok := Classify(entry); ok {
-			_ = msg
+		// Count classified messages for the badge (full file scan).
+		if _, ok := Classify(entry); ok {
 			msgCount++
 		}
 
-		// Preview extraction: scan raw user entries (first 200 lines only).
-		linesRead++
-		if firstMsg != "" || linesRead > maxPreviewLines {
-			continue
-		}
-		if entry.Type != "user" || entry.IsMeta || entry.IsSidechain {
+		// Preview: only within line limit, only type=user entries.
+		// No isMeta or sidechain filtering -- matches claude-devtools.
+		if previewFound || linesRead > maxPreviewLines || entry.Type != "user" {
 			continue
 		}
 
-		text := strings.TrimSpace(ExtractText(entry.Message.Content))
+		text := ExtractText(entry.Message.Content)
 		if text == "" {
 			continue
 		}
 
-		// Skip noise: command output, interruptions, system tags, teammate messages.
-		if IsCommandOutput(text) ||
-			strings.HasPrefix(text, "[Request interrupted by user") ||
-			strings.HasPrefix(text, "<system-reminder>") ||
-			strings.HasPrefix(text, "<local-command-caveat>") ||
-			teammateMessageRe.MatchString(text) {
+		// Skip command output and interruptions.
+		if IsCommandOutput(text) || strings.HasPrefix(text, "[Request interrupted by user") {
 			continue
 		}
 
-		// Slash commands: keep as fallback, prefer real text.
+		// Commands: extract name as fallback, keep searching for real text.
 		if strings.HasPrefix(text, "<command-name>") {
 			if commandFallback == "" {
-				commandFallback = SanitizeContent(text)
+				if m := reCommandName.FindStringSubmatch(text); m != nil {
+					commandFallback = "/" + strings.TrimSpace(m[1])
+				} else {
+					commandFallback = "/command"
+				}
 			}
 			continue
 		}
 
-		// Real user text -- use it.
-		firstMsg = SanitizeContent(text)
+		// Everything else: sanitize and use. This handles teammate messages,
+		// meta entries, and anything else -- matching claude-devtools which
+		// runs sanitizeDisplayContent on all non-skipped user entries.
+		sanitized := strings.TrimSpace(SanitizeContent(text))
+		if sanitized == "" {
+			continue
+		}
+		if len(sanitized) > 500 {
+			sanitized = sanitized[:500]
+		}
+		firstMsg = sanitized
+		previewFound = true
 	}
 
 	if firstMsg == "" {
 		firstMsg = commandFallback
 	}
 
-	// Collapse newlines and truncate for display.
+	// Collapse newlines for single-line display.
 	if firstMsg != "" {
 		firstMsg = strings.ReplaceAll(firstMsg, "\n", " ")
 		if len(firstMsg) > 120 {

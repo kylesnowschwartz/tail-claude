@@ -145,7 +145,7 @@ func (m model) viewPicker() string {
 		// Left side: preview text
 		preview := s.FirstMessage
 		if preview == "" {
-			preview = "(no user messages)"
+			preview = "Untitled"
 		}
 
 		// Right side: message count + relative time
