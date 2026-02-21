@@ -471,7 +471,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 		if m.pickerAnimFrame == 1 {
 			dotColor = ColorOngoingDim
 		}
-		dot := lipgloss.NewStyle().Foreground(dotColor).Render(IconLive)
+		dot := IconLive.WithColor(dotColor)
 		line1Parts = append(line1Parts, dot+" ")
 	}
 
@@ -481,7 +481,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 
 	previewColor := ColorTextPrimary
-	if !isSelected {
+	if isSelected {
 		previewColor = ColorTextSecondary
 	}
 	if isMicro {
@@ -506,7 +506,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	metaColor := ColorTextMuted
 
 	var metaParts []string
-	dot := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(IconDot)
+	dot := IconDot.Render()
 
 	if s.Model != "" {
 		short := shortModel(s.Model)
@@ -518,7 +518,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 
 	if s.TurnCount > 0 {
-		chatIcon := lipgloss.NewStyle().Foreground(metaColor).Render(IconChat)
+		chatIcon := IconChat.WithColor(metaColor)
 		countStr := lipgloss.NewStyle().Foreground(metaColor).Render(fmt.Sprintf("%d", s.TurnCount))
 		metaParts = append(metaParts, chatIcon+" "+countStr)
 	}

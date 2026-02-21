@@ -29,15 +29,15 @@ const beadCount = 5
 // chevron returns the expand/collapse indicator
 func chevron(expanded bool) string {
 	if expanded {
-		return lipgloss.NewStyle().Foreground(ColorTextPrimary).Render(IconExpanded)
+		return IconExpanded.Render()
 	}
-	return lipgloss.NewStyle().Foreground(ColorTextDim).Render(IconCollapsed)
+	return IconCollapsed.Render()
 }
 
 // selectionIndicator returns a left-margin marker for the selected message
 func selectionIndicator(selected bool) string {
 	if selected {
-		return lipgloss.NewStyle().Foreground(ColorAccent).Render(IconSelected + " ")
+		return IconSelected.Render() + " "
 	}
 	return "  "
 }
@@ -83,22 +83,20 @@ func truncateLines(content string, maxLines int) (string, int) {
 // formatToolResultPreview renders a one-line tool result summary for collapsed view.
 func formatToolResultPreview(lo *parser.LastOutput) string {
 	icon := IconToolOk
-	iconStyle := lipgloss.NewStyle().Foreground(ColorSuccess)
 	if lo.IsError {
 		icon = IconToolErr
-		iconStyle = lipgloss.NewStyle().Foreground(ColorError)
 	}
 	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary)
 	resultStyle := lipgloss.NewStyle().Foreground(ColorTextSecondary)
 
 	result := lo.ToolResult
 	if len(result) > 200 {
-		result = result[:200] + IconEllipsis
+		result = result[:200] + GlyphEllipsis
 	}
 	// Collapse newlines for single-line preview
 	result = strings.ReplaceAll(result, "\n", " ")
 
-	return iconStyle.Render(icon) + " " + nameStyle.Render(lo.ToolName) + " " + resultStyle.Render(truncate(result, 80))
+	return icon.Render() + " " + nameStyle.Render(lo.ToolName) + " " + resultStyle.Render(truncate(result, 80))
 }
 
 // -- Message rendering --------------------------------------------------------
@@ -135,7 +133,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 				content = msg.lastOutput.Text
 				truncated, hidden := truncateLines(content, maxCollapsedLines)
 				if hidden > 0 {
-					content = truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", IconEllipsis, hidden)
+					content = truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", GlyphEllipsis, hidden)
 				}
 			case parser.LastOutputToolResult:
 				content = formatToolResultPreview(msg.lastOutput)
@@ -143,7 +141,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 		} else {
 			truncated, hidden := truncateLines(content, maxCollapsedLines)
 			if hidden > 0 {
-				content = truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", IconEllipsis, hidden)
+				content = truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", GlyphEllipsis, hidden)
 			}
 		}
 	}
@@ -168,7 +166,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 			rows = append(rows, "", rendered) // blank line separator
 			if hidden > 0 {
 				hint := lipgloss.NewStyle().Foreground(ColorTextSecondary).
-					Render(fmt.Sprintf("%s %d more lines — Enter for full text", IconEllipsis, hidden))
+					Render(fmt.Sprintf("%s %d more lines — Enter for full text", GlyphEllipsis, hidden))
 				rows = append(rows, hint)
 			}
 		}
@@ -222,9 +220,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 		Foreground(ColorTextPrimary).
 		Render("You")
 
-	userIcon := lipgloss.NewStyle().
-		Foreground(ColorTextSecondary).
-		Render(IconUser)
+	userIcon := IconUser.Render()
 
 	rightPart := ts + "  " + youLabel + " " + userIcon
 	leftPart := sel
@@ -279,9 +275,7 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 	// System messages always show inline -- they're short
 	sel := selectionIndicator(isSelected)
 
-	sysIcon := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Render(IconSystem)
+	sysIcon := IconSystem.Render()
 
 	label := lipgloss.NewStyle().
 		Foreground(ColorTextSecondary).
@@ -295,7 +289,7 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 		Foreground(ColorTextDim).
 		Render(msg.content)
 
-	return sel + sysIcon + " " + label + "  " + IconDot + "  " + ts + "  " + content
+	return sel + sysIcon + " " + label + "  " + IconDot.Glyph + "  " + ts + "  " + content
 }
 
 func renderCompactMessage(msg message, width int) string {
@@ -313,8 +307,8 @@ func renderCompactMessage(msg message, width int) string {
 	if rightPad < 0 {
 		rightPad = 0
 	}
-	left := strings.Repeat(IconHRule, leftPad)
-	right := strings.Repeat(IconHRule, rightPad)
+	left := strings.Repeat(GlyphHRule, leftPad)
+	right := strings.Repeat(GlyphHRule, rightPad)
 	return dim.Render(left + " " + text + " " + right)
 }
 
@@ -336,10 +330,10 @@ func (m model) renderDetailContent(msg message, width int) string {
 	case RoleUser:
 		header = lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp) +
 			"  " + lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("You") +
-			" " + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(IconUser)
+			" " + IconUser.Render()
 		body = m.md.renderMarkdown(msg.content, width-4)
 	case RoleSystem:
-		header = lipgloss.NewStyle().Foreground(ColorTextMuted).Render(IconSystem) +
+		header = IconSystem.Render() +
 			" " + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render("System") +
 			"  " + lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.timestamp)
 		body = lipgloss.NewStyle().Foreground(ColorTextDim).Render(msg.content)
@@ -378,42 +372,37 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 	// Cursor indicator
 	cursor := "  "
 	if index == cursorIndex {
-		cursor = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent).Render(IconCursor + " ")
+		cursor = IconCursor.RenderBold() + " "
 	}
 
 	// Type indicator and name
 	var indicator, name string
-	dim := lipgloss.NewStyle().Foreground(ColorTextDim)
-	green := lipgloss.NewStyle().Foreground(ColorSuccess)
-	red := lipgloss.NewStyle().Foreground(ColorError)
-
-	blue := lipgloss.NewStyle().Foreground(ColorInfo)
 
 	switch item.itemType {
 	case parser.ItemThinking:
-		indicator = dim.Render(IconThinking)
+		indicator = IconThinking.Render()
 		name = "Thinking"
 	case parser.ItemOutput:
-		indicator = blue.Render(IconOutput)
+		indicator = IconOutput.Render()
 		name = "Output"
 		if item.toolName != "" {
 			name = item.toolName
 		}
 	case parser.ItemToolCall:
 		if item.toolError {
-			indicator = red.Render(IconToolErr)
+			indicator = IconToolErr.Render()
 		} else {
-			indicator = green.Render(IconToolOk)
+			indicator = IconToolOk.Render()
 		}
 		name = item.toolName
 	case parser.ItemSubagent:
-		indicator = blue.Render(IconSubagent)
+		indicator = IconSubagent.Render()
 		name = item.subagentType
 		if name == "" {
 			name = "Subagent"
 		}
 	case parser.ItemTeammateMessage:
-		indicator = lipgloss.NewStyle().Foreground(ColorWarning).Render(IconTeammate)
+		indicator = IconTeammate.Render()
 		name = item.teammateID
 		if name == "" {
 			name = "Teammate"
@@ -469,7 +458,7 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 
 	var left string
 	if summary != "" {
-		left = cursor + indicator + " " + nameRendered + dim.Render(" - ") + summaryRendered
+		left = cursor + indicator + " " + nameRendered + lipgloss.NewStyle().Foreground(ColorTextDim).Render(" - ") + summaryRendered
 	} else {
 		left = cursor + indicator + " " + nameRendered
 	}
@@ -594,10 +583,10 @@ func (m model) renderSubagentTrace(item displayItem, wrapWidth int, indent strin
 	}
 
 	// Header: >_ Execution Trace · N tool calls, N messages
-	traceIcon := dimStyle.Render(IconSystem) // terminal icon for execution context
+	traceIcon := IconSystem.WithColor(ColorTextDim) // terminal icon for execution context
 	traceLabel := lipgloss.NewStyle().Bold(true).
 		Foreground(ColorTextPrimary).Render("Execution Trace")
-	dot := dimStyle.Render(" " + IconDot + " ")
+	dot := dimStyle.Render(" " + IconDot.Glyph + " ")
 	countStr := dimStyle.Render(fmt.Sprintf("%d tool calls, %d messages", toolCount, msgCount))
 
 	var lines []string
@@ -626,7 +615,7 @@ func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) 
 		headerIcon = IconSubagent
 		headerLabel = msg.subagentLabel
 	}
-	icon := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true).Render(headerIcon)
+	icon := headerIcon.RenderBold()
 	modelName := lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render(headerLabel)
 	modelVer := lipgloss.NewStyle().Foreground(modelColor(msg.model)).Render(msg.model)
 
@@ -665,7 +654,7 @@ func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) 
 
 	stats := ""
 	if len(statParts) > 0 {
-		dot := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(" " + IconDot + " ")
+		dot := " " + IconDot.Render() + " "
 		stats = dot + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(strings.Join(statParts, ", "))
 	}
 
@@ -686,14 +675,14 @@ func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) 
 	var rightParts []string
 
 	if msg.tokensRaw > 0 {
-		coin := lipgloss.NewStyle().Foreground(ColorTokenIcon).Render(IconToken)
+		coin := IconToken.Render()
 		rightParts = append(rightParts, coin+" "+lipgloss.NewStyle().
 			Foreground(ColorTextSecondary).
 			Render(formatTokens(msg.tokensRaw)))
 	}
 
 	if msg.durationMs > 0 {
-		clock := lipgloss.NewStyle().Foreground(ColorTextDim).Render(IconClock)
+		clock := IconClock.Render()
 		rightParts = append(rightParts, clock+" "+lipgloss.NewStyle().
 			Foreground(ColorTextSecondary).
 			Render(formatDuration(msg.durationMs)))
@@ -746,7 +735,7 @@ func (m model) renderActivityIndicator(width int) string {
 			ci = len(colors) - 1
 		}
 		style := lipgloss.NewStyle().Foreground(colors[ci])
-		dots = append(dots, style.Render(IconBeadFull))
+		dots = append(dots, style.Render(GlyphBeadFull))
 	}
 
 	line := strings.Join(dots, " ")
@@ -765,7 +754,7 @@ func (m model) renderStatusBar(pairs ...string) string {
 	descStyle := lipgloss.NewStyle().
 		Foreground(ColorTextDim)
 
-	sep := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(" " + IconDot + " ")
+	sep := " " + IconDot.Render() + " "
 
 	var hints []string
 
