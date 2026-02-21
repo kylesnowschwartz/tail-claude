@@ -45,32 +45,45 @@ func tickCmd() tea.Cmd {
 // displayItem is a structured element within an AI message's detail view.
 // Mirrors parser.DisplayItem but with pre-formatted fields for rendering.
 type displayItem struct {
-	itemType     parser.DisplayItemType
-	text         string
-	toolName     string
-	toolSummary  string
-	toolInput    string // formatted JSON for display
-	toolResult   string
-	toolError    bool
-	durationMs   int64
-	tokenCount   int
-	subagentType string
-	subagentDesc string
-	teammateID   string
+	itemType        parser.DisplayItemType
+	text            string
+	toolName        string
+	toolSummary     string
+	toolInput       string // formatted JSON for display
+	toolResult      string
+	toolError       bool
+	durationMs      int64
+	tokenCount      int
+	subagentType    string
+	subagentDesc    string
+	teammateID      string
+	subagentProcess *parser.SubagentProcess // linked subagent execution trace
 }
 
 type message struct {
-	role          string
-	model         string
-	content       string
-	thinkingCount int
-	toolCallCount int
-	messages      int
-	tokensRaw     int
-	durationMs    int64
-	timestamp     string
-	items         []displayItem
-	lastOutput    *parser.LastOutput
+	role             string
+	model            string
+	content          string
+	thinkingCount    int
+	toolCallCount    int
+	messages         int
+	tokensRaw        int
+	durationMs       int64
+	timestamp        string
+	items            []displayItem
+	lastOutput       *parser.LastOutput
+	subagentLabel    string // non-empty for trace views: "Explore", "Plan", etc.
+	teammateSpawns   int    // count of distinct team-spawned subagent Task calls
+	teammateMessages int    // count of distinct teammate IDs sending messages
+}
+
+// savedDetailState preserves parent detail view state when drilling into a
+// subagent trace. Restored on Escape.
+type savedDetailState struct {
+	cursor   int
+	scroll   int
+	expanded map[int]bool
+	label    string // breadcrumb label for the parent view, e.g. "Claude opus4.6"
 }
 
 type model struct {
@@ -104,6 +117,10 @@ type model struct {
 	sessionOngoing bool // whether the watched session is still in progress
 	animFrame      int  // animation frame counter for activity indicator
 
+	// Subagent trace drill-down state
+	traceMsg    *message          // non-nil when viewing a subagent's execution trace
+	savedDetail *savedDetailState // parent detail state to restore on drill-back
+
 	// Session picker state
 	pickerSessions []parser.SessionInfo
 	pickerCursor   int
@@ -112,11 +129,12 @@ type model struct {
 
 // loadResult holds everything needed to bootstrap the TUI and watcher.
 type loadResult struct {
-	messages   []message
-	path       string
-	classified []parser.ClassifiedMsg
-	offset     int64
-	ongoing    bool
+	messages     []message
+	path         string
+	classified   []parser.ClassifiedMsg
+	offset       int64
+	ongoing      bool
+	hasTeamTasks bool
 }
 
 // loadSession reads a JSONL session file and converts chunks to display messages.
@@ -141,17 +159,26 @@ func loadSession(path string) (loadResult, error) {
 		return loadResult{}, fmt.Errorf("session %s has no messages", path)
 	}
 
+	// Discover and link subagent execution traces.
+	subagents, _ := parser.DiscoverSubagents(path)
+	teamSessions, _ := parser.DiscoverTeamSessions(path, chunks)
+	allSubagents := append(subagents, teamSessions...)
+	parser.LinkSubagents(allSubagents, chunks, path)
+
 	return loadResult{
-		messages:   chunksToMessages(chunks),
-		path:       path,
-		classified: classified,
-		offset:     offset,
-		ongoing:    parser.IsOngoing(chunks),
+		messages:     chunksToMessages(chunks, allSubagents),
+		path:         path,
+		classified:   classified,
+		offset:       offset,
+		ongoing:      parser.IsOngoing(chunks),
+		hasTeamTasks: len(teamSessions) > 0 || hasTeamTaskItems(chunks),
 	}, nil
 }
 
 // chunksToMessages maps parser output into the TUI's message type.
-func chunksToMessages(chunks []parser.Chunk) []message {
+// Discovered subagent processes are linked to their corresponding
+// ItemSubagent display items by matching ParentTaskID to ToolID.
+func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess) []message {
 	msgs := make([]message, 0, len(chunks))
 	for _, c := range chunks {
 		switch c.Type {
@@ -162,18 +189,31 @@ func chunksToMessages(chunks []parser.Chunk) []message {
 				timestamp: formatTime(c.Timestamp),
 			})
 		case parser.AIChunk:
+			// Count distinct team-spawned subagents and teammate message senders.
+			var teamSpawns int
+			teammateIDs := make(map[string]bool)
+			for _, it := range c.Items {
+				if it.Type == parser.ItemSubagent && isTeamTaskItem(&it) {
+					teamSpawns++
+				}
+				if it.Type == parser.ItemTeammateMessage && it.TeammateID != "" {
+					teammateIDs[it.TeammateID] = true
+				}
+			}
 			msgs = append(msgs, message{
-				role:          RoleClaude,
-				model:         shortModel(c.Model),
-				content:       c.Text,
-				thinkingCount: c.ThinkingCount,
-				toolCallCount: len(c.ToolCalls),
-				messages:      countOutputItems(c.Items),
-				tokensRaw:     c.Usage.TotalTokens(),
-				durationMs:    c.DurationMs,
-				timestamp:     formatTime(c.Timestamp),
-				items:         convertDisplayItems(c.Items),
-				lastOutput:    parser.FindLastOutput(c.Items),
+				role:             RoleClaude,
+				model:            shortModel(c.Model),
+				content:          c.Text,
+				thinkingCount:    c.ThinkingCount,
+				toolCallCount:    len(c.ToolCalls),
+				messages:         countOutputItems(c.Items),
+				tokensRaw:        c.Usage.TotalTokens(),
+				durationMs:       c.DurationMs,
+				timestamp:        formatTime(c.Timestamp),
+				items:            convertDisplayItems(c.Items, subagents),
+				lastOutput:       parser.FindLastOutput(c.Items),
+				teammateSpawns:   teamSpawns,
+				teammateMessages: len(teammateIDs),
 			})
 		case parser.SystemChunk:
 			msgs = append(msgs, message{
@@ -193,10 +233,21 @@ func chunksToMessages(chunks []parser.Chunk) []message {
 }
 
 // convertDisplayItems maps parser.DisplayItem to the TUI's displayItem type.
-func convertDisplayItems(items []parser.DisplayItem) []displayItem {
+// Links ItemSubagent items to their discovered SubagentProcess by matching
+// ToolID to ParentTaskID.
+func convertDisplayItems(items []parser.DisplayItem, subagents []parser.SubagentProcess) []displayItem {
 	if len(items) == 0 {
 		return nil
 	}
+
+	// Build ParentTaskID -> SubagentProcess index for O(1) lookup.
+	procByTaskID := make(map[string]*parser.SubagentProcess, len(subagents))
+	for i := range subagents {
+		if subagents[i].ParentTaskID != "" {
+			procByTaskID[subagents[i].ParentTaskID] = &subagents[i]
+		}
+	}
+
 	out := make([]displayItem, len(items))
 	for i, it := range items {
 		input := ""
@@ -222,8 +273,99 @@ func convertDisplayItems(items []parser.DisplayItem) []displayItem {
 			subagentDesc: it.SubagentDesc,
 			teammateID:   it.TeammateID,
 		}
+		// Link subagent process if available.
+		if it.Type == parser.ItemSubagent {
+			out[i].subagentProcess = procByTaskID[it.ToolID]
+		}
 	}
 	return out
+}
+
+// currentDetailMsg returns the message being viewed in detail view.
+// Returns the trace message when drilled into a subagent, otherwise the
+// selected message from the list.
+func (m model) currentDetailMsg() message {
+	if m.traceMsg != nil {
+		return *m.traceMsg
+	}
+	if m.cursor >= 0 && m.cursor < len(m.messages) {
+		return m.messages[m.cursor]
+	}
+	return message{}
+}
+
+// buildSubagentMessage creates a synthetic message from a subagent's execution
+// trace. The message contains all items (Input, Output, Tool calls) from the
+// subagent's chunks, suitable for rendering in the detail view.
+func buildSubagentMessage(proc *parser.SubagentProcess, subagentType string) message {
+	var items []displayItem
+	var toolCount, thinkCount, msgCount int
+
+	for _, c := range proc.Chunks {
+		switch c.Type {
+		case parser.UserChunk:
+			items = append(items, displayItem{
+				itemType: parser.ItemOutput,
+				toolName: "Input",
+				text:     c.UserText,
+			})
+			msgCount++
+		case parser.AIChunk:
+			for _, it := range c.Items {
+				input := ""
+				if len(it.ToolInput) > 0 {
+					var pretty bytes.Buffer
+					if json.Indent(&pretty, it.ToolInput, "", "  ") == nil {
+						input = pretty.String()
+					} else {
+						input = string(it.ToolInput)
+					}
+				}
+				items = append(items, displayItem{
+					itemType:     it.Type,
+					text:         it.Text,
+					toolName:     it.ToolName,
+					toolSummary:  it.ToolSummary,
+					toolInput:    input,
+					toolResult:   it.ToolResult,
+					toolError:    it.ToolError,
+					durationMs:   it.DurationMs,
+					tokenCount:   it.TokenCount,
+					subagentType: it.SubagentType,
+					subagentDesc: it.SubagentDesc,
+				})
+				switch it.Type {
+				case parser.ItemThinking:
+					thinkCount++
+				case parser.ItemToolCall, parser.ItemSubagent:
+					toolCount++
+				case parser.ItemOutput:
+					msgCount++
+				}
+			}
+		}
+	}
+
+	mdl := ""
+	for _, c := range proc.Chunks {
+		if c.Type == parser.AIChunk && c.Model != "" {
+			mdl = shortModel(c.Model)
+			break
+		}
+	}
+
+	return message{
+		role:          RoleClaude,
+		model:         mdl,
+		items:         items,
+		thinkingCount: thinkCount,
+		toolCallCount: toolCount,
+		messages:      msgCount,
+		tokensRaw:     proc.Usage.TotalTokens(),
+		durationMs:    proc.DurationMs,
+		timestamp:     formatTime(proc.StartTime),
+		subagentLabel: subagentType,
+	}
 }
 
 // shortModel turns "claude-opus-4-6" into "opus4.6".
@@ -248,6 +390,22 @@ func modelColor(model string) lipgloss.AdaptiveColor {
 	default:
 		return ColorTextSecondary
 	}
+}
+
+// isTeamTaskItem checks whether a DisplayItem is a team Task call by looking
+// for team_name and name in ToolInput. Thin wrapper matching parser.isTeamTask
+// but takes a pointer to avoid allocation.
+func isTeamTaskItem(it *parser.DisplayItem) bool {
+	if len(it.ToolInput) == 0 {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(it.ToolInput, &fields); err != nil {
+		return false
+	}
+	_, hasTeamName := fields["team_name"]
+	_, hasName := fields["name"]
+	return hasTeamName && hasName
 }
 
 // countOutputItems counts text output items in a display items slice.
@@ -372,6 +530,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Start a new watcher for the selected session.
 		w := newSessionWatcher(msg.path, msg.classified, msg.offset)
+		w.hasTeamTasks = msg.hasTeamTasks
 		go w.run()
 		m.watcher = w
 		m.watching = true
@@ -446,6 +605,8 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailScroll = 0
 			m.detailCursor = 0
 			m.detailExpanded = make(map[int]bool)
+			m.traceMsg = nil
+			m.savedDetail = nil
 			m.computeDetailMaxScroll()
 		}
 	case "e":
@@ -485,26 +646,64 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // detailHasItems returns true when the current detail message has structured items.
 func (m model) detailHasItems() bool {
-	if m.cursor < 0 || m.cursor >= len(m.messages) {
-		return false
-	}
-	return len(m.messages[m.cursor].items) > 0
+	return len(m.currentDetailMsg().items) > 0
 }
 
 // updateDetail handles key events in the full-screen detail view.
 func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	hasItems := m.detailHasItems()
 
+	detailMsg := m.currentDetailMsg()
+
 	switch msg.String() {
 	case "q", "escape":
-		m.view = viewList
-		m.detailCursor = 0
-		m.detailExpanded = make(map[int]bool)
+		if m.traceMsg != nil {
+			// Pop back to parent detail view.
+			m.detailCursor = m.savedDetail.cursor
+			m.detailScroll = m.savedDetail.scroll
+			m.detailExpanded = m.savedDetail.expanded
+			m.traceMsg = nil
+			m.savedDetail = nil
+			m.computeDetailMaxScroll()
+		} else {
+			m.view = viewList
+			m.detailCursor = 0
+			m.detailExpanded = make(map[int]bool)
+		}
 	case "enter":
 		if hasItems {
-			m.detailExpanded[m.detailCursor] = !m.detailExpanded[m.detailCursor]
-			m.computeDetailMaxScroll()
-			m.ensureDetailCursorVisible()
+			item := detailMsg.items[m.detailCursor]
+			if item.subagentProcess != nil {
+				// Drill into subagent execution trace.
+				synth := buildSubagentMessage(item.subagentProcess, item.subagentType)
+				cloned := make(map[int]bool, len(m.detailExpanded))
+				for k, v := range m.detailExpanded {
+					cloned[k] = v
+				}
+				// Build breadcrumb label from parent message.
+				parentLabel := detailMsg.subagentLabel
+				if parentLabel == "" {
+					parentLabel = "Claude"
+				}
+				if detailMsg.model != "" {
+					parentLabel += " " + detailMsg.model
+				}
+				m.savedDetail = &savedDetailState{
+					cursor:   m.detailCursor,
+					scroll:   m.detailScroll,
+					expanded: cloned,
+					label:    parentLabel,
+				}
+				m.traceMsg = &synth
+				m.detailCursor = 0
+				m.detailScroll = 0
+				m.detailExpanded = make(map[int]bool)
+				m.computeDetailMaxScroll()
+			} else {
+				m.detailExpanded[m.detailCursor] = !m.detailExpanded[m.detailCursor]
+				m.computeDetailMaxScroll()
+				m.ensureDetailCursorVisible()
+			}
 		} else {
 			m.view = viewList
 			m.detailCursor = 0
@@ -512,8 +711,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "j", "down":
 		if hasItems {
-			itemCount := len(m.messages[m.cursor].items)
-			if m.detailCursor < itemCount-1 {
+			if m.detailCursor < len(detailMsg.items)-1 {
 				m.detailCursor++
 			}
 			m.ensureDetailCursorVisible()
@@ -540,7 +738,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "G":
 		if hasItems {
-			m.detailCursor = len(m.messages[m.cursor].items) - 1
+			m.detailCursor = len(detailMsg.items) - 1
 		}
 		m.detailScroll = m.detailMaxScroll
 	case "g":
@@ -673,12 +871,12 @@ func (m *model) clampListScroll() {
 // computeDetailMaxScroll caches the maximum scroll offset for the detail view.
 // Called when entering detail view and on window resize.
 func (m *model) computeDetailMaxScroll() {
-	if m.cursor < 0 || m.cursor >= len(m.messages) || m.width == 0 || m.height == 0 {
+	if m.width == 0 || m.height == 0 {
 		m.detailMaxScroll = 0
 		return
 	}
 
-	msg := m.messages[m.cursor]
+	msg := m.currentDetailMsg()
 	width := m.width
 	if width > maxContentWidth {
 		width = maxContentWidth
@@ -702,10 +900,10 @@ func (m *model) computeDetailMaxScroll() {
 // item is within the visible viewport. Computes the cursor's line position by
 // counting header lines + item rows + expanded content lines before it.
 func (m *model) ensureDetailCursorVisible() {
-	if m.cursor < 0 || m.cursor >= len(m.messages) || m.width == 0 || m.height == 0 {
+	if m.width == 0 || m.height == 0 {
 		return
 	}
-	msg := m.messages[m.cursor]
+	msg := m.currentDetailMsg()
 	if len(msg.items) == 0 {
 		return
 	}
@@ -861,11 +1059,7 @@ func (m model) viewList() string {
 
 // viewDetail renders a single message full-screen with scrolling.
 func (m model) viewDetail() string {
-	if m.cursor < 0 || m.cursor >= len(m.messages) {
-		return ""
-	}
-
-	msg := m.messages[m.cursor]
+	msg := m.currentDetailMsg()
 	width := m.width
 	if width > maxContentWidth {
 		width = maxContentWidth
@@ -996,6 +1190,7 @@ func main() {
 
 	// Start the file watcher for live tailing.
 	watcher := newSessionWatcher(result.path, result.classified, result.offset)
+	watcher.hasTeamTasks = result.hasTeamTasks
 	go watcher.run()
 
 	m := initialModel(result.messages, hasDarkBg)

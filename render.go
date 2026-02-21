@@ -396,6 +396,9 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 	case parser.ItemOutput:
 		indicator = blue.Render(IconOutput)
 		name = "Output"
+		if item.toolName != "" {
+			name = item.toolName
+		}
 	case parser.ItemToolCall:
 		if item.toolError {
 			indicator = red.Render(IconToolErr)
@@ -438,22 +441,38 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 	}
 	summaryRendered := lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(summary)
 
-	// Right-side: tokens + duration
+	// Right-side: tokens + duration.
+	// Prefer subagent process stats when linked (actual internal consumption).
+	tokCount := item.tokenCount
+	durMs := item.durationMs
+	if item.subagentProcess != nil {
+		if t := item.subagentProcess.Usage.TotalTokens(); t > 0 {
+			tokCount = t
+		}
+		if d := item.subagentProcess.DurationMs; d > 0 {
+			durMs = d
+		}
+	}
 	var rightParts []string
-	if item.tokenCount > 0 {
-		tokStr := fmt.Sprintf("~%s tok", formatTokens(item.tokenCount))
+	if tokCount > 0 {
+		tokStr := fmt.Sprintf("~%s tok", formatTokens(tokCount))
 		rightParts = append(rightParts, lipgloss.NewStyle().Foreground(ColorTextDim).Render(tokStr))
 	}
-	if item.durationMs > 0 {
-		durStr := fmt.Sprintf("%dms", item.durationMs)
-		if item.durationMs >= 1000 {
-			durStr = formatDuration(item.durationMs)
+	if durMs > 0 {
+		durStr := fmt.Sprintf("%dms", durMs)
+		if durMs >= 1000 {
+			durStr = formatDuration(durMs)
 		}
 		rightParts = append(rightParts, lipgloss.NewStyle().Foreground(ColorTextDim).Render(durStr))
 	}
 	rightSide := strings.Join(rightParts, "  ")
 
-	left := cursor + indicator + " " + nameRendered + " " + summaryRendered
+	var left string
+	if summary != "" {
+		left = cursor + indicator + " " + nameRendered + dim.Render(" - ") + summaryRendered
+	} else {
+		left = cursor + indicator + " " + nameRendered
+	}
 	return spaceBetween(left, rightSide, width)
 }
 
@@ -475,53 +494,140 @@ func (m model) renderDetailItemExpanded(item displayItem, width int) string {
 		rendered := m.md.renderMarkdown(text, wrapWidth)
 		return indentBlock(rendered, indent)
 
-	case parser.ItemToolCall, parser.ItemSubagent:
-		var sections []string
-
-		if item.toolInput != "" {
-			headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTextSecondary)
-			sections = append(sections, indent+headerStyle.Render("Input:"))
-			inputStyle := lipgloss.NewStyle().
-				Foreground(ColorTextDim).
-				Width(wrapWidth)
-			sections = append(sections, indentBlock(inputStyle.Render(item.toolInput), indent))
+	case parser.ItemSubagent:
+		// Linked subagent: show execution trace summary.
+		if item.subagentProcess != nil {
+			return m.renderSubagentTrace(item, wrapWidth, indent)
 		}
+		// Unlinked subagent: fall through to tool call rendering.
+		return m.renderToolExpanded(item, wrapWidth, indent)
 
-		if item.toolResult != "" || item.toolError {
-			if len(sections) > 0 {
-				sepStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
-				sections = append(sections, indent+sepStyle.Render(strings.Repeat("-", wrapWidth)))
-			}
-
-			if item.toolError {
-				headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorError)
-				sections = append(sections, indent+headerStyle.Render("Error:"))
-			} else {
-				headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTextSecondary)
-				sections = append(sections, indent+headerStyle.Render("Result:"))
-			}
-
-			resultStyle := lipgloss.NewStyle().
-				Foreground(ColorTextDim).
-				Width(wrapWidth)
-			sections = append(sections, indentBlock(resultStyle.Render(item.toolResult), indent))
-		}
-
-		if len(sections) == 0 {
-			return ""
-		}
-		return strings.Join(sections, "\n")
+	case parser.ItemToolCall:
+		return m.renderToolExpanded(item, wrapWidth, indent)
 	}
 
 	return ""
 }
 
+// renderToolExpanded renders the expanded content for a tool call item.
+func (m model) renderToolExpanded(item displayItem, wrapWidth int, indent string) string {
+	var sections []string
+
+	if item.toolInput != "" {
+		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTextSecondary)
+		sections = append(sections, indent+headerStyle.Render("Input:"))
+		inputStyle := lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Width(wrapWidth)
+		sections = append(sections, indentBlock(inputStyle.Render(item.toolInput), indent))
+	}
+
+	if item.toolResult != "" || item.toolError {
+		if len(sections) > 0 {
+			sepStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+			sections = append(sections, indent+sepStyle.Render(strings.Repeat("-", wrapWidth)))
+		}
+
+		if item.toolError {
+			headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorError)
+			sections = append(sections, indent+headerStyle.Render("Error:"))
+		} else {
+			headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTextSecondary)
+			sections = append(sections, indent+headerStyle.Render("Result:"))
+		}
+
+		resultStyle := lipgloss.NewStyle().
+			Foreground(ColorTextDim).
+			Width(wrapWidth)
+		sections = append(sections, indentBlock(resultStyle.Render(item.toolResult), indent))
+	}
+
+	if len(sections) == 0 {
+		return ""
+	}
+	return strings.Join(sections, "\n")
+}
+
+// renderSubagentTrace renders an execution trace for a linked subagent,
+// matching the claude-devtools layout: a header line with counts, followed
+// by a flat list of all items across the subagent's chunks.
+func (m model) renderSubagentTrace(item displayItem, wrapWidth int, indent string) string {
+	proc := item.subagentProcess
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+
+	// Build flat trace items from all subagent chunks.
+	// UserChunks become "Input" items; AIChunk items pass through directly.
+	var traceItems []displayItem
+	var toolCount, msgCount int
+
+	for _, c := range proc.Chunks {
+		switch c.Type {
+		case parser.UserChunk:
+			traceItems = append(traceItems, displayItem{
+				itemType: parser.ItemOutput,
+				toolName: "Input", // overrides "Output" label in renderDetailItemRow
+				text:     c.UserText,
+			})
+			msgCount++
+		case parser.AIChunk:
+			for _, it := range c.Items {
+				traceItems = append(traceItems, displayItem{
+					itemType:     it.Type,
+					text:         it.Text,
+					toolName:     it.ToolName,
+					toolSummary:  it.ToolSummary,
+					toolResult:   it.ToolResult,
+					toolError:    it.ToolError,
+					durationMs:   it.DurationMs,
+					tokenCount:   it.TokenCount,
+					subagentType: it.SubagentType,
+					subagentDesc: it.SubagentDesc,
+				})
+				switch it.Type {
+				case parser.ItemToolCall, parser.ItemSubagent:
+					toolCount++
+				case parser.ItemOutput:
+					msgCount++
+				}
+			}
+		}
+	}
+
+	// Header: >_ Execution Trace · N tool calls, N messages
+	traceIcon := dimStyle.Render(IconSystem) // terminal icon for execution context
+	traceLabel := lipgloss.NewStyle().Bold(true).
+		Foreground(ColorTextPrimary).Render("Execution Trace")
+	dot := dimStyle.Render(" " + IconDot + " ")
+	countStr := dimStyle.Render(fmt.Sprintf("%d tool calls, %d messages", toolCount, msgCount))
+
+	var lines []string
+	lines = append(lines, indent+traceIcon+"  "+traceLabel+dot+countStr)
+
+	// All trace items as compact rows (no cursor, no cap).
+	nestedWidth := wrapWidth - 4
+	for i, di := range traceItems {
+		row := m.renderDetailItemRow(di, i, -1, nestedWidth)
+		lines = append(lines, indent+"  "+row)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 // renderDetailHeader renders metadata for the detail view header.
 // An optional leftSuffix is appended after the stats (used for the chevron
 // in list view). Matches the list view header layout for visual consistency.
+//
+// When in a trace drill-down (savedDetail != nil && traceMsg != nil), a dim
+// breadcrumb prefix shows the parent view: "Claude opus4.6 > ..."
 func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) string {
-	icon := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true).Render(IconClaude)
-	modelName := lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render("Claude")
+	headerIcon := IconClaude
+	headerLabel := "Claude"
+	if msg.subagentLabel != "" {
+		headerIcon = IconSubagent
+		headerLabel = msg.subagentLabel
+	}
+	icon := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true).Render(headerIcon)
+	modelName := lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary).Render(headerLabel)
 	modelVer := lipgloss.NewStyle().Foreground(modelColor(msg.model)).Render(msg.model)
 
 	var statParts []string
@@ -542,6 +648,20 @@ func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) 
 		}
 		statParts = append(statParts, fmt.Sprintf("%d %s", msg.messages, label))
 	}
+	if msg.teammateSpawns > 0 {
+		label := "teammates"
+		if msg.teammateSpawns == 1 {
+			label = "teammate"
+		}
+		statParts = append(statParts, fmt.Sprintf("%d %s", msg.teammateSpawns, label))
+	}
+	if msg.teammateMessages > 0 {
+		label := "teammate messages"
+		if msg.teammateMessages == 1 {
+			label = "teammate message"
+		}
+		statParts = append(statParts, fmt.Sprintf("%d %s", msg.teammateMessages, label))
+	}
 
 	stats := ""
 	if len(statParts) > 0 {
@@ -549,7 +669,15 @@ func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) 
 		stats = dot + lipgloss.NewStyle().Foreground(ColorTextSecondary).Render(strings.Join(statParts, ", "))
 	}
 
-	left := icon + " " + modelName + " " + modelVer + stats
+	// Breadcrumb prefix when drilled into a subagent trace.
+	var breadcrumb string
+	if m.savedDetail != nil && m.traceMsg != nil {
+		parentStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+		sep := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(" > ")
+		breadcrumb = parentStyle.Render(m.savedDetail.label) + sep
+	}
+
+	left := breadcrumb + icon + " " + modelName + " " + modelVer + stats
 	for _, s := range leftSuffix {
 		left += " " + s
 	}

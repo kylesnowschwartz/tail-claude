@@ -20,12 +20,13 @@ type pickerSessionsMsg struct {
 // loadSessionMsg delivers a parsed session ready for the list view,
 // including classified messages and offset for watcher handoff.
 type loadSessionMsg struct {
-	messages   []message
-	path       string
-	classified []parser.ClassifiedMsg
-	offset     int64
-	ongoing    bool
-	err        error
+	messages     []message
+	path         string
+	classified   []parser.ClassifiedMsg
+	offset       int64
+	ongoing      bool
+	hasTeamTasks bool
+	err          error
 }
 
 // loadPickerSessionsCmd discovers sessions for the current project.
@@ -48,12 +49,17 @@ func loadSessionCmd(path string) tea.Cmd {
 			return loadSessionMsg{err: err, path: path}
 		}
 		chunks := parser.BuildChunks(classified)
+		subagents, _ := parser.DiscoverSubagents(path)
+		teamSessions, _ := parser.DiscoverTeamSessions(path, chunks)
+		allSubagents := append(subagents, teamSessions...)
+		parser.LinkSubagents(allSubagents, chunks, path)
 		return loadSessionMsg{
-			messages:   chunksToMessages(chunks),
-			path:       path,
-			classified: classified,
-			offset:     offset,
-			ongoing:    parser.IsOngoing(chunks),
+			messages:     chunksToMessages(chunks, allSubagents),
+			path:         path,
+			classified:   classified,
+			offset:       offset,
+			ongoing:      parser.IsOngoing(chunks),
+			hasTeamTasks: len(teamSessions) > 0 || hasTeamTaskItems(chunks),
 		}
 	}
 }

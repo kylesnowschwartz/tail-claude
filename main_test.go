@@ -105,7 +105,7 @@ func TestChunksToMessages(t *testing.T) {
 		},
 	}
 
-	msgs := chunksToMessages(chunks)
+	msgs := chunksToMessages(chunks, nil)
 	if len(msgs) != 3 {
 		t.Fatalf("len(msgs) = %d, want 3", len(msgs))
 	}
@@ -158,7 +158,7 @@ func TestChunksToMessages_EmptyToolCalls(t *testing.T) {
 			// ToolCalls deliberately nil
 		},
 	}
-	msgs := chunksToMessages(chunks)
+	msgs := chunksToMessages(chunks, nil)
 	if len(msgs) != 1 {
 		t.Fatalf("len(msgs) = %d, want 1", len(msgs))
 	}

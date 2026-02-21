@@ -24,6 +24,8 @@ type SubagentProcess struct {
 	Description  string
 	SubagentType string
 	ParentTaskID string // tool_use_id of spawning Task call
+	AgentName    string // team member name, empty for regular subagents
+	TeamName     string // team name, empty for regular subagents
 }
 
 // DiscoverSubagents finds and parses subagent files for a session.
@@ -96,13 +98,13 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 		usage := aggregateUsage(chunks)
 
 		procs = append(procs, SubagentProcess{
-			ID:        agentID,
-			FilePath:  filePath,
-			Chunks:    chunks,
-			StartTime: startTime,
-			EndTime:   endTime,
+			ID:         agentID,
+			FilePath:   filePath,
+			Chunks:     chunks,
+			StartTime:  startTime,
+			EndTime:    endTime,
 			DurationMs: durationMs,
-			Usage:     usage,
+			Usage:      usage,
 		})
 	}
 
@@ -242,8 +244,11 @@ func aggregateUsage(chunks []Chunk) Usage {
 // Matching strategy (ported from claude-devtools SubagentResolver):
 //  1. Result-based: scan parent session entries for toolUseResult containing
 //     agentId. Map agentId -> sourceToolUseID -> Task tool call.
-//  2. Positional fallback: remaining unmatched processes are paired with
-//     remaining unmatched Task calls by time order (no wrap-around).
+//  2. Team member: match the <teammate-message summary="..."> attribute from
+//     the subagent's first user message to the Task call's description.
+//     Only applies to Task calls with both team_name and name in input.
+//  3. Positional fallback: remaining unmatched non-team processes are paired
+//     with remaining unmatched non-team Task calls by time order (no wrap-around).
 //
 // Also populates Description and SubagentType from the parent Task call.
 func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSessionPath string) {
@@ -298,7 +303,39 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 		matchedTools[toolID] = true
 	}
 
-	// Phase 2: Positional fallback (no wrap-around).
+	// Phase 2: Team member matching by agentName + teamName.
+	// Team Task calls have both team_name and name in input. Their agent_id
+	// is "name@team_name" (not a file UUID), so Phase 1 can't match them.
+	// Match by comparing the Task call's name/team_name fields to the
+	// AgentName/TeamName extracted from the subagent's session file.
+	teamTaskItems := filterTeamTasks(taskItems, matchedTools)
+	for _, it := range teamTaskItems {
+		name, team := extractTeamTaskFields(it)
+		if name == "" || team == "" {
+			continue
+		}
+		var best *SubagentProcess
+		for i := range processes {
+			if matchedProcs[processes[i].ID] {
+				continue
+			}
+			if processes[i].AgentName != name || processes[i].TeamName != team {
+				continue
+			}
+			if best == nil || processes[i].StartTime.Before(best.StartTime) {
+				best = &processes[i]
+			}
+		}
+		if best != nil {
+			enrichProcess(best, it)
+			matchedProcs[best.ID] = true
+			matchedTools[it.ToolID] = true
+		}
+	}
+
+	// Phase 3: Positional fallback for non-team tasks (no wrap-around).
+	// Explicitly excludes team Task calls — they either matched in Phase 2
+	// or remain unmatched.
 	var unmatchedProcs []*SubagentProcess
 	for i := range processes {
 		if !matchedProcs[processes[i].ID] {
@@ -307,7 +344,7 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 	}
 	var unmatchedTasks []*DisplayItem
 	for _, it := range taskItems {
-		if !matchedTools[it.ToolID] {
+		if !matchedTools[it.ToolID] && !isTeamTask(it) {
 			unmatchedTasks = append(unmatchedTasks, it)
 		}
 	}
@@ -317,11 +354,66 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 	}
 }
 
+// filterTeamTasks returns unmatched Task items whose input contains both
+// team_name and name keys, identifying them as team member spawns.
+func filterTeamTasks(items []*DisplayItem, matched map[string]bool) []*DisplayItem {
+	var out []*DisplayItem
+	for _, it := range items {
+		if matched[it.ToolID] {
+			continue
+		}
+		if isTeamTask(it) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// isTeamTask checks whether a Task DisplayItem's input contains both
+// team_name and name keys, marking it as a team member spawn.
+func isTeamTask(it *DisplayItem) bool {
+	if len(it.ToolInput) == 0 {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(it.ToolInput, &fields); err != nil {
+		return false
+	}
+	_, hasTeamName := fields["team_name"]
+	_, hasName := fields["name"]
+	return hasTeamName && hasName
+}
+
+// extractTeamTaskFields parses a team Task item's ToolInput for the
+// name and team_name fields used to identify the team member.
+func extractTeamTaskFields(it *DisplayItem) (name, teamName string) {
+	if len(it.ToolInput) == 0 {
+		return "", ""
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(it.ToolInput, &fields); err != nil {
+		return "", ""
+	}
+	var n, t string
+	if raw, ok := fields["name"]; ok {
+		json.Unmarshal(raw, &n)
+	}
+	if raw, ok := fields["team_name"]; ok {
+		json.Unmarshal(raw, &t)
+	}
+	return n, t
+}
+
 // scanAgentLinks reads a parent session JSONL file and builds a map from
-// agentId -> sourceToolUseID by extracting structured toolUseResult data.
-// This matches claude-devtools' Phase 1 linking: entries with a toolUseResult
-// field containing an agentId key are linked via sourceToolUseID back to the
-// originating Task tool_use block.
+// agentId -> toolUseID by extracting structured toolUseResult data.
+//
+// Matching strategy (ported from claude-devtools SubagentResolver):
+//
+//	toolUseResult.agentId (or agent_id) -> sourceToolUseID
+//
+// Fallback when sourceToolUseID is missing: extract the first tool_result
+// block's tool_use_id from the message content (matches devtools:
+// msg.sourceToolUseID ?? msg.toolResults[0]?.toolUseId).
 func scanAgentLinks(sessionPath string) map[string]string {
 	result := make(map[string]string)
 
@@ -343,7 +435,7 @@ func scanAgentLinks(sessionPath string) map[string]string {
 		if !ok {
 			continue
 		}
-		if entry.SourceToolUseID == "" || len(entry.ToolUseResult) == 0 {
+		if len(entry.ToolUseResult) == 0 {
 			continue
 		}
 
@@ -357,10 +449,40 @@ func scanAgentLinks(sessionPath string) map[string]string {
 			continue
 		}
 
-		result[agentID] = entry.SourceToolUseID
+		// Primary: top-level sourceToolUseID field.
+		toolUseID := entry.SourceToolUseID
+
+		// Fallback: first tool_result block's tool_use_id from message content.
+		// Many entries lack sourceToolUseID but the link is in the content.
+		if toolUseID == "" {
+			toolUseID = extractFirstToolResultID(entry)
+		}
+		if toolUseID == "" {
+			continue
+		}
+
+		result[agentID] = toolUseID
 	}
 
 	return result
+}
+
+// extractFirstToolResultID returns the tool_use_id from the first tool_result
+// content block in the entry's message, or "" if none found.
+func extractFirstToolResultID(entry Entry) string {
+	var blocks []struct {
+		Type      string `json:"type"`
+		ToolUseID string `json:"tool_use_id"`
+	}
+	if err := json.Unmarshal(entry.Message.Content, &blocks); err != nil {
+		return "" // content is a string, not an array — skip
+	}
+	for _, b := range blocks {
+		if b.Type == "tool_result" && b.ToolUseID != "" {
+			return b.ToolUseID
+		}
+	}
+	return ""
 }
 
 // extractStringField extracts a string value from a map of json.RawMessage.
@@ -381,4 +503,166 @@ func enrichProcess(proc *SubagentProcess, item *DisplayItem) {
 	proc.ParentTaskID = item.ToolID
 	proc.Description = item.SubagentDesc
 	proc.SubagentType = item.SubagentType
+}
+
+// teamMember identifies an expected team member from the parent's Task calls.
+type teamMember struct {
+	Name     string
+	TeamName string
+}
+
+// DiscoverTeamSessions finds and parses team member session files.
+//
+// Team-spawned agents (via TeamCreate + Task with team_name/name) create
+// independent session files at the project root ({projectDir}/{uuid}.jsonl),
+// not under {session}/subagents/. Their entries carry agentName and teamName
+// fields that identify which team member they belong to.
+//
+// Returns parsed SubagentProcesses with AgentName and TeamName set,
+// sorted by StartTime.
+func DiscoverTeamSessions(parentSessionPath string, parentChunks []Chunk) ([]SubagentProcess, error) {
+	expected := scanTeamInfo(parentChunks)
+	if len(expected) == 0 {
+		return nil, nil
+	}
+
+	dir := filepath.Dir(parentSessionPath)
+	parentBase := filepath.Base(parentSessionPath)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var procs []SubagentProcess
+	for _, de := range entries {
+		if de.IsDir() {
+			continue
+		}
+		name := de.Name()
+		// Skip non-JSONL files.
+		if !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		// Skip the parent session itself.
+		if name == parentBase {
+			continue
+		}
+		// Skip regular subagent files (agent-* prefix).
+		if strings.HasPrefix(name, "agent-") {
+			continue
+		}
+
+		filePath := filepath.Join(dir, name)
+
+		// Skip empty files.
+		info, err := de.Info()
+		if err != nil || info.Size() == 0 {
+			continue
+		}
+
+		agentName, teamName, ok := matchTeamSession(filePath, expected)
+		if !ok {
+			continue
+		}
+
+		chunks, err := readSubagentSession(filePath)
+		if err != nil || len(chunks) == 0 {
+			continue
+		}
+
+		startTime, endTime, durationMs := chunkTiming(chunks)
+		usage := aggregateUsage(chunks)
+
+		// Use the filename (minus .jsonl) as the ID for team sessions.
+		id := strings.TrimSuffix(name, ".jsonl")
+
+		procs = append(procs, SubagentProcess{
+			ID:         id,
+			FilePath:   filePath,
+			Chunks:     chunks,
+			StartTime:  startTime,
+			EndTime:    endTime,
+			DurationMs: durationMs,
+			Usage:      usage,
+			AgentName:  agentName,
+			TeamName:   teamName,
+		})
+	}
+
+	sort.Slice(procs, func(i, j int) bool {
+		return procs[i].StartTime.Before(procs[j].StartTime)
+	})
+
+	return procs, nil
+}
+
+// scanTeamInfo collects expected team member identities from parent chunks.
+// Looks for ItemSubagent items with both team_name and name in ToolInput.
+func scanTeamInfo(chunks []Chunk) []teamMember {
+	var members []teamMember
+	seen := make(map[teamMember]bool)
+
+	for i := range chunks {
+		c := &chunks[i]
+		if c.Type != AIChunk {
+			continue
+		}
+		for j := range c.Items {
+			it := &c.Items[j]
+			if it.Type != ItemSubagent || !isTeamTask(it) {
+				continue
+			}
+			name, team := extractTeamTaskFields(it)
+			if name == "" || team == "" {
+				continue
+			}
+			m := teamMember{Name: name, TeamName: team}
+			if !seen[m] {
+				seen[m] = true
+				members = append(members, m)
+			}
+		}
+	}
+	return members
+}
+
+// matchTeamSession reads the first JSONL line of a candidate file and checks
+// whether its agentName and teamName fields match any expected team member.
+// Returns the matched name/team and true, or empty strings and false.
+func matchTeamSession(path string, expected []teamMember) (agentName, teamName string, ok bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+
+	if !scanner.Scan() {
+		return "", "", false
+	}
+	line := scanner.Bytes()
+	if len(line) == 0 {
+		return "", "", false
+	}
+
+	var partial struct {
+		AgentName string `json:"agentName"`
+		TeamName  string `json:"teamName"`
+	}
+	if err := json.Unmarshal(line, &partial); err != nil {
+		return "", "", false
+	}
+	if partial.AgentName == "" || partial.TeamName == "" {
+		return "", "", false
+	}
+
+	for _, m := range expected {
+		if partial.AgentName == m.Name && partial.TeamName == m.TeamName {
+			return partial.AgentName, partial.TeamName, true
+		}
+	}
+	return "", "", false
 }

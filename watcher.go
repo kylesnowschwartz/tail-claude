@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -30,7 +31,12 @@ type tailUpdate struct {
 }
 
 // sessionWatcher monitors a JSONL session file for appended lines and pushes
-// rebuilt message lists through a channel.
+// rebuilt message lists through a channel. Also watches the project directory
+// for new .jsonl files so team member sessions are discovered promptly.
+//
+// All data processing (offset, allClassified, rebuilds) happens on the single
+// run() goroutine. Timer callbacks send signals instead of calling methods
+// directly, avoiding data races.
 type sessionWatcher struct {
 	path          string
 	offset        int64
@@ -38,10 +44,14 @@ type sessionWatcher struct {
 	sub           chan tailUpdate
 	errc          chan error
 	done          chan struct{}
+	signals       chan struct{} // debounced rebuild trigger; capacity 1
 
-	// Guards the debounce timer so stop() can cancel it safely.
-	mu       sync.Mutex
-	debounce *time.Timer
+	// Guards debounce timers so stop() can cancel them safely.
+	// Does NOT guard data fields — those are only touched by run().
+	mu           sync.Mutex
+	debounce     *time.Timer
+	dirDebounce  *time.Timer
+	hasTeamTasks bool // true when parent chunks contain team Task items
 }
 
 func newSessionWatcher(path string, initialClassified []parser.ClassifiedMsg, initialOffset int64) *sessionWatcher {
@@ -52,6 +62,7 @@ func newSessionWatcher(path string, initialClassified []parser.ClassifiedMsg, in
 		sub:           make(chan tailUpdate, 1),
 		errc:          make(chan error, 1),
 		done:          make(chan struct{}),
+		signals:       make(chan struct{}, 1),
 	}
 }
 
@@ -62,13 +73,33 @@ func (w *sessionWatcher) stop() {
 	if w.debounce != nil {
 		w.debounce.Stop()
 	}
+	if w.dirDebounce != nil {
+		w.dirDebounce.Stop()
+	}
 	w.mu.Unlock()
 }
 
+// sendSignal does a non-blocking send on the signals channel.
+// If a signal is already pending, this is a no-op (the pending signal
+// will trigger a full rebuild anyway).
+func (w *sessionWatcher) sendSignal() {
+	select {
+	case w.signals <- struct{}{}:
+	default:
+	}
+}
+
 // run starts the fsnotify watcher loop. Intended to be called as a goroutine.
-// Debounces write events with a 100ms timer so rapid appends coalesce into
-// a single incremental read.
+// Watches both the session file (for appended lines) and the project directory
+// (for new team member session files). Debounces events so rapid writes
+// coalesce into a single rebuild.
+//
+// Closes sub and errc on exit so blocked waitForTailUpdate/waitForWatcherErr
+// Cmds unblock and return nil instead of leaking goroutines.
 func (w *sessionWatcher) run() {
+	defer close(w.sub)
+	defer close(w.errc)
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		w.errc <- err
@@ -81,27 +112,44 @@ func (w *sessionWatcher) run() {
 		return
 	}
 
+	// Watch the project directory for new team session files.
+	// Non-fatal if this fails (directory watch is an optimization).
+	projectDir := filepath.Dir(w.path)
+	_ = watcher.Add(projectDir)
+
 	for {
 		select {
 		case <-w.done:
 			return
 
+		case <-w.signals:
+			// Debounced rebuild trigger. Read any new parent data,
+			// then rebuild everything (chunks, subagents, team sessions).
+			w.readAndRebuild()
+
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			if !event.Has(fsnotify.Write) {
-				continue
+
+			if event.Name == w.path && event.Has(fsnotify.Write) {
+				// Parent session file changed — debounce and signal.
+				w.mu.Lock()
+				if w.debounce != nil {
+					w.debounce.Stop()
+				}
+				w.debounce = time.AfterFunc(100*time.Millisecond, w.sendSignal)
+				w.mu.Unlock()
+			} else if event.Has(fsnotify.Create) && w.hasTeamTasks {
+				// New file in project directory while we have team tasks.
+				// Longer debounce — team sessions need a moment to populate.
+				w.mu.Lock()
+				if w.dirDebounce != nil {
+					w.dirDebounce.Stop()
+				}
+				w.dirDebounce = time.AfterFunc(500*time.Millisecond, w.sendSignal)
+				w.mu.Unlock()
 			}
-			// Reset or start the debounce timer.
-			w.mu.Lock()
-			if w.debounce != nil {
-				w.debounce.Stop()
-			}
-			w.debounce = time.AfterFunc(100*time.Millisecond, func() {
-				w.readIncremental()
-			})
-			w.mu.Unlock()
 
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -116,9 +164,10 @@ func (w *sessionWatcher) run() {
 	}
 }
 
-// readIncremental reads new lines from the session file, rebuilds chunks,
-// and sends the full message list on w.sub.
-func (w *sessionWatcher) readIncremental() {
+// readAndRebuild reads any new parent data, rebuilds chunks from all
+// classified messages, discovers subagents, and sends the update.
+// Only called from run() — no synchronization needed on data fields.
+func (w *sessionWatcher) readAndRebuild() {
 	newMsgs, newOffset, err := parser.ReadSessionIncremental(w.path, w.offset)
 	if err != nil {
 		select {
@@ -128,16 +177,25 @@ func (w *sessionWatcher) readIncremental() {
 		return
 	}
 
-	if len(newMsgs) == 0 && newOffset == w.offset {
-		return // nothing new
+	// Update offset and classified messages if there's new data.
+	if len(newMsgs) > 0 || newOffset != w.offset {
+		w.offset = newOffset
+		w.allClassified = append(w.allClassified, newMsgs...)
 	}
 
-	w.offset = newOffset
-	w.allClassified = append(w.allClassified, newMsgs...)
-
 	chunks := parser.BuildChunks(w.allClassified)
+
+	subagents, _ := parser.DiscoverSubagents(w.path)
+	teamSessions, _ := parser.DiscoverTeamSessions(w.path, chunks)
+	allSubagents := append(subagents, teamSessions...)
+	parser.LinkSubagents(allSubagents, chunks, w.path)
+
+	// Track whether we have team tasks so directory watches know
+	// whether to trigger rebuilds for new .jsonl files.
+	w.hasTeamTasks = len(teamSessions) > 0 || hasTeamTaskItems(chunks)
+
 	update := tailUpdate{
-		messages: chunksToMessages(chunks),
+		messages: chunksToMessages(chunks, allSubagents),
 		ongoing:  parser.IsOngoing(chunks),
 	}
 
@@ -154,8 +212,24 @@ func (w *sessionWatcher) readIncremental() {
 	}
 }
 
+// hasTeamTaskItems checks if any chunk contains team Task items (Task calls
+// with team_name + name in input). Used to decide whether directory events
+// should trigger team session re-discovery.
+func hasTeamTaskItems(chunks []parser.Chunk) bool {
+	for i := range chunks {
+		for j := range chunks[i].Items {
+			it := &chunks[i].Items[j]
+			if it.Type == parser.ItemSubagent && isTeamTaskItem(it) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // waitForTailUpdate blocks on the subscription channel and wraps the result
-// in a tailUpdateMsg for the Bubble Tea runtime.
+// in a tailUpdateMsg for the Bubble Tea runtime. Returns nil when the
+// channel is closed (watcher stopped), unblocking the goroutine.
 func waitForTailUpdate(sub chan tailUpdate) tea.Cmd {
 	return func() tea.Msg {
 		u, ok := <-sub
@@ -167,7 +241,8 @@ func waitForTailUpdate(sub chan tailUpdate) tea.Cmd {
 }
 
 // waitForWatcherErr blocks on the error channel and wraps the result
-// in a watcherErrMsg for the Bubble Tea runtime.
+// in a watcherErrMsg for the Bubble Tea runtime. Returns nil when the
+// channel is closed (watcher stopped), unblocking the goroutine.
 func waitForWatcherErr(errc chan error) tea.Cmd {
 	return func() tea.Msg {
 		err, ok := <-errc
