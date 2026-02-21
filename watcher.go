@@ -212,20 +212,6 @@ func (w *sessionWatcher) readAndRebuild() {
 	}
 }
 
-// hasTeamTaskItems checks if any chunk contains team Task items (Task calls
-// with team_name + name in input). Used to decide whether directory events
-// should trigger team session re-discovery.
-func hasTeamTaskItems(chunks []parser.Chunk) bool {
-	for i := range chunks {
-		for j := range chunks[i].Items {
-			it := &chunks[i].Items[j]
-			if it.Type == parser.ItemSubagent && isTeamTaskItem(it) {
-				return true
-			}
-		}
-	}
-	return false
-}
 
 // waitForTailUpdate blocks on the subscription channel and wraps the result
 // in a tailUpdateMsg for the Bubble Tea runtime. Returns nil when the
