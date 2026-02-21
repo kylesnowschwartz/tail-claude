@@ -353,46 +353,17 @@ func (m model) viewPicker() string {
 	}
 
 	// Header
-	titleStyle := StyleAccentBold
-	countStyle := StyleDim
-	header := titleStyle.Render("Sessions") + " " +
-		countStyle.Render(fmt.Sprintf("(%d)", len(m.pickerSessions)))
+	header := StyleAccentBold.Render("Sessions") + " " +
+		StyleDim.Render(fmt.Sprintf("(%d)", len(m.pickerSessions)))
 	header += "\n"
 
 	// Empty state
 	if len(m.pickerItems) == 0 {
-		dim := StyleDim
-		return header + "\n" + dim.Render("No sessions found for this project.")
+		return header + "\n" + StyleDim.Render("No sessions found for this project.")
 	}
 
-	// Render all items into lines, then apply scroll window.
-	var allLines []string
-	for i, item := range m.pickerItems {
-		switch item.typ {
-		case pickerItemHeader:
-			if !m.pickerIsFirstHeader(i) {
-				allLines = append(allLines, "")
-			}
-			allLines = append(allLines, m.renderPickerHeader(item.category, width))
-			allLines = append(allLines, "")
-		case pickerItemSession:
-			isSelected := i == m.pickerCursor
-			lines := m.renderPickerSession(item.session, isSelected, width, i)
-			allLines = append(allLines, lines...)
-		}
-	}
-
-	// Apply scroll.
-	viewHeight := m.pickerViewHeight()
-
-	start := m.pickerScroll
-	if start > len(allLines) {
-		start = len(allLines)
-	}
-	visible := allLines[start:]
-	if len(visible) > viewHeight {
-		visible = visible[:viewHeight]
-	}
+	allLines := m.renderPickerItems(width)
+	visible := scrollWindow(allLines, m.pickerViewHeight(), m.pickerScroll)
 
 	content := header + "\n" + strings.Join(visible, "\n")
 
@@ -403,22 +374,7 @@ func (m model) viewPicker() string {
 	}
 
 	// Scroll position indicator.
-	scrollInfo := ""
-	totalLines := m.pickerTotalLines()
-	if totalLines > viewHeight {
-		maxScroll := totalLines - viewHeight
-		if maxScroll < 0 {
-			maxScroll = 0
-		}
-		pct := 0
-		if maxScroll > 0 {
-			pct = m.pickerScroll * 100 / maxScroll
-		}
-		if pct > 100 {
-			pct = 100
-		}
-		scrollInfo = fmt.Sprintf("  %d%%", pct)
-	}
+	scrollInfo := m.pickerScrollInfo()
 
 	status := m.renderStatusBar(
 		"j/k", "nav",
@@ -429,6 +385,56 @@ func (m model) viewPicker() string {
 	)
 
 	return content + "\n" + status
+}
+
+// renderPickerItems renders all picker items (headers + sessions) into lines.
+func (m model) renderPickerItems(width int) []string {
+	var lines []string
+	for i, item := range m.pickerItems {
+		switch item.typ {
+		case pickerItemHeader:
+			if !m.pickerIsFirstHeader(i) {
+				lines = append(lines, "")
+			}
+			lines = append(lines, m.renderPickerHeader(item.category, width))
+			lines = append(lines, "")
+		case pickerItemSession:
+			isSelected := i == m.pickerCursor
+			lines = append(lines, m.renderPickerSession(item.session, isSelected, width, i)...)
+		}
+	}
+	return lines
+}
+
+// scrollWindow returns a slice of lines visible within a viewport.
+func scrollWindow(lines []string, viewHeight, scroll int) []string {
+	start := scroll
+	if start > len(lines) {
+		start = len(lines)
+	}
+	visible := lines[start:]
+	if len(visible) > viewHeight {
+		visible = visible[:viewHeight]
+	}
+	return visible
+}
+
+// pickerScrollInfo returns a scroll percentage string, or "" if all content fits.
+func (m model) pickerScrollInfo() string {
+	viewHeight := m.pickerViewHeight()
+	totalLines := m.pickerTotalLines()
+	if totalLines <= viewHeight {
+		return ""
+	}
+	maxScroll := totalLines - viewHeight
+	if maxScroll <= 0 {
+		return ""
+	}
+	pct := m.pickerScroll * 100 / maxScroll
+	if pct > 100 {
+		pct = 100
+	}
+	return fmt.Sprintf("  %d%%", pct)
 }
 
 // renderPickerHeader renders a date group header with underline rule.

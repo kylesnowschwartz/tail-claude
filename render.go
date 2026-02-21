@@ -56,6 +56,11 @@ func selectionIndicator(selected bool) string {
 	return "  "
 }
 
+// userHeaderLine renders "timestamp  You {icon}" used in both list and detail views.
+func userHeaderLine(msg message) string {
+	return StyleDim.Render(msg.timestamp) + "  " + StylePrimaryBold.Render("You") + " " + IconUser.Render()
+}
+
 // spaceBetween lays out left and right strings with gap-fill spacing to span width.
 func spaceBetween(left, right string, width int) string {
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
@@ -137,60 +142,8 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 	chev := chevron(isExpanded)
 	maxWidth := containerWidth - 4 // selection indicator (2) + gutter (2)
 
-	// Delegate to renderDetailHeader with chevron appended after stats.
 	headerLine := sel + "  " + m.renderDetailHeader(msg, maxWidth, chev).content
-
-	// Render the card body -- truncate when collapsed
-	content := msg.content
-	if !isExpanded {
-		if msg.lastOutput != nil {
-			switch msg.lastOutput.Type {
-			case parser.LastOutputText:
-				content = msg.lastOutput.Text
-				truncated, hidden := truncateLines(content, maxCollapsedLines)
-				if hidden > 0 {
-					content = truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", GlyphEllipsis, hidden)
-				}
-			case parser.LastOutputToolResult:
-				content = formatToolResultPreview(msg.lastOutput)
-			}
-		} else {
-			truncated, hidden := truncateLines(content, maxCollapsedLines)
-			if hidden > 0 {
-				content = truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", GlyphEllipsis, hidden)
-			}
-		}
-	}
-
-	contentWidth := contentWidth(maxWidth)
-	var body string
-	if isExpanded && len(msg.items) > 0 {
-		// Structured item rows, then last output text at the bottom (matches claude-devtools)
-		var rows []string
-		for i, item := range msg.items {
-			rows = append(rows, m.renderDetailItemRow(item, i, -1, contentWidth))
-		}
-
-		// Append truncated last output text below the items
-		if msg.lastOutput != nil && msg.lastOutput.Text != "" {
-			outputText := msg.lastOutput.Text
-			truncated, hidden := truncateLines(outputText, maxCollapsedLines)
-			if hidden > 0 {
-				outputText = truncated
-			}
-			rendered := m.md.renderMarkdown(outputText, contentWidth)
-			rows = append(rows, "", rendered) // blank line separator
-			if hidden > 0 {
-				hint := StyleSecondary.
-					Render(fmt.Sprintf("%s %d more lines — Enter for full text", GlyphEllipsis, hidden))
-				rows = append(rows, hint)
-			}
-		}
-
-		body = strings.Join(rows, "\n")
-	} else {
-		body = m.md.renderMarkdown(content, contentWidth)
-	}
+	body := m.claudeMessageBody(msg, isExpanded, contentWidth(maxWidth))
 
 	cardBorderColor := ColorBorder
 	if isSelected {
@@ -215,6 +168,72 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 	return headerLine + "\n" + strings.Join(indented, "\n")
 }
 
+// claudeMessageBody renders the inner card content for a Claude message.
+// Expanded messages with items show structured rows; collapsed messages
+// show the last output or a truncated text preview.
+func (m model) claudeMessageBody(msg message, isExpanded bool, cw int) string {
+	if isExpanded && len(msg.items) > 0 {
+		return m.claudeExpandedItems(msg, cw)
+	}
+
+	content := m.claudeCollapsedContent(msg, isExpanded)
+	return m.md.renderMarkdown(content, cw)
+}
+
+// claudeExpandedItems renders structured item rows plus truncated last output.
+func (m model) claudeExpandedItems(msg message, cw int) string {
+	var rows []string
+	for i, item := range msg.items {
+		rows = append(rows, m.renderDetailItemRow(item, i, -1, cw))
+	}
+
+	// Append truncated last output text below the items
+	if msg.lastOutput != nil && msg.lastOutput.Text != "" {
+		outputText := msg.lastOutput.Text
+		truncated, hidden := truncateLines(outputText, maxCollapsedLines)
+		if hidden > 0 {
+			outputText = truncated
+		}
+		md := m.md.renderMarkdown(outputText, cw)
+		rows = append(rows, "", md) // blank line separator
+		if hidden > 0 {
+			hint := StyleSecondary.Render(
+				fmt.Sprintf("%s %d more lines — Enter for full text", GlyphEllipsis, hidden))
+			rows = append(rows, hint)
+		}
+	}
+
+	return strings.Join(rows, "\n")
+}
+
+// claudeCollapsedContent selects and truncates text for collapsed display.
+func (m model) claudeCollapsedContent(msg message, isExpanded bool) string {
+	content := msg.content
+	if isExpanded {
+		return content
+	}
+
+	if msg.lastOutput != nil {
+		switch msg.lastOutput.Type {
+		case parser.LastOutputText:
+			content = msg.lastOutput.Text
+			truncated, hidden := truncateLines(content, maxCollapsedLines)
+			if hidden > 0 {
+				return truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", GlyphEllipsis, hidden)
+			}
+			return content
+		case parser.LastOutputToolResult:
+			return formatToolResultPreview(msg.lastOutput)
+		}
+	}
+
+	truncated, hidden := truncateLines(content, maxCollapsedLines)
+	if hidden > 0 {
+		return truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", GlyphEllipsis, hidden)
+	}
+	return content
+}
+
 func (m model) renderUserMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
 	sel := selectionIndicator(isSelected)
 	maxBubbleWidth := containerWidth * 3 / 4
@@ -226,14 +245,8 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 		alignWidth = containerWidth
 	}
 
-	// Header: timestamp + You + icon, right-aligned to terminal edge
-	ts := StyleDim.Render(msg.timestamp)
-
-	youLabel := StylePrimaryBold.Render("You")
-
-	userIcon := IconUser.Render()
-
-	rightPart := ts + "  " + youLabel + " " + userIcon
+	// Header: right-aligned to terminal edge
+	rightPart := userHeaderLine(msg)
 	leftPart := sel
 
 	headerGap := alignWidth - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
@@ -346,9 +359,7 @@ func (m model) renderDetailContent(msg message, width int) rendered {
 		header = m.renderDetailHeader(msg, width).content
 		body = m.md.renderMarkdown(msg.content, width-4)
 	case RoleUser:
-		header = StyleDim.Render(msg.timestamp) +
-			"  " + StylePrimaryBold.Render("You") +
-			" " + IconUser.Render()
+		header = userHeaderLine(msg)
 		body = m.md.renderMarkdown(msg.content, width-4)
 	case RoleSystem:
 		header = IconSystem.Render() +
@@ -644,79 +655,76 @@ func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) 
 	modelName := StylePrimaryBold.Render(headerLabel)
 	modelVer := lipgloss.NewStyle().Foreground(modelColor(msg.model)).Render(msg.model)
 
-	var statParts []string
+	// Breadcrumb prefix when drilled into a subagent trace.
+	var breadcrumb string
+	if m.savedDetail != nil && m.traceMsg != nil {
+		sep := StyleMuted.Render(" > ")
+		breadcrumb = StyleDim.Render(m.savedDetail.label) + sep
+	}
+
+	left := breadcrumb + icon + " " + modelName + " " + modelVer + detailHeaderStats(msg)
+	for _, s := range leftSuffix {
+		left += " " + s
+	}
+
+	return newRendered(spaceBetween(left, detailHeaderMeta(msg), width))
+}
+
+// detailHeaderStats formats the stats summary (thinking, tool calls, messages, etc.).
+func detailHeaderStats(msg message) string {
+	var parts []string
 	if msg.thinkingCount > 0 {
-		statParts = append(statParts, fmt.Sprintf("%d thinking", msg.thinkingCount))
+		parts = append(parts, fmt.Sprintf("%d thinking", msg.thinkingCount))
 	}
 	if msg.toolCallCount > 0 {
 		tcLabel := "tool calls"
 		if msg.toolCallCount == 1 {
 			tcLabel = "tool call"
 		}
-		statParts = append(statParts, fmt.Sprintf("%d %s", msg.toolCallCount, tcLabel))
+		parts = append(parts, fmt.Sprintf("%d %s", msg.toolCallCount, tcLabel))
 	}
 	if msg.messages > 0 {
 		label := "messages"
 		if msg.messages == 1 {
 			label = "message"
 		}
-		statParts = append(statParts, fmt.Sprintf("%d %s", msg.messages, label))
+		parts = append(parts, fmt.Sprintf("%d %s", msg.messages, label))
 	}
 	if msg.teammateSpawns > 0 {
 		label := "teammates"
 		if msg.teammateSpawns == 1 {
 			label = "teammate"
 		}
-		statParts = append(statParts, fmt.Sprintf("%d %s", msg.teammateSpawns, label))
+		parts = append(parts, fmt.Sprintf("%d %s", msg.teammateSpawns, label))
 	}
 	if msg.teammateMessages > 0 {
 		label := "teammate messages"
 		if msg.teammateMessages == 1 {
 			label = "teammate message"
 		}
-		statParts = append(statParts, fmt.Sprintf("%d %s", msg.teammateMessages, label))
+		parts = append(parts, fmt.Sprintf("%d %s", msg.teammateMessages, label))
 	}
 
-	stats := ""
-	if len(statParts) > 0 {
-		dot := " " + IconDot.Render() + " "
-		stats = dot + StyleSecondary.Render(strings.Join(statParts, ", "))
+	if len(parts) == 0 {
+		return ""
 	}
+	dot := " " + IconDot.Render() + " "
+	return dot + StyleSecondary.Render(strings.Join(parts, ", "))
+}
 
-	// Breadcrumb prefix when drilled into a subagent trace.
-	var breadcrumb string
-	if m.savedDetail != nil && m.traceMsg != nil {
-		parentStyle := StyleDim
-		sep := StyleMuted.Render(" > ")
-		breadcrumb = parentStyle.Render(m.savedDetail.label) + sep
-	}
-
-	left := breadcrumb + icon + " " + modelName + " " + modelVer + stats
-	for _, s := range leftSuffix {
-		left += " " + s
-	}
-
-	// Right-side metadata
-	var rightParts []string
-
+// detailHeaderMeta formats the right-side metadata (tokens, duration, timestamp).
+func detailHeaderMeta(msg message) string {
+	var parts []string
 	if msg.tokensRaw > 0 {
-		coin := IconToken.Render()
-		rightParts = append(rightParts, coin+" "+StyleSecondary.
-			Render(formatTokens(msg.tokensRaw)))
+		parts = append(parts, IconToken.Render()+" "+StyleSecondary.Render(formatTokens(msg.tokensRaw)))
 	}
-
 	if msg.durationMs > 0 {
-		clock := IconClock.Render()
-		rightParts = append(rightParts, clock+" "+StyleSecondary.
-			Render(formatDuration(msg.durationMs)))
+		parts = append(parts, IconClock.Render()+" "+StyleSecondary.Render(formatDuration(msg.durationMs)))
 	}
-
 	if msg.timestamp != "" {
-		rightParts = append(rightParts, StyleDim.
-			Render(msg.timestamp))
+		parts = append(parts, StyleDim.Render(msg.timestamp))
 	}
-
-	return newRendered(spaceBetween(left, strings.Join(rightParts, "  "), width))
+	return strings.Join(parts, "  ")
 }
 
 // -- Activity indicator --------------------------------------------------------
