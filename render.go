@@ -9,6 +9,20 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// -- Rendered output ----------------------------------------------------------
+
+// rendered pairs a rendered string with its line count. Eliminates the
+// "render to string, count newlines" pattern used for scroll math.
+type rendered struct {
+	content string
+	lines   int
+}
+
+// newRendered wraps a content string, counting its lines once.
+func newRendered(content string) rendered {
+	return rendered{content: content, lines: strings.Count(content, "\n") + 1}
+}
+
 // -- Layout constants ---------------------------------------------------------
 
 // maxContentWidth is the maximum width for content rendering.
@@ -101,19 +115,21 @@ func formatToolResultPreview(lo *parser.LastOutput) string {
 
 // -- Message rendering --------------------------------------------------------
 
-func (m model) renderMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
+func (m model) renderMessage(msg message, containerWidth int, isSelected, isExpanded bool) rendered {
+	var content string
 	switch msg.role {
 	case RoleClaude:
-		return m.renderClaudeMessage(msg, containerWidth, isSelected, isExpanded)
+		content = m.renderClaudeMessage(msg, containerWidth, isSelected, isExpanded)
 	case RoleUser:
-		return m.renderUserMessage(msg, containerWidth, isSelected, isExpanded)
+		content = m.renderUserMessage(msg, containerWidth, isSelected, isExpanded)
 	case RoleSystem:
-		return renderSystemMessage(msg, containerWidth, isSelected, isExpanded)
+		content = renderSystemMessage(msg, containerWidth, isSelected, isExpanded)
 	case RoleCompact:
-		return renderCompactMessage(msg, containerWidth)
+		content = renderCompactMessage(msg, containerWidth)
 	default:
-		return msg.content
+		content = msg.content
 	}
+	return newRendered(content)
 }
 
 func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
@@ -122,7 +138,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 	maxWidth := containerWidth - 4 // selection indicator (2) + gutter (2)
 
 	// Delegate to renderDetailHeader with chevron appended after stats.
-	headerLine := sel + "  " + m.renderDetailHeader(msg, maxWidth, chev)
+	headerLine := sel + "  " + m.renderDetailHeader(msg, maxWidth, chev).content
 
 	// Render the card body -- truncate when collapsed
 	content := msg.content
@@ -318,16 +334,16 @@ func renderCompactMessage(msg message, width int) string {
 
 // renderDetailContent renders the full detail content for the current message.
 // Used by both computeDetailMaxScroll and viewDetail to avoid duplication.
-func (m model) renderDetailContent(msg message, width int) string {
+func (m model) renderDetailContent(msg message, width int) rendered {
 	// AI messages with items get the structured items view.
 	if msg.role == RoleClaude && len(msg.items) > 0 {
-		return m.renderDetailItemsContent(msg, width)
+		return newRendered(m.renderDetailItemsContent(msg, width))
 	}
 
 	var header, body string
 	switch msg.role {
 	case RoleClaude:
-		header = m.renderDetailHeader(msg, width)
+		header = m.renderDetailHeader(msg, width).content
 		body = m.md.renderMarkdown(msg.content, width-4)
 	case RoleUser:
 		header = StyleDim.Render(msg.timestamp) +
@@ -340,17 +356,17 @@ func (m model) renderDetailContent(msg message, width int) string {
 			"  " + StyleDim.Render(msg.timestamp)
 		body = StyleDim.Render(msg.content)
 	case RoleCompact:
-		return renderCompactMessage(msg, width)
+		return newRendered(renderCompactMessage(msg, width))
 	}
 
-	return header + "\n\n" + body
+	return newRendered(header + "\n\n" + body)
 }
 
 // renderDetailItemsContent renders the full content for an AI message with
 // structured items (header + items list + expanded content). Returns the
 // complete string before scrolling is applied.
 func (m model) renderDetailItemsContent(msg message, width int) string {
-	header := m.renderDetailHeader(msg, width)
+	header := m.renderDetailHeader(msg, width).content
 
 	var itemLines []string
 	for i, item := range msg.items {
@@ -358,8 +374,8 @@ func (m model) renderDetailItemsContent(msg message, width int) string {
 
 		if m.detailExpanded[i] {
 			expanded := m.renderDetailItemExpanded(item, width)
-			if expanded != "" {
-				row += "\n" + expanded
+			if expanded.content != "" {
+				row += "\n" + expanded.content
 			}
 		}
 		itemLines = append(itemLines, row)
@@ -476,35 +492,38 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width i
 
 // renderDetailItemExpanded renders the expanded content for a detail item.
 // Indented 4 spaces, word-wrapped to width-8.
-func (m model) renderDetailItemExpanded(item displayItem, width int) string {
+func (m model) renderDetailItemExpanded(item displayItem, width int) rendered {
 	wrapWidth := width - 8
 	if wrapWidth < 20 {
 		wrapWidth = 20
 	}
 	indent := "    "
 
+	var content string
 	switch item.itemType {
 	case parser.ItemThinking, parser.ItemOutput, parser.ItemTeammateMessage:
 		text := strings.TrimSpace(item.text)
 		if text == "" {
-			return ""
+			return rendered{}
 		}
-		rendered := m.md.renderMarkdown(text, wrapWidth)
-		return indentBlock(rendered, indent)
+		md := m.md.renderMarkdown(text, wrapWidth)
+		content = indentBlock(md, indent)
 
 	case parser.ItemSubagent:
-		// Linked subagent: show execution trace summary.
 		if item.subagentProcess != nil {
-			return m.renderSubagentTrace(item, wrapWidth, indent)
+			content = m.renderSubagentTrace(item, wrapWidth, indent)
+		} else {
+			content = m.renderToolExpanded(item, wrapWidth, indent)
 		}
-		// Unlinked subagent: fall through to tool call rendering.
-		return m.renderToolExpanded(item, wrapWidth, indent)
 
 	case parser.ItemToolCall:
-		return m.renderToolExpanded(item, wrapWidth, indent)
+		content = m.renderToolExpanded(item, wrapWidth, indent)
 	}
 
-	return ""
+	if content == "" {
+		return rendered{}
+	}
+	return newRendered(content)
 }
 
 // renderToolExpanded renders the expanded content for a tool call item.
@@ -614,7 +633,7 @@ func (m model) renderSubagentTrace(item displayItem, wrapWidth int, indent strin
 //
 // When in a trace drill-down (savedDetail != nil && traceMsg != nil), a dim
 // breadcrumb prefix shows the parent view: "Claude opus4.6 > ..."
-func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) string {
+func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) rendered {
 	headerIcon := IconClaude
 	headerLabel := "Claude"
 	if msg.subagentLabel != "" {
@@ -697,7 +716,7 @@ func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) 
 			Render(msg.timestamp))
 	}
 
-	return spaceBetween(left, strings.Join(rightParts, "  "), width)
+	return newRendered(spaceBetween(left, strings.Join(rightParts, "  "), width))
 }
 
 // -- Activity indicator --------------------------------------------------------

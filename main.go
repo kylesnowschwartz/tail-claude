@@ -899,10 +899,9 @@ func (m *model) computeLineOffsets() {
 	currentLine := 0
 	for i, msg := range m.messages {
 		m.lineOffsets[i] = currentLine
-		rendered := m.renderMessage(msg, width, false, m.expanded[i])
-		lineCount := strings.Count(rendered, "\n") + 1
-		m.messageLines[i] = lineCount
-		currentLine += lineCount
+		r := m.renderMessage(msg, width, false, m.expanded[i])
+		m.messageLines[i] = r.lines
+		currentLine += r.lines
 		if i < len(m.messages)-1 {
 			currentLine++ // blank line from "\n\n" join separator
 		}
@@ -966,9 +965,10 @@ func (m *model) computeDetailMaxScroll() {
 		width = maxContentWidth
 	}
 
-	content := m.renderDetailContent(msg, width)
-	content = strings.TrimRight(content, "\n")
-	totalLines := strings.Count(content, "\n") + 1
+	r := m.renderDetailContent(msg, width)
+	// Trim trailing newlines that lipgloss may add (phantom blank lines).
+	trimmed := strings.TrimRight(r.content, "\n")
+	totalLines := strings.Count(trimmed, "\n") + 1
 
 	m.detailMaxScroll = totalLines - m.detailViewHeight()
 	if m.detailMaxScroll < 0 {
@@ -992,18 +992,14 @@ func (m *model) detailCursorLine() int {
 
 	// Count header lines (header + blank separator)
 	header := m.renderDetailHeader(msg, width)
-	headerLines := strings.Count(header, "\n") + 1 // header rendered lines
-	headerLines += 1                               // blank line separator from "\n\n"
+	cursorLine := header.lines + 1 // +1 for blank line separator from "\n\n"
 
 	// Count lines for items before the cursor
-	cursorLine := headerLines
 	for i := 0; i < m.detailCursor && i < len(msg.items); i++ {
 		cursorLine++ // the item row itself
 		if m.detailExpanded[i] {
 			expanded := m.renderDetailItemExpanded(msg.items[i], width)
-			if expanded != "" {
-				cursorLine += strings.Count(expanded, "\n") + 1
-			}
+			cursorLine += expanded.lines
 		}
 	}
 	return cursorLine
@@ -1033,9 +1029,7 @@ func (m *model) ensureDetailCursorVisible() {
 	cursorEnd := cursorLine // the row line
 	if m.detailCursor < len(msg.items) && m.detailExpanded[m.detailCursor] {
 		expanded := m.renderDetailItemExpanded(msg.items[m.detailCursor], width)
-		if expanded != "" {
-			cursorEnd += strings.Count(expanded, "\n") + 1
-		}
+		cursorEnd += expanded.lines
 	}
 
 	viewHeight := m.detailViewHeight()
@@ -1108,14 +1102,14 @@ func (m model) viewList() string {
 		width = maxContentWidth
 	}
 
-	var rendered []string
+	var parts []string
 	for i, msg := range m.messages {
 		isSelected := i == m.cursor
 		isExpanded := m.expanded[i]
-		rendered = append(rendered, m.renderMessage(msg, width, isSelected, isExpanded))
+		parts = append(parts, m.renderMessage(msg, width, isSelected, isExpanded).content)
 	}
 
-	content := strings.Join(rendered, "\n\n")
+	content := strings.Join(parts, "\n\n")
 
 	// Simple line-based scroll
 	lines := strings.Split(content, "\n")
@@ -1160,12 +1154,12 @@ func (m model) viewDetail() string {
 		width = maxContentWidth
 	}
 
-	content := m.renderDetailContent(msg, width)
+	r := m.renderDetailContent(msg, width)
 
 	// Strip trailing newlines that lipgloss may add -- they create phantom blank
 	// lines when we split on \n, wasting a viewport line and pushing the status
 	// bar off-screen.
-	content = strings.TrimRight(content, "\n")
+	content := strings.TrimRight(r.content, "\n")
 
 	// Scroll the content
 	lines := strings.Split(content, "\n")
