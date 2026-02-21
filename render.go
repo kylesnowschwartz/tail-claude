@@ -711,6 +711,40 @@ func (m model) activityIndicatorHeight() int {
 	return 0
 }
 
+// -- Viewport height ----------------------------------------------------------
+// Named methods for the three viewport height formulas. Each includes a <= 0
+// guard returning 1 so callers never divide by zero or produce negative slices.
+//
+// The -1 in list view accounts for the blank line between the last message and
+// the status bar area. Picker's -2 accounts for the 2-line header.
+
+// listViewHeight returns the visible content lines in the message list view.
+func (m model) listViewHeight() int {
+	h := m.height - statusBarHeight - m.activityIndicatorHeight() - 1
+	if h <= 0 {
+		return 1
+	}
+	return h
+}
+
+// detailViewHeight returns the visible content lines in the detail view.
+func (m model) detailViewHeight() int {
+	h := m.height - statusBarHeight - m.activityIndicatorHeight()
+	if h <= 0 {
+		return 1
+	}
+	return h
+}
+
+// pickerViewHeight returns the visible content lines in the session picker.
+func (m model) pickerViewHeight() int {
+	h := m.height - 2 - statusBarHeight
+	if h <= 0 {
+		return 1
+	}
+	return h
+}
+
 // renderActivityIndicator returns a centered animated bead line when the
 // session is ongoing, or an empty string otherwise. Each tick shifts the
 // bright "head" position through 5 dots.

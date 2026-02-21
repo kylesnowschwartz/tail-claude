@@ -922,10 +922,7 @@ func (m *model) ensureCursorVisible() {
 	if len(m.lineOffsets) == 0 || m.height == 0 {
 		return
 	}
-	viewHeight := m.height - statusBarHeight - m.activityIndicatorHeight() - 1 // content area above status bar
-	if viewHeight <= 0 {
-		return
-	}
+	viewHeight := m.listViewHeight()
 
 	cursorStart := m.lineOffsets[m.cursor]
 	cursorEnd := cursorStart + m.messageLines[m.cursor] - 1
@@ -943,8 +940,7 @@ func (m *model) ensureCursorVisible() {
 
 // clampListScroll caps the list scroll offset so it can't exceed the content.
 func (m *model) clampListScroll() {
-	viewHeight := m.height - statusBarHeight - m.activityIndicatorHeight() - 1 // content area above status bar
-	maxScroll := m.totalRenderedLines - viewHeight
+	maxScroll := m.totalRenderedLines - m.listViewHeight()
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
@@ -974,11 +970,7 @@ func (m *model) computeDetailMaxScroll() {
 	content = strings.TrimRight(content, "\n")
 	totalLines := strings.Count(content, "\n") + 1
 
-	viewHeight := m.height - statusBarHeight - m.activityIndicatorHeight()
-	if viewHeight <= 0 {
-		viewHeight = 1
-	}
-	m.detailMaxScroll = totalLines - viewHeight
+	m.detailMaxScroll = totalLines - m.detailViewHeight()
 	if m.detailMaxScroll < 0 {
 		m.detailMaxScroll = 0
 	}
@@ -1046,10 +1038,7 @@ func (m *model) ensureDetailCursorVisible() {
 		}
 	}
 
-	viewHeight := m.height - statusBarHeight - m.activityIndicatorHeight()
-	if viewHeight <= 0 {
-		viewHeight = 1
-	}
+	viewHeight := m.detailViewHeight()
 
 	// Scroll up if cursor is above viewport
 	if cursorLine < m.detailScroll {
@@ -1135,10 +1124,9 @@ func (m model) viewList() string {
 		lines = lines[m.scroll:]
 	}
 
-	// Truncate to viewport height minus status bar and activity indicator
-	indicatorHeight := m.activityIndicatorHeight()
-	viewHeight := m.height - statusBarHeight - indicatorHeight - 1
-	if viewHeight > 0 && len(lines) > viewHeight {
+	// Truncate to viewport height
+	viewHeight := m.listViewHeight()
+	if len(lines) > viewHeight {
 		lines = lines[:viewHeight]
 	}
 
@@ -1183,12 +1171,7 @@ func (m model) viewDetail() string {
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
 
-	// Reserve lines for the status bar and activity indicator.
-	indicatorHeight := m.activityIndicatorHeight()
-	viewHeight := m.height - statusBarHeight - indicatorHeight
-	if viewHeight <= 0 {
-		viewHeight = 1
-	}
+	viewHeight := m.detailViewHeight()
 	maxScroll := totalLines - viewHeight
 	if maxScroll < 0 {
 		maxScroll = 0

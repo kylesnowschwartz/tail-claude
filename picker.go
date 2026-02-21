@@ -229,10 +229,7 @@ func (m *model) pickerCursorFirst() {
 // ensurePickerVisible adjusts pickerScroll so the cursor is visible.
 // Uses pickerItemHeight for variable-height items (expanded previews, headers with gaps).
 func (m *model) ensurePickerVisible() {
-	viewHeight := m.height - 2 - statusBarHeight // header (2 lines) + status bar
-	if viewHeight <= 0 {
-		return
-	}
+	viewHeight := m.pickerViewHeight()
 
 	// Compute line position of cursor item.
 	cursorLineStart := 0
@@ -386,10 +383,7 @@ func (m model) viewPicker() string {
 	}
 
 	// Apply scroll.
-	viewHeight := m.height - 2 - statusBarHeight
-	if viewHeight <= 0 {
-		viewHeight = 1
-	}
+	viewHeight := m.pickerViewHeight()
 
 	start := m.pickerScroll
 	if start > len(allLines) {
