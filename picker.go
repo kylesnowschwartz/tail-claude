@@ -129,7 +129,7 @@ func rebuildPickerItems(sessions []parser.SessionInfo) []pickerItem {
 // updatePicker handles key events in the session picker view.
 func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "esc", "escape":
+	case "q", "esc", "escape", "backspace":
 		if m.pickerWatcher != nil {
 			m.pickerWatcher.stop()
 			m.pickerWatcher = nil

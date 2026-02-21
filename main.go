@@ -624,8 +624,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // updateList handles key events in the message list view.
 func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "ctrl+c":
+	case "ctrl+c":
 		return m, tea.Quit
+	case "q", "esc", "escape", "backspace":
+		return m, loadPickerSessionsCmd
 	case "j", "down":
 		if m.cursor < len(m.messages)-1 {
 			m.cursor++
@@ -656,7 +658,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.computeLineOffsets()
-		m.ensureCursorVisible()
+		m.clampListScroll()
 	case "enter":
 		// Enter detail view for current message
 		if len(m.messages) > 0 {
@@ -715,7 +717,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	detailMsg := m.currentDetailMsg()
 
 	switch msg.String() {
-	case "q", "escape":
+	case "q", "esc", "escape", "backspace":
 		if m.traceMsg != nil {
 			// Pop back to parent detail view.
 			m.detailCursor = m.savedDetail.cursor
@@ -731,9 +733,16 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "tab":
 		if hasItems {
+			visualRow := m.detailCursorLine() - m.detailScroll
 			m.detailExpanded[m.detailCursor] = !m.detailExpanded[m.detailCursor]
 			m.computeDetailMaxScroll()
-			m.ensureDetailCursorVisible()
+			m.detailScroll = m.detailCursorLine() - visualRow
+			if m.detailScroll < 0 {
+				m.detailScroll = 0
+			}
+			if m.detailScroll > m.detailMaxScroll {
+				m.detailScroll = m.detailMaxScroll
+			}
 		}
 	case "enter":
 		if hasItems {
@@ -765,9 +774,16 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.detailExpanded = make(map[int]bool)
 				m.computeDetailMaxScroll()
 			} else {
+				visualRow := m.detailCursorLine() - m.detailScroll
 				m.detailExpanded[m.detailCursor] = !m.detailExpanded[m.detailCursor]
 				m.computeDetailMaxScroll()
-				m.ensureDetailCursorVisible()
+				m.detailScroll = m.detailCursorLine() - visualRow
+				if m.detailScroll < 0 {
+					m.detailScroll = 0
+				}
+				if m.detailScroll > m.detailMaxScroll {
+					m.detailScroll = m.detailMaxScroll
+				}
 			}
 		} else {
 			m.view = viewList
@@ -961,16 +977,13 @@ func (m *model) computeDetailMaxScroll() {
 	}
 }
 
-// ensureDetailCursorVisible adjusts detailScroll so the current detail cursor
-// item is within the visible viewport. Computes the cursor's line position by
-// counting header lines + item rows + expanded content lines before it.
-func (m *model) ensureDetailCursorVisible() {
-	if m.width == 0 || m.height == 0 {
-		return
-	}
+// detailCursorLine returns the absolute line offset of the current detail
+// cursor item. Counts header lines + item rows + expanded content lines for
+// all items before the cursor.
+func (m *model) detailCursorLine() int {
 	msg := m.currentDetailMsg()
 	if len(msg.items) == 0 {
-		return
+		return 0
 	}
 
 	width := m.width
@@ -994,6 +1007,28 @@ func (m *model) ensureDetailCursorVisible() {
 			}
 		}
 	}
+	return cursorLine
+}
+
+// ensureDetailCursorVisible adjusts detailScroll so the current detail cursor
+// item is within the visible viewport. Uses detailCursorLine to find the
+// cursor's absolute line position, then scrolls to keep the full item
+// (including expanded content) visible.
+func (m *model) ensureDetailCursorVisible() {
+	if m.width == 0 || m.height == 0 {
+		return
+	}
+	msg := m.currentDetailMsg()
+	if len(msg.items) == 0 {
+		return
+	}
+
+	width := m.width
+	if width > maxContentWidth {
+		width = maxContentWidth
+	}
+
+	cursorLine := m.detailCursorLine()
 
 	// Count lines for the cursor item itself (row + expanded content)
 	cursorEnd := cursorLine // the row line
@@ -1115,8 +1150,8 @@ func (m model) viewList() string {
 		"tab", "toggle",
 		"enter", "detail",
 		"e/c", "expand/collapse",
-		"s", "sessions",
-		"q", "quit",
+		"q/esc", "sessions",
+		"^C", "quit",
 	)
 
 	return output + "\n" + status
