@@ -356,15 +356,15 @@ func (m model) viewPicker() string {
 	}
 
 	// Header
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
-	countStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+	titleStyle := StyleAccentBold
+	countStyle := StyleDim
 	header := titleStyle.Render("Sessions") + " " +
 		countStyle.Render(fmt.Sprintf("(%d)", len(m.pickerSessions)))
 	header += "\n"
 
 	// Empty state
 	if len(m.pickerItems) == 0 {
-		dim := lipgloss.NewStyle().Foreground(ColorTextDim)
+		dim := StyleDim
 		return header + "\n" + dim.Render("No sessions found for this project.")
 	}
 
@@ -439,7 +439,7 @@ func (m model) viewPicker() string {
 
 // renderPickerHeader renders a date group header with underline rule.
 func (m model) renderPickerHeader(category parser.DateCategory, width int) string {
-	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorTextSecondary)
+	labelStyle := StyleSecondaryBold
 	label := labelStyle.Render(string(category))
 	labelWidth := lipgloss.Width(label)
 
@@ -448,7 +448,7 @@ func (m model) renderPickerHeader(category parser.DateCategory, width int) strin
 	if ruleLen < 0 {
 		ruleLen = 0
 	}
-	rule := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(strings.Repeat("─", ruleLen))
+	rule := StyleMuted.Render(strings.Repeat("─", ruleLen))
 
 	return "  " + label + " " + rule
 }
@@ -551,7 +551,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 		if wrapWidth < 20 {
 			wrapWidth = 20
 		}
-		expandStyle := lipgloss.NewStyle().Foreground(ColorTextSecondary)
+		expandStyle := StyleSecondary
 		wrapped := wrapText(s.FirstMessage, wrapWidth)
 		for _, wl := range wrapped {
 			lines = append(lines, indent+"  "+expandStyle.Render(wl))
@@ -565,7 +565,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 
 	// Bottom separator (thin rule).
-	sep := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(
+	sep := StyleMuted.Render(
 		indent + strings.Repeat("─", width-4))
 	lines = append(lines, sep)
 

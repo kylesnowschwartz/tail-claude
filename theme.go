@@ -74,6 +74,22 @@ var (
 	ColorPickerSelectedBg = ac("254", "237")
 )
 
+// -- Semantic text styles -----------------------------------------------------
+// Reusable styles for the four text hierarchy levels + common bold/accent
+// combos. Safe to chain (.Width(), .Padding(), etc.) since lipgloss styles
+// are immutable value types -- each method returns a copy.
+
+var (
+	StylePrimary       = lipgloss.NewStyle().Foreground(ColorTextPrimary)
+	StylePrimaryBold   = lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary)
+	StyleSecondary     = lipgloss.NewStyle().Foreground(ColorTextSecondary)
+	StyleSecondaryBold = lipgloss.NewStyle().Bold(true).Foreground(ColorTextSecondary)
+	StyleDim           = lipgloss.NewStyle().Foreground(ColorTextDim)
+	StyleMuted         = lipgloss.NewStyle().Foreground(ColorTextMuted)
+	StyleAccentBold    = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+	StyleErrorBold     = lipgloss.NewStyle().Bold(true).Foreground(ColorError)
+)
+
 // ac is a shorthand constructor for lipgloss.AdaptiveColor.
 func ac(light, dark string) lipgloss.AdaptiveColor {
 	return lipgloss.AdaptiveColor{Light: light, Dark: dark}
