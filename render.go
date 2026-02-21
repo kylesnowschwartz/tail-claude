@@ -266,9 +266,23 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 		MaxWidth(maxBubbleWidth)
 
 	bubble := bubbleStyle.Render(rendered)
-	alignedBubble := lipgloss.PlaceHorizontal(alignWidth, lipgloss.Right, bubble)
 
-	return header + "\n" + alignedBubble
+	// Right-align bubble within the space after the selection indicator
+	selWidth := lipgloss.Width(sel)
+	bubbleAlignWidth := alignWidth - selWidth
+	if bubbleAlignWidth < maxBubbleWidth {
+		bubbleAlignWidth = maxBubbleWidth
+	}
+	alignedBubble := lipgloss.PlaceHorizontal(bubbleAlignWidth, lipgloss.Right, bubble)
+
+	// Prepend selection indicator to each bubble line
+	bubbleLines := strings.Split(alignedBubble, "\n")
+	var indented []string
+	for _, line := range bubbleLines {
+		indented = append(indented, sel+line)
+	}
+
+	return header + "\n" + strings.Join(indented, "\n")
 }
 
 func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) string {

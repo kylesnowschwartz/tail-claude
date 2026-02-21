@@ -509,7 +509,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	dot := IconDot.Render()
 
 	if s.Model != "" {
-		short := shortModel(s.Model)
+		short := fmt.Sprintf("%-10s", shortModel(s.Model))
 		mColor := modelColor(s.Model)
 		if m.pickerUniformModel || isMicro {
 			mColor = metaColor
@@ -519,17 +519,17 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 
 	if s.TurnCount > 0 {
 		chatIcon := IconChat.WithColor(metaColor)
-		countStr := lipgloss.NewStyle().Foreground(metaColor).Render(fmt.Sprintf("%d", s.TurnCount))
+		countStr := lipgloss.NewStyle().Foreground(metaColor).Render(fmt.Sprintf("%3d", s.TurnCount))
 		metaParts = append(metaParts, chatIcon+" "+countStr)
 	}
 
 	if s.DurationMs > 0 {
-		durStr := formatSessionDuration(s.DurationMs)
+		durStr := fmt.Sprintf("%4s", formatSessionDuration(s.DurationMs))
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(durStr))
 	}
 
 	if s.TotalTokens > 0 {
-		tokStr := formatTokens(s.TotalTokens)
+		tokStr := fmt.Sprintf("%6s", formatTokens(s.TotalTokens))
 		tokColor := metaColor
 		if s.TotalTokens > 150_000 && !isMicro {
 			tokColor = ColorTokenHigh
@@ -557,12 +557,10 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 		}
 	}
 
-	// Background highlight for selected session.
+	// Background highlight for selected session (preview line only).
 	if isSelected {
 		bgStyle := lipgloss.NewStyle().Background(ColorPickerSelectedBg).Width(width)
-		for i, line := range lines {
-			lines[i] = bgStyle.Render(line)
-		}
+		lines[0] = bgStyle.Render(lines[0])
 	}
 
 	// Bottom separator (thin rule).
