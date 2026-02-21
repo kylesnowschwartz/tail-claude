@@ -417,9 +417,6 @@ func scanSessionMetadata(path string) sessionMetadata {
 	// Collapse newlines for single-line display.
 	if meta.firstMsg != "" {
 		meta.firstMsg = strings.ReplaceAll(meta.firstMsg, "\n", " ")
-		if len(meta.firstMsg) > 120 {
-			meta.firstMsg = meta.firstMsg[:119] + "\u2026"
-		}
 	}
 
 	// Finalize ongoing detection.

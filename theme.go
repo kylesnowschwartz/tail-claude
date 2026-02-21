@@ -56,5 +56,11 @@ var (
 
 // Ongoing indicator
 var (
-	ColorOngoing = lipgloss.AdaptiveColor{Light: "2", Dark: "76"} // green dot
+	ColorOngoing    = lipgloss.AdaptiveColor{Light: "2", Dark: "76"}  // green dot
+	ColorOngoingDim = lipgloss.AdaptiveColor{Light: "114", Dark: "34"} // dim green for blink off-frame
+)
+
+// Picker
+var (
+	ColorPickerSelectedBg = lipgloss.AdaptiveColor{Light: "254", Dark: "237"} // subtle elevation
 )

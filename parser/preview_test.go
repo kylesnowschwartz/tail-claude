@@ -202,6 +202,20 @@ func TestScanPreview_NewlinesCollapsed(t *testing.T) {
 }
 
 func TestScanPreview_TruncatesLongPreview(t *testing.T) {
+	longText := strings.Repeat("x", 600)
+	dir := t.TempDir()
+	path := writeJSONL(t, dir, "session.jsonl",
+		userEntry("u1", "2025-01-15T10:00:00Z", longText),
+	)
+
+	preview, _ := parser.ScanSessionPreview(path)
+	// Parser caps at 500 chars; TUI handles display truncation.
+	if len(preview) > 500 {
+		t.Errorf("preview length = %d, should be <= 500", len(preview))
+	}
+}
+
+func TestScanPreview_PreservesUnder500(t *testing.T) {
 	longText := strings.Repeat("x", 200)
 	dir := t.TempDir()
 	path := writeJSONL(t, dir, "session.jsonl",
@@ -209,14 +223,9 @@ func TestScanPreview_TruncatesLongPreview(t *testing.T) {
 	)
 
 	preview, _ := parser.ScanSessionPreview(path)
-	// Truncation: 119 ASCII chars + "…" (3 bytes) = 122 bytes total.
-	// The ellipsis is a multi-byte rune so len() exceeds 120.
-	runeCount := len([]rune(preview))
-	if runeCount > 120 {
-		t.Errorf("preview rune count = %d, should be <= 120", runeCount)
-	}
-	if !strings.HasSuffix(preview, "…") {
-		t.Errorf("preview should end with ellipsis, got %q", preview)
+	// Under 500 chars should come through untruncated.
+	if preview != longText {
+		t.Errorf("preview length = %d, want %d (no truncation under 500)", len(preview), len(longText))
 	}
 }
 
