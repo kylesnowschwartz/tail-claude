@@ -1,0 +1,3 @@
+{"uuid":"u1","type":"user","timestamp":"2025-01-15T10:00:00Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"Edit a file"}}
+{"uuid":"a1","type":"assistant","timestamp":"2025-01-15T10:00:05Z","isSidechain":false,"isMeta":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc1","name":"Edit","input":{"path":"foo.go"}}],"model":"claude-opus-4-6","stop_reason":"tool_use","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+{"uuid":"tr1","type":"user","timestamp":"2025-01-15T10:00:06Z","isSidechain":false,"isMeta":true,"toolUseResult":"User rejected tool use","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tc1","content":"User rejected tool use"}]}}

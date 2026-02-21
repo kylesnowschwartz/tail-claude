@@ -342,3 +342,24 @@ func Truncate(s string, maxLen int) string {
 	}
 	return string(runes[:maxLen-1]) + Ellipsis
 }
+
+// TruncateWord shortens a string to maxLen runes, breaking at the nearest
+// preceding word boundary (space). Searches up to 20 characters back from
+// the cut point. Falls back to hard truncation if no space is found.
+func TruncateWord(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	cutoff := maxLen - 1
+	searchStart := cutoff - 20
+	if searchStart < 0 {
+		searchStart = 0
+	}
+	for i := cutoff; i >= searchStart; i-- {
+		if runes[i] == ' ' {
+			return string(runes[:i]) + "\u2026"
+		}
+	}
+	return string(runes[:cutoff]) + "\u2026"
+}

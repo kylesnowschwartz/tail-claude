@@ -122,9 +122,15 @@ type model struct {
 	savedDetail *savedDetailState // parent detail state to restore on drill-back
 
 	// Session picker state
-	pickerSessions []parser.SessionInfo
-	pickerCursor   int
-	pickerScroll   int
+	pickerSessions    []parser.SessionInfo
+	pickerItems       []pickerItem
+	pickerCursor      int
+	pickerScroll      int
+	pickerWatcher     *pickerWatcher
+	pickerAnimFrame   int          // 0 or 1, toggled by tick for ongoing dot blink
+	pickerHasOngoing  bool         // gates tick command
+	pickerExpanded    map[int]bool // tab-expanded previews in picker
+	pickerUniformModel bool        // all sessions share the same model family
 }
 
 // loadResult holds everything needed to bootstrap the TUI and watcher.
@@ -497,16 +503,84 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Transient watcher errors: re-subscribe and keep going.
 		return m, waitForWatcherErr(m.tailErrc)
 
+	case pickerTickMsg:
+		if m.view == viewPicker && m.pickerHasOngoing {
+			m.pickerAnimFrame = 1 - m.pickerAnimFrame
+			return m, pickerTickCmd()
+		}
+		return m, nil
+
 	case pickerSessionsMsg:
 		if msg.err != nil {
 			// Fall back to list view on error.
 			return m, nil
 		}
 		m.pickerSessions = msg.sessions
-		m.pickerCursor = 0
+		m.pickerItems = rebuildPickerItems(msg.sessions)
 		m.pickerScroll = 0
+		m.pickerExpanded = make(map[int]bool)
 		m.view = viewPicker
-		return m, nil
+
+		// Set cursor to first session item (skip header).
+		m.pickerCursor = 0
+		for i, item := range m.pickerItems {
+			if item.typ == pickerItemSession {
+				m.pickerCursor = i
+				break
+			}
+		}
+
+		// Derive ongoing/uniform state and start tick if needed.
+		var cmds []tea.Cmd
+		if tickCmd := m.updatePickerSessionState(); tickCmd != nil {
+			cmds = append(cmds, tickCmd)
+		}
+
+		// Start picker directory watcher for live refresh.
+		if m.pickerWatcher == nil {
+			projectDir, err := parser.CurrentProjectDir()
+			if err == nil {
+				pw := newPickerWatcher(projectDir)
+				go pw.run()
+				m.pickerWatcher = pw
+				cmds = append(cmds, waitForPickerRefresh(pw.sub))
+			}
+		}
+
+		return m, tea.Batch(cmds...)
+
+	case pickerRefreshMsg:
+		m.pickerSessions = msg.sessions
+		m.pickerItems = rebuildPickerItems(msg.sessions)
+
+		// Preserve cursor position by matching session ID.
+		oldSession := m.pickerSelectedSession()
+		if oldSession != nil {
+			for i, item := range m.pickerItems {
+				if item.typ == pickerItemSession && item.session.SessionID == oldSession.SessionID {
+					m.pickerCursor = i
+					break
+				}
+			}
+		}
+
+		// Clamp cursor.
+		if m.pickerCursor >= len(m.pickerItems) {
+			m.pickerCursorLast()
+		}
+		m.ensurePickerVisible()
+
+		// Refresh ongoing/uniform state.
+		var cmds []tea.Cmd
+		if tickCmd := m.updatePickerSessionState(); tickCmd != nil {
+			cmds = append(cmds, tickCmd)
+		}
+
+		// Re-subscribe for next refresh.
+		if m.pickerWatcher != nil {
+			cmds = append(cmds, waitForPickerRefresh(m.pickerWatcher.sub))
+		}
+		return m, tea.Batch(cmds...)
 
 	case loadSessionMsg:
 		if msg.err != nil || len(msg.messages) == 0 {

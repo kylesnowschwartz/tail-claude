@@ -128,15 +128,12 @@ func TestScanPreview_DoesNotFilterIsMeta(t *testing.T) {
 		assistantEntry("a1", "2025-01-15T10:00:01Z", "Got it"),
 	)
 
-	preview, count := parser.ScanSessionPreview(path)
+	preview, _ := parser.ScanSessionPreview(path)
 	if preview != "Tool result: some data here" {
 		t.Errorf("preview = %q, want %q", preview, "Tool result: some data here")
 	}
-	// isMeta user -> classified as AIMsg by Classify, assistant -> AIMsg.
-	// So classified count depends on Classify behavior. Just verify non-zero.
-	if count == 0 {
-		t.Error("count = 0, want > 0")
-	}
+	// Turn count is 0 here because isMeta user messages aren't counted as
+	// conversation turns. That's correct -- the test is about preview extraction.
 }
 
 func TestScanPreview_TeammateMessageNotFiltered(t *testing.T) {
@@ -205,6 +202,20 @@ func TestScanPreview_NewlinesCollapsed(t *testing.T) {
 }
 
 func TestScanPreview_TruncatesLongPreview(t *testing.T) {
+	longText := strings.Repeat("x", 600)
+	dir := t.TempDir()
+	path := writeJSONL(t, dir, "session.jsonl",
+		userEntry("u1", "2025-01-15T10:00:00Z", longText),
+	)
+
+	preview, _ := parser.ScanSessionPreview(path)
+	// Parser caps at 500 chars; TUI handles display truncation.
+	if len(preview) > 500 {
+		t.Errorf("preview length = %d, should be <= 500", len(preview))
+	}
+}
+
+func TestScanPreview_PreservesUnder500(t *testing.T) {
 	longText := strings.Repeat("x", 200)
 	dir := t.TempDir()
 	path := writeJSONL(t, dir, "session.jsonl",
@@ -212,40 +223,41 @@ func TestScanPreview_TruncatesLongPreview(t *testing.T) {
 	)
 
 	preview, _ := parser.ScanSessionPreview(path)
-	// Truncation: 119 ASCII chars + "…" (3 bytes) = 122 bytes total.
-	// The ellipsis is a multi-byte rune so len() exceeds 120.
-	runeCount := len([]rune(preview))
-	if runeCount > 120 {
-		t.Errorf("preview rune count = %d, should be <= 120", runeCount)
-	}
-	if !strings.HasSuffix(preview, "…") {
-		t.Errorf("preview should end with ellipsis, got %q", preview)
+	// Under 500 chars should come through untruncated.
+	if preview != longText {
+		t.Errorf("preview length = %d, want %d (no truncation under 500)", len(preview), len(longText))
 	}
 }
 
 func TestScanPreview_CountsEntireFile(t *testing.T) {
-	// Even though preview stops at 200 lines, message count covers entire file.
-	// Build a file with a user msg early and many assistants after line 200.
+	// Even though preview stops at 200 lines, turn counting covers entire file.
+	// Build a file with alternating user + assistant messages past line 200.
 	var lines []string
-	lines = append(lines, userEntry("u1", "2025-01-15T10:00:00Z", "Hello"))
-	for i := 0; i < 250; i++ {
-		lines = append(lines, assistantEntry(
-			fmt.Sprintf("a%d", i),
-			fmt.Sprintf("2025-01-15T10:%02d:%02dZ", i/60, i%60),
-			fmt.Sprintf("response %d", i),
-		))
+	for i := 0; i < 125; i++ {
+		lines = append(lines,
+			userEntry(
+				fmt.Sprintf("u%d", i),
+				fmt.Sprintf("2025-01-15T10:%02d:%02dZ", (i*2)/60, (i*2)%60),
+				fmt.Sprintf("question %d", i),
+			),
+			assistantEntry(
+				fmt.Sprintf("a%d", i),
+				fmt.Sprintf("2025-01-15T10:%02d:%02dZ", (i*2+1)/60, (i*2+1)%60),
+				fmt.Sprintf("response %d", i),
+			),
+		)
 	}
 
 	dir := t.TempDir()
 	path := writeJSONL(t, dir, "session.jsonl", lines...)
 
 	preview, count := parser.ScanSessionPreview(path)
-	if preview != "Hello" {
-		t.Errorf("preview = %q, want %q", preview, "Hello")
+	if preview != "question 0" {
+		t.Errorf("preview = %q, want %q", preview, "question 0")
 	}
-	// 1 user + 250 assistants = 251 classified messages
-	if count != 251 {
-		t.Errorf("count = %d, want 251", count)
+	// 125 user turns + 125 AI turns = 250 conversation turns
+	if count != 250 {
+		t.Errorf("count = %d, want 250", count)
 	}
 }
 

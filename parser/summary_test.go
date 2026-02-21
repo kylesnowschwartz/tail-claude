@@ -614,3 +614,51 @@ func TestToolSummary_LSP(t *testing.T) {
 		})
 	}
 }
+
+func TestTruncateWord(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		maxLen int
+		want   string
+	}{
+		{
+			name:   "short string unchanged",
+			input:  "hello world",
+			maxLen: 20,
+			want:   "hello world",
+		},
+		{
+			name:   "exact length unchanged",
+			input:  "hello",
+			maxLen: 5,
+			want:   "hello",
+		},
+		{
+			name:   "breaks at word boundary",
+			input:  "the quick brown fox jumps over",
+			maxLen: 20,
+			want:   "the quick brown fox\u2026",
+		},
+		{
+			name:   "falls back to hard cut when no space",
+			input:  "abcdefghijklmnopqrstuvwxyz",
+			maxLen: 10,
+			want:   "abcdefghi\u2026",
+		},
+		{
+			name:   "empty string",
+			input:  "",
+			maxLen: 10,
+			want:   "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parser.TruncateWord(tt.input, tt.maxLen)
+			if got != tt.want {
+				t.Errorf("TruncateWord(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+			}
+		})
+	}
+}

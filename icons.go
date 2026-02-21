@@ -24,4 +24,6 @@ const (
 	IconToken     = "\uE26B" // nf-fae-coins
 	IconBeadFull  = "\u25CF" // black circle (activity indicator bead, bright)
 	IconBeadEmpty = "\u00B7" // middle dot (activity indicator bead, dim)
+	IconLive      = "\u25CF" // filled circle (for ongoing indicator)
+	IconChat      = "\uF086" // nf-fa-comments (turn count badge)
 )
