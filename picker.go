@@ -302,9 +302,9 @@ func (m model) pickerItemHeight(index int) int {
 	item := m.pickerItems[index]
 	if item.typ == pickerItemHeader {
 		if m.pickerIsFirstHeader(index) {
-			return 1
+			return 2
 		}
-		return 2 // blank line + header text
+		return 3 // blank line + header text
 	}
 
 	contentLines := 2 // preview + metadata
@@ -377,6 +377,7 @@ func (m model) viewPicker() string {
 				allLines = append(allLines, "")
 			}
 			allLines = append(allLines, m.renderPickerHeader(item.category, width))
+			allLines = append(allLines, "")
 		case pickerItemSession:
 			isSelected := i == m.pickerCursor
 			lines := m.renderPickerSession(item.session, isSelected, width, i)

@@ -13,9 +13,10 @@ func TestShortModel(t *testing.T) {
 		want  string
 	}{
 		{"claude-opus-4-6", "opus4.6"},
-		{"claude-sonnet-4-5-20251001", "sonnet4.5.20251001"},
+		{"claude-sonnet-4-5-20251001", "sonnet4.5"},
 		{"unknown", "unknown"},
 		{"claude-haiku-4-5", "haiku4.5"},
+		{"claude-haiku-4-5-20251201", "haiku4.5"},
 		{"", ""},
 	}
 	for _, tt := range tests {

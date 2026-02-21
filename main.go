@@ -364,10 +364,26 @@ func shortModel(m string) string {
 	m = strings.TrimPrefix(m, "claude-")
 	parts := strings.SplitN(m, "-", 2)
 	if len(parts) == 2 {
-		return parts[0] + strings.ReplaceAll(parts[1], "-", ".")
+		modelFamily := parts[0]
+		// Keep major-minor only, drop patch/build metadata (e.g. "4-6-20250101" -> "4-6").
+		vParts := strings.SplitN(parts[1], "-", 3)
+		modelVersion := vParts[0]
+		if len(vParts) >= 2 {
+			modelVersion = vParts[0] + "-" + vParts[1]
+		}
+		return modelFamily + strings.ReplaceAll(modelVersion, "-", ".")
 	}
 	return m
 }
+
+// func isAllDigits(m string) string {
+// 	m = strings.TrimPrefix(m, )
+//
+// 	v32 := "-354634382"
+// 	if s, err := strconv.ParseInt(v32, 10, 32); err == nil {
+// 		fmt.Printf("%T, %v\n", s, s)
+// 	}
+// }
 
 // modelColor returns a color based on the Claude model family.
 func modelColor(model string) lipgloss.AdaptiveColor {
