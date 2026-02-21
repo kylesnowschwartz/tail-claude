@@ -376,15 +376,6 @@ func shortModel(m string) string {
 	return m
 }
 
-// func isAllDigits(m string) string {
-// 	m = strings.TrimPrefix(m, )
-//
-// 	v32 := "-354634382"
-// 	if s, err := strconv.ParseInt(v32, 10, 32); err == nil {
-// 		fmt.Printf("%T, %v\n", s, s)
-// 	}
-// }
-
 // modelColor returns a color based on the Claude model family.
 func modelColor(model string) lipgloss.AdaptiveColor {
 	switch {
