@@ -35,14 +35,14 @@ var (
 	IconCollapsed = StyledIcon{"\uF054", ColorTextDim}       // nf-fa-chevron_right
 	IconCursor    = StyledIcon{"\uF054", ColorAccent}        // nf-fa-chevron_right
 	IconDrillDown = StyledIcon{"\uF061", ColorAccent}        // nf-fa-arrow_right
-	IconThinking  = StyledIcon{"", ColorTextDim}            // nf-fa-lightbulb_o
+	IconThinking  = StyledIcon{"", ColorTextDim}            // nf-fa-lightbulb_o
 	IconOutput    = StyledIcon{"󰆂", ColorAccent}             // nf-fa-file_code_o
 	IconToolOk    = StyledIcon{"󰯠", ColorTextDim}
 	IconToolErr   = StyledIcon{"󰯠", ColorError} // nf-fa-times
 	IconSubagent  = StyledIcon{"󱙺", ColorAccent}
 	IconTeammate  = StyledIcon{"󱙺", ColorAccent}         // nf-fa-comment
 	IconSelected  = StyledIcon{"\u2502", ColorAccent}    // box drawing vertical
-	IconToken     = StyledIcon{"", ColorTextDim}        // nf-fae-coins
+	IconToken     = StyledIcon{"", ColorTextDim}        // nf-fae-coins
 	IconClock     = StyledIcon{"\uF017", ColorTextDim}   // nf-fa-clock_o
 	IconDot       = StyledIcon{"\u00B7", ColorTextMuted} // middle dot
 	IconChat      = StyledIcon{"\uF086", ColorTextDim}   // nf-fa-comments (turn count badge)
