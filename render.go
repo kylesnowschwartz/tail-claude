@@ -369,10 +369,17 @@ func (m model) renderDetailItemsContent(msg message, width int) string {
 // renderDetailItemRow renders a single item row in the detail view.
 // Format: {cursor} {indicator} {name:<12} {summary}  {tokens} {duration}
 func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width int) string {
-	// Cursor indicator
+	// Cursor indicator: drillable items get a distinct arrow, expanded items
+	// get chevron-down, collapsed items get chevron-right.
 	cursor := "  "
 	if index == cursorIndex {
-		cursor = IconCursor.RenderBold() + " "
+		if item.subagentProcess != nil {
+			cursor = IconDrillDown.RenderBold() + " "
+		} else if m.detailExpanded[index] {
+			cursor = IconExpanded.RenderBold() + " "
+		} else {
+			cursor = IconCollapsed.Render() + " "
+		}
 	}
 
 	// Type indicator and name

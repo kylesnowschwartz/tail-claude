@@ -744,6 +744,12 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailCursor = 0
 			m.detailExpanded = make(map[int]bool)
 		}
+	case "tab":
+		if hasItems {
+			m.detailExpanded[m.detailCursor] = !m.detailExpanded[m.detailCursor]
+			m.computeDetailMaxScroll()
+			m.ensureDetailCursorVisible()
+		}
 	case "enter":
 		if hasItems {
 			item := detailMsg.items[m.detailCursor]
@@ -1196,7 +1202,8 @@ func (m model) viewDetail() string {
 	if hasItems {
 		status = m.renderStatusBar(
 			"j/k", "items",
-			"enter", "expand",
+			"tab", "toggle",
+			"enter", "open",
 			"J/K", "scroll",
 			"G/g", "jump",
 			"q/esc", "back"+scrollInfo,
