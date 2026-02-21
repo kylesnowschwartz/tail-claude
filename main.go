@@ -122,15 +122,15 @@ type model struct {
 	savedDetail *savedDetailState // parent detail state to restore on drill-back
 
 	// Session picker state
-	pickerSessions    []parser.SessionInfo
-	pickerItems       []pickerItem
-	pickerCursor      int
-	pickerScroll      int
-	pickerWatcher     *pickerWatcher
-	pickerAnimFrame   int          // 0 or 1, toggled by tick for ongoing dot blink
-	pickerHasOngoing  bool         // gates tick command
-	pickerExpanded    map[int]bool // tab-expanded previews in picker
-	pickerUniformModel bool        // all sessions share the same model family
+	pickerSessions     []parser.SessionInfo
+	pickerItems        []pickerItem
+	pickerCursor       int
+	pickerScroll       int
+	pickerWatcher      *pickerWatcher
+	pickerAnimFrame    int          // 0 or 1, toggled by tick for ongoing dot blink
+	pickerHasOngoing   bool         // gates tick command
+	pickerExpanded     map[int]bool // tab-expanded previews in picker
+	pickerUniformModel bool         // all sessions share the same model family
 }
 
 // loadResult holds everything needed to bootstrap the TUI and watcher.
@@ -238,6 +238,34 @@ func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess)
 	return msgs
 }
 
+// displayItemFromParser maps a single parser.DisplayItem to the TUI's displayItem,
+// including JSON pretty-printing of tool input.
+func displayItemFromParser(it parser.DisplayItem) displayItem {
+	input := ""
+	if len(it.ToolInput) > 0 {
+		var pretty bytes.Buffer
+		if json.Indent(&pretty, it.ToolInput, "", "  ") == nil {
+			input = pretty.String()
+		} else {
+			input = string(it.ToolInput)
+		}
+	}
+	return displayItem{
+		itemType:     it.Type,
+		text:         it.Text,
+		toolName:     it.ToolName,
+		toolSummary:  it.ToolSummary,
+		toolInput:    input,
+		toolResult:   it.ToolResult,
+		toolError:    it.ToolError,
+		durationMs:   it.DurationMs,
+		tokenCount:   it.TokenCount,
+		subagentType: it.SubagentType,
+		subagentDesc: it.SubagentDesc,
+		teammateID:   it.TeammateID,
+	}
+}
+
 // convertDisplayItems maps parser.DisplayItem to the TUI's displayItem type.
 // Links ItemSubagent items to their discovered SubagentProcess by matching
 // ToolID to ParentTaskID.
@@ -256,29 +284,7 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 
 	out := make([]displayItem, len(items))
 	for i, it := range items {
-		input := ""
-		if len(it.ToolInput) > 0 {
-			var pretty bytes.Buffer
-			if json.Indent(&pretty, it.ToolInput, "", "  ") == nil {
-				input = pretty.String()
-			} else {
-				input = string(it.ToolInput)
-			}
-		}
-		out[i] = displayItem{
-			itemType:     it.Type,
-			text:         it.Text,
-			toolName:     it.ToolName,
-			toolSummary:  it.ToolSummary,
-			toolInput:    input,
-			toolResult:   it.ToolResult,
-			toolError:    it.ToolError,
-			durationMs:   it.DurationMs,
-			tokenCount:   it.TokenCount,
-			subagentType: it.SubagentType,
-			subagentDesc: it.SubagentDesc,
-			teammateID:   it.TeammateID,
-		}
+		out[i] = displayItemFromParser(it)
 		// Link subagent process if available.
 		if it.Type == parser.ItemSubagent {
 			out[i].subagentProcess = procByTaskID[it.ToolID]
@@ -318,28 +324,7 @@ func buildSubagentMessage(proc *parser.SubagentProcess, subagentType string) mes
 			msgCount++
 		case parser.AIChunk:
 			for _, it := range c.Items {
-				input := ""
-				if len(it.ToolInput) > 0 {
-					var pretty bytes.Buffer
-					if json.Indent(&pretty, it.ToolInput, "", "  ") == nil {
-						input = pretty.String()
-					} else {
-						input = string(it.ToolInput)
-					}
-				}
-				items = append(items, displayItem{
-					itemType:     it.Type,
-					text:         it.Text,
-					toolName:     it.ToolName,
-					toolSummary:  it.ToolSummary,
-					toolInput:    input,
-					toolResult:   it.ToolResult,
-					toolError:    it.ToolError,
-					durationMs:   it.DurationMs,
-					tokenCount:   it.TokenCount,
-					subagentType: it.SubagentType,
-					subagentDesc: it.SubagentDesc,
-				})
+				items = append(items, displayItemFromParser(it))
 				switch it.Type {
 				case parser.ItemThinking:
 					thinkCount++

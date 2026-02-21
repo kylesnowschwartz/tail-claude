@@ -61,9 +61,9 @@ func indentBlock(text string, indent string) string {
 }
 
 // contentWidth returns the inner width for card content, given a card width.
-// Subtracts border (2) + padding (4) and floors at 20.
+// Subtracts border (2) + padding (4) = 6 and floors at 20.
 func contentWidth(cardWidth int) int {
-	w := cardWidth - 4
+	w := cardWidth - 6
 	if w < 20 {
 		w = 20
 	}

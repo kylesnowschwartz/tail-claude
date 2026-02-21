@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -293,10 +294,15 @@ func summaryDefault(name string, f map[string]json.RawMessage) string {
 		}
 	}
 
-	// Fall back to first string value.
-	for _, raw := range f {
+	// Fall back to first string value (sorted keys for deterministic output).
+	keys := make([]string, 0, len(f))
+	for k := range f {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
 		var s string
-		if err := json.Unmarshal(raw, &s); err == nil && s != "" {
+		if err := json.Unmarshal(f[k], &s); err == nil && s != "" {
 			return Truncate(s, 40)
 		}
 	}
