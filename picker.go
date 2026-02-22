@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -42,14 +43,15 @@ func pickerTickCmd() tea.Cmd {
 	})
 }
 
-// loadPickerSessionsCmd discovers sessions for the current project.
-func loadPickerSessionsCmd() tea.Msg {
-	projectDir, err := parser.CurrentProjectDir()
-	if err != nil {
-		return pickerSessionsMsg{err: err}
+// loadPickerSessionsCmd discovers sessions for the project that owns the
+// given session file. Derives the project directory from the session path
+// rather than the process CWD, so the picker works from any directory.
+func loadPickerSessionsCmd(sessionPath string) tea.Cmd {
+	return func() tea.Msg {
+		projectDir := filepath.Dir(sessionPath)
+		sessions, err := parser.DiscoverProjectSessions(projectDir)
+		return pickerSessionsMsg{sessions: sessions, err: err}
 	}
-	sessions, err := parser.DiscoverProjectSessions(projectDir)
-	return pickerSessionsMsg{sessions: sessions, err: err}
 }
 
 // loadSessionCmd returns a command that loads a session file into messages.

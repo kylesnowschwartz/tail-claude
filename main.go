@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,6 +30,11 @@ const (
 	viewDetail                  // full-screen single message
 	viewPicker                  // session picker
 )
+
+// staleSessionThreshold controls when an auto-discovered session is
+// considered too old to show on startup. If the most recent session
+// hasn't been touched in this long, we land on the picker instead.
+const staleSessionThreshold = 12 * time.Hour
 
 // tickMsg drives the activity indicator animation.
 type tickMsg time.Time
@@ -149,11 +155,21 @@ type loadResult struct {
 // result so the caller can hand off classified messages and offset to the watcher.
 func loadSession(path string) (loadResult, error) {
 	if path == "" {
-		discovered, err := parser.DiscoverLatestSession()
-		if err != nil {
-			return loadResult{}, fmt.Errorf("no session found: %w", err)
+		// Prefer the CWD project's most recent session so the initial view
+		// matches what the picker will show. Fall back to global discovery
+		// when the CWD has no Claude sessions (e.g. running from /tmp).
+		if projectDir, err := parser.CurrentProjectDir(); err == nil {
+			if sessions, err := parser.DiscoverProjectSessions(projectDir); err == nil && len(sessions) > 0 {
+				path = sessions[0].Path
+			}
 		}
-		path = discovered
+		if path == "" {
+			discovered, err := parser.DiscoverLatestSession()
+			if err != nil {
+				return loadResult{}, fmt.Errorf("no session found: %w", err)
+			}
+			path = discovered
+		}
 	}
 
 	classified, offset, err := parser.ReadSessionIncremental(path, 0)
@@ -239,17 +255,24 @@ func initialModel(msgs []message, hasDarkBg bool) model {
 }
 
 func (m model) Init() tea.Cmd {
+	var cmds []tea.Cmd
+
 	if m.watching {
-		cmds := []tea.Cmd{
+		cmds = append(cmds,
 			waitForTailUpdate(m.tailSub),
 			waitForWatcherErr(m.tailErrc),
-		}
+		)
 		if m.sessionOngoing {
 			cmds = append(cmds, tickCmd())
 		}
-		return tea.Batch(cmds...)
 	}
-	return nil
+
+	// When starting in picker view (e.g. stale session), kick off session discovery.
+	if m.view == viewPicker {
+		cmds = append(cmds, loadPickerSessionsCmd(m.sessionPath))
+	}
+
+	return tea.Batch(cmds...)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -333,14 +356,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Start picker directory watcher for live refresh.
-		if m.pickerWatcher == nil {
-			projectDir, err := parser.CurrentProjectDir()
-			if err == nil {
-				pw := newPickerWatcher(projectDir)
-				go pw.run()
-				m.pickerWatcher = pw
-				cmds = append(cmds, waitForPickerRefresh(pw.sub))
-			}
+		// Derive project dir from the loaded session path, not the CWD.
+		if m.pickerWatcher == nil && m.sessionPath != "" {
+			pw := newPickerWatcher(filepath.Dir(m.sessionPath))
+			go pw.run()
+			m.pickerWatcher = pw
+			cmds = append(cmds, waitForPickerRefresh(pw.sub))
 		}
 
 		return m, tea.Batch(cmds...)
@@ -614,6 +635,16 @@ func main() {
 	m.tailSub = watcher.sub
 	m.tailErrc = watcher.errc
 	m.sessionOngoing = result.ongoing
+
+	// When the session was auto-discovered (no explicit path) and it's stale,
+	// start on the picker so the user can choose instead of seeing old output.
+	if sessionPath == "" && !result.ongoing {
+		if info, err := os.Stat(result.path); err == nil {
+			if time.Since(info.ModTime()) > staleSessionThreshold {
+				m.view = viewPicker
+			}
+		}
+	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
