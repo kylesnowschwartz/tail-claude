@@ -78,7 +78,7 @@ View() -> viewList/viewDetail/viewPicker
 - Document.Color is nilled so body text inherits terminal default foreground (avoids invisible text on light backgrounds).
 
 **Layout constants (`render.go`):**
-- `maxContentWidth = 120` -- content rendering width cap.
+- `maxContentWidth = 160` -- content rendering width cap.
 - `maxCollapsedLines = 12` -- collapsed message line limit before truncation.
 - `statusBarHeight = 3` -- rounded border: top + content + bottom.
 

@@ -484,6 +484,9 @@ func (m model) viewList() string {
 
 	output := strings.Join(lines, "\n")
 
+	// Center content within the terminal when wider than the content cap.
+	output = centerBlock(output, m.clampWidth(), m.width)
+
 	// Activity indicator (above status bar, only when ongoing)
 	indicator := m.renderActivityIndicator(m.width)
 	if indicator != "" {
@@ -539,6 +542,9 @@ func (m model) viewDetail() string {
 	}
 
 	output := strings.Join(lines, "\n")
+
+	// Center content within the terminal when wider than the content cap.
+	output = centerBlock(output, width, m.width)
 
 	// Scroll position indicator
 	scrollInfo := ""

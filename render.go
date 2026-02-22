@@ -26,7 +26,7 @@ func newRendered(content string) rendered {
 // -- Layout constants ---------------------------------------------------------
 
 // maxContentWidth is the maximum width for content rendering.
-const maxContentWidth = 120
+const maxContentWidth = 160
 
 // maxCollapsedLines is the maximum content lines shown when a message is collapsed.
 const maxCollapsedLines = 12
@@ -83,6 +83,21 @@ func indentBlock(text string, indent string) string {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
 		lines[i] = indent + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+// centerBlock pads each line with a left gutter so content is visually centered
+// within termWidth. No-op when content already fills the terminal.
+func centerBlock(content string, contentWidth, termWidth int) string {
+	gutter := (termWidth - contentWidth) / 2
+	if gutter <= 0 {
+		return content
+	}
+	pad := strings.Repeat(" ", gutter)
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		lines[i] = pad + line
 	}
 	return strings.Join(lines, "\n")
 }

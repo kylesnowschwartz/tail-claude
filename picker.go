@@ -358,6 +358,9 @@ func (m model) viewPicker() string {
 
 	content := header + "\n" + strings.Join(visible, "\n")
 
+	// Center content within the terminal when wider than the content cap.
+	content = centerBlock(content, width, m.width)
+
 	// Pad to fill viewport so status bar stays at bottom.
 	renderedLines := strings.Count(content, "\n") + 1
 	if renderedLines < m.height-2 {
