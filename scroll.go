@@ -30,9 +30,6 @@ func (m *model) computeLineOffsets() {
 		r := m.renderMessage(msg, width, false, m.expanded[i])
 		m.messageLines[i] = r.lines
 		currentLine += r.lines
-		if i < len(m.messages)-1 {
-			currentLine++ // blank line from "\n\n" join separator
-		}
 	}
 
 	if len(m.messages) > 0 {
