@@ -317,6 +317,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// receive fresh data but not have their cursor or scroll disturbed.
 		wasAtEnd := m.view == viewList && m.cursor >= len(m.messages)-1
 		m.messages = msg.messages
+		if msg.permissionMode != "" {
+			m.sessionMode = msg.permissionMode
+		}
 
 		// Clamp cursor if the message list somehow shrank.
 		if m.cursor >= len(m.messages) && len(m.messages) > 0 {
