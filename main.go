@@ -299,7 +299,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pickerTickMsg:
 		if m.view == viewPicker && m.pickerHasOngoing {
-			m.pickerAnimFrame = 1 - m.pickerAnimFrame
+			m.pickerAnimFrame++
 			return m, pickerTickCmd()
 		}
 		return m, nil

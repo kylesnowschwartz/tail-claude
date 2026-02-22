@@ -30,11 +30,14 @@ type loadSessionMsg struct {
 	err          error
 }
 
-// pickerTickMsg drives the ongoing-dot blink animation (500ms interval).
+// pickerTickMsg drives the ongoing spinner animation (100ms interval).
 type pickerTickMsg time.Time
 
+// pickerSpinnerFrames is a 10-frame braille spinner for ongoing sessions.
+var pickerSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 func pickerTickCmd() tea.Cmd {
-	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 		return pickerTickMsg(t)
 	})
 }
@@ -462,12 +465,13 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	var line1Parts []string
 
 	if s.IsOngoing {
-		dotColor := ColorOngoing
-		if m.pickerAnimFrame == 1 {
-			dotColor = ColorOngoingDim
+		frame := pickerSpinnerFrames[m.pickerAnimFrame%len(pickerSpinnerFrames)]
+		spinStyle := lipgloss.NewStyle().Foreground(ColorOngoing)
+		if isSelected {
+			spinStyle = spinStyle.Background(ColorPickerSelectedBg)
 		}
-		dot := IconLive.WithColor(dotColor)
-		line1Parts = append(line1Parts, dot+" ")
+		// Render glyph+space together so the background spans both.
+		line1Parts = append(line1Parts, spinStyle.Render(frame+" "))
 	}
 
 	preview := s.FirstMessage
@@ -494,7 +498,13 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 		preview = parser.TruncateWord(preview, previewMaxWidth)
 	}
 
-	line1Parts = append(line1Parts, lipgloss.NewStyle().Foreground(previewColor).Render(preview))
+	// Bake background into preview when selected; prevents ANSI reset from the
+	// spinner glyph's closing sequence from stripping the highlight off this text.
+	previewStyle := lipgloss.NewStyle().Foreground(previewColor)
+	if isSelected {
+		previewStyle = previewStyle.Background(ColorPickerSelectedBg)
+	}
+	line1Parts = append(line1Parts, previewStyle.Render(preview))
 	line1 := indent + strings.Join(line1Parts, "")
 
 	// --- Line 2: metadata ---
