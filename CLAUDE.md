@@ -133,6 +133,17 @@ just check    # go build ./... && go vet ./...
 just test     # go test ./...
 just run      # build and launch TUI
 just race     # build with race detector
+just dump     # render latest session to stdout
+```
+
+### CLI flags
+
+```
+tail-claude [flags] [session.jsonl]
+  --dump          Print rendered output to stdout (no interactive TUI)
+  --expand        Expand all messages (use with --dump)
+  --width N       Set terminal width for --dump output (default 160, min 40)
+  -h, --help      Show this help
 ```
 
 ## Conventions

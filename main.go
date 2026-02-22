@@ -603,6 +603,22 @@ func main() {
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
 		switch {
+		case arg == "--help" || arg == "-h":
+			fmt.Print(`Usage: tail-claude [flags] [session.jsonl]
+
+Without arguments, auto-discovers the most recent session and opens
+the interactive TUI.
+
+Pass a JSONL path to view a specific session:
+  tail-claude ~/.claude/projects/-Users-me-Code-foo/abc123.jsonl
+
+Flags:
+  --dump          Print rendered output to stdout (no interactive TUI)
+  --expand        Expand all messages (use with --dump)
+  --width N       Set terminal width for --dump output (default 160, min 40)
+  -h, --help      Show this help
+`)
+			os.Exit(0)
 		case arg == "--dump":
 			dumpMode = true
 		case arg == "--expand":
