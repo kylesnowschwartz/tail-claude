@@ -35,6 +35,14 @@ const maxCollapsedLines = 12
 // Rounded border: top + content + bottom = 3 lines.
 const statusBarHeight = 3
 
+// detailItemTokWidth is the fixed column width for token counts in the detail
+// item row right side. Fits "~9.9k tok" (9 chars); right-aligns smaller values.
+const detailItemTokWidth = 9
+
+// detailItemDurWidth is the fixed column width for durations in the detail
+// item row right side. Fits "999ms" and "1m 5s" (5 chars); left-aligns shorter values.
+const detailItemDurWidth = 5
+
 // beadCount is the number of dots in the activity indicator animation.
 const beadCount = 5
 
@@ -527,19 +535,24 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 			durMs = d
 		}
 	}
-	var rightParts []string
+	// Build fixed-width right side so tok and dur columns align across all rows.
+	// "%*s  %-*s": tok right-aligned in detailItemTokWidth, dur left-aligned in detailItemDurWidth.
+	// Empty strings produce spaces, keeping the total width constant.
+	tokStr := ""
 	if tokCount > 0 {
-		tokStr := fmt.Sprintf("~%s tok", formatTokens(tokCount))
-		rightParts = append(rightParts, StyleDim.Render(tokStr))
+		tokStr = fmt.Sprintf("~%s tok", formatTokens(tokCount))
 	}
+	durStr := ""
 	if durMs > 0 {
-		durStr := fmt.Sprintf("%dms", durMs)
+		durStr = fmt.Sprintf("%dms", durMs)
 		if durMs >= 1000 {
 			durStr = formatDuration(durMs)
 		}
-		rightParts = append(rightParts, StyleDim.Render(durStr))
 	}
-	rightSide := strings.Join(rightParts, "  ")
+	var rightSide string
+	if tokStr != "" || durStr != "" {
+		rightSide = StyleDim.Render(fmt.Sprintf("%*s  %-*s", detailItemTokWidth, tokStr, detailItemDurWidth, durStr))
+	}
 
 	var left string
 	if summary != "" {
