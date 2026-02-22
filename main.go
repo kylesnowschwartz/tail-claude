@@ -464,10 +464,7 @@ func (m model) View() string {
 
 // viewList renders the message list (main view).
 func (m model) viewList() string {
-	width := m.width
-	if width > maxContentWidth {
-		width = maxContentWidth
-	}
+	width := m.clampWidth()
 
 	var parts []string
 	for i, msg := range m.messages {
@@ -517,10 +514,7 @@ func (m model) viewList() string {
 // viewDetail renders a single message full-screen with scrolling.
 func (m model) viewDetail() string {
 	msg := m.currentDetailMsg()
-	width := m.width
-	if width > maxContentWidth {
-		width = maxContentWidth
-	}
+	width := m.clampWidth()
 
 	r := m.renderDetailContent(msg, width)
 

@@ -6,16 +6,21 @@ import (
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
+// clampWidth returns m.width capped at maxContentWidth.
+func (m model) clampWidth() int {
+	if m.width > maxContentWidth {
+		return maxContentWidth
+	}
+	return m.width
+}
+
 // computeLineOffsets calculates the starting line of each message in the
 // rendered output. Must mirror View()'s rendering to keep scroll accurate.
 func (m *model) computeLineOffsets() {
 	if m.width == 0 || len(m.messages) == 0 {
 		return
 	}
-	width := m.width
-	if width > maxContentWidth {
-		width = maxContentWidth
-	}
+	width := m.clampWidth()
 
 	m.lineOffsets = make([]int, len(m.messages))
 	m.messageLines = make([]int, len(m.messages))
@@ -83,10 +88,7 @@ func (m *model) computeDetailMaxScroll() {
 	}
 
 	msg := m.currentDetailMsg()
-	width := m.width
-	if width > maxContentWidth {
-		width = maxContentWidth
-	}
+	width := m.clampWidth()
 
 	r := m.renderDetailContent(msg, width)
 	// Trim trailing newlines that lipgloss may add (phantom blank lines).
@@ -144,10 +146,7 @@ func (m *model) detailCursorLine() int {
 		return 0
 	}
 
-	width := m.width
-	if width > maxContentWidth {
-		width = maxContentWidth
-	}
+	width := m.clampWidth()
 
 	// Count header lines (header + blank separator)
 	header := m.renderDetailHeader(msg, width)
@@ -175,10 +174,7 @@ func (m *model) ensureDetailCursorVisible() {
 		return
 	}
 
-	width := m.width
-	if width > maxContentWidth {
-		width = maxContentWidth
-	}
+	width := m.clampWidth()
 
 	cursorLine := m.detailCursorLine()
 

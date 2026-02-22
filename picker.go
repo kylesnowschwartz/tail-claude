@@ -306,10 +306,7 @@ func (m model) pickerItemHeight(index int) int {
 
 	contentLines := 2 // preview + metadata
 	if m.pickerExpanded[index] {
-		width := m.width
-		if width > maxContentWidth {
-			width = maxContentWidth
-		}
+		width := m.clampWidth()
 		innerWidth := width - 4 // indent (2) + gutter (2)
 		if innerWidth < 20 {
 			innerWidth = 20
@@ -347,10 +344,7 @@ func (m model) pickerTotalLines() int {
 
 // viewPicker renders the session picker screen.
 func (m model) viewPicker() string {
-	width := m.width
-	if width > maxContentWidth {
-		width = maxContentWidth
-	}
+	width := m.clampWidth()
 
 	// Header
 	header := StyleAccentBold.Render("Sessions") + " " +
