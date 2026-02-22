@@ -461,7 +461,7 @@ func (m model) viewList() string {
 		parts = append(parts, m.renderMessage(msg, width, isSelected, isExpanded).content)
 	}
 
-	content := strings.Join(parts, "\n\n")
+	content := strings.Join(parts, "\n")
 
 	// Simple line-based scroll
 	lines := strings.Split(content, "\n")

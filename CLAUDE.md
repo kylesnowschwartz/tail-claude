@@ -19,15 +19,27 @@ Pure data transformation -- no side effects except file IO in `ReadSession` / `R
 - **sanitize.go** -- XML tag stripping, command display formatting, text extraction from JSON content blocks
 - **chunk.go** -- `[]ClassifiedMsg` to `[]Chunk`. Merges consecutive AI messages into single display units.
 - **session.go** -- File IO: `ReadSession` (full), `ReadSessionIncremental` (from offset), session discovery
+- **last_output.go** -- `FindLastOutput`: extracts the final text or tool result from a chunk for collapsed preview
+- **subagent.go** -- Subagent/teammate process discovery and linking across chunks
+- **summary.go** -- Summary entry handling, `Ellipsis` and `Truncate` helpers
+- **ongoing.go** -- Heuristics for whether a session is still in progress
+- **dategroup.go** -- Date-based session grouping (Today, Yesterday, This Week, etc.)
+- **patterns.go** -- Shared regex patterns for content classification
 
-### TUI (`main.go`, `watcher.go`, `picker.go`)
+### TUI
 
 Bubble Tea model with three view states: list, detail, picker.
 
-- **main.go** -- Model, Update, View, `chunksToMessages`, `convertDisplayItems`, utility formatters
-- **render.go** -- All rendering functions (extracted from main.go)
+- **main.go** -- Model struct, Init, View, entry point
+- **update.go** -- Bubble Tea Update handler (key events, messages, state transitions)
+- **convert.go** -- `chunksToMessages`, `convertDisplayItems` (parser -> TUI data bridge)
+- **format.go** -- Pure formatters: `shortModel`, `formatTokens`, `formatDuration`, `modelColor`
+- **render.go** -- All rendering functions
+- **scroll.go** -- Scroll math: line offsets, cursor visibility, viewport calculations
+- **visible_rows.go** -- Flat row list for detail view (parent + expanded subagent children)
 - **watcher.go** -- fsnotify-based file watcher for live tailing
 - **picker.go** -- Session discovery and selection UI
+- **picker_watcher.go** -- Directory watcher for live picker updates (new/changed sessions)
 - **markdown.go** -- Glamour-based markdown renderer with width-based caching
 - **theme.go** -- AdaptiveColor definitions for dark/light terminal support
 - **icons.go** -- Nerd Font icon constants
@@ -67,7 +79,7 @@ View() -> viewList/viewDetail/viewPicker
 
 **Layout constants (`render.go`):**
 - `maxContentWidth = 120` -- content rendering width cap.
-- `maxCollapsedLines = 6` -- collapsed message line limit before truncation.
+- `maxCollapsedLines = 12` -- collapsed message line limit before truncation.
 - `statusBarHeight = 3` -- rounded border: top + content + bottom.
 
 **Theme (`theme.go`):**
@@ -78,7 +90,7 @@ View() -> viewList/viewDetail/viewPicker
 
 **Icons (`icons.go`):**
 - Nerd Font codepoints. Requires a patched terminal font.
-- Icon set: Claude, User, System, Expanded/Collapsed, Thinking, Output, ToolOk/ToolErr, Subagent, Teammate, Clock, Token, Cursor, Dot, Selected.
+- Icon set: Claude, User, System, Expanded/Collapsed, Cursor, DrillDown, Thinking, Output, ToolOk/ToolErr, Subagent, Teammate, Selected, Token, Clock, Dot, Chat, Live, Ellipsis.
 
 ## Functional Thinking
 
@@ -129,5 +141,5 @@ just race     # build with race detector
 - Keep parser package free of TUI dependencies
 - Test files live alongside source (`*_test.go`)
 - Test fixtures in `parser/testdata/`
-- No external dependencies beyond bubbletea, lipgloss, and fsnotify
+- No external dependencies beyond bubbletea, glamour, lipgloss, termenv, and fsnotify
 - Attribution for ported parsing logic documented in ATTRIBUTION.md

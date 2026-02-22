@@ -79,5 +79,5 @@ func (r *mdRenderer) renderMarkdown(content string, width int) string {
 	if err != nil {
 		return content
 	}
-	return strings.TrimRight(out, "\n")
+	return strings.Trim(out, "\n")
 }

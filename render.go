@@ -110,7 +110,7 @@ func formatToolResultPreview(lo *parser.LastOutput) string {
 
 	result := lo.ToolResult
 	if len(result) > 200 {
-		result = result[:200] + GlyphEllipsis
+		result = result[:200] + IconEllipsis.Glyph
 	}
 	// Collapse newlines for single-line preview
 	result = strings.ReplaceAll(result, "\n", " ")
@@ -176,8 +176,14 @@ func (m model) claudeMessageBody(msg message, isExpanded bool, cw int) string {
 		return m.claudeExpandedItems(msg, cw)
 	}
 
-	content := m.claudeCollapsedContent(msg, isExpanded)
-	return m.md.renderMarkdown(content, cw)
+	content, hidden := m.claudeCollapsedContent(msg, isExpanded)
+	rendered := m.md.renderMarkdown(content, cw)
+	if hidden > 0 {
+		hint := StyleDim.Render(
+			fmt.Sprintf("%s (%d lines hidden)", IconEllipsis.Render(), hidden))
+		rendered += "\n" + hint
+	}
+	return rendered
 }
 
 // claudeExpandedItems renders structured item rows plus truncated last output.
@@ -197,8 +203,8 @@ func (m model) claudeExpandedItems(msg message, cw int) string {
 		md := m.md.renderMarkdown(outputText, cw)
 		rows = append(rows, "", md) // blank line separator
 		if hidden > 0 {
-			hint := StyleSecondary.Render(
-				fmt.Sprintf("%s %d more lines — Enter for full text", GlyphEllipsis, hidden))
+			hint := StyleDim.Render(
+				fmt.Sprintf("%s %d more lines — Enter for full text", IconEllipsis.Render(), hidden))
 			rows = append(rows, hint)
 		}
 	}
@@ -207,10 +213,12 @@ func (m model) claudeExpandedItems(msg message, cw int) string {
 }
 
 // claudeCollapsedContent selects and truncates text for collapsed display.
-func (m model) claudeCollapsedContent(msg message, isExpanded bool) string {
+// Returns the content string and the number of hidden lines (0 when not truncated).
+// The caller is responsible for rendering the truncation hint after markdown.
+func (m model) claudeCollapsedContent(msg message, isExpanded bool) (string, int) {
 	content := msg.content
 	if isExpanded {
-		return content
+		return content, 0
 	}
 
 	if msg.lastOutput != nil {
@@ -219,19 +227,19 @@ func (m model) claudeCollapsedContent(msg message, isExpanded bool) string {
 			content = msg.lastOutput.Text
 			truncated, hidden := truncateLines(content, maxCollapsedLines)
 			if hidden > 0 {
-				return truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", GlyphEllipsis, hidden)
+				return truncated, hidden
 			}
-			return content
+			return content, 0
 		case parser.LastOutputToolResult:
-			return formatToolResultPreview(msg.lastOutput)
+			return formatToolResultPreview(msg.lastOutput), 0
 		}
 	}
 
 	truncated, hidden := truncateLines(content, maxCollapsedLines)
 	if hidden > 0 {
-		return truncated + "\n" + fmt.Sprintf("%s (%d lines hidden)", GlyphEllipsis, hidden)
+		return truncated, hidden
 	}
-	return content
+	return content, 0
 }
 
 func (m model) renderUserMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
@@ -268,7 +276,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 		truncated, hidden := truncateLines(content, maxCollapsedLines)
 		if hidden > 0 {
 			content = truncated
-			hint = StyleDim.Render(fmt.Sprintf("… (%d lines hidden)", hidden))
+			hint = StyleDim.Render(fmt.Sprintf("%s (%d lines hidden)", IconEllipsis.Render(), hidden))
 		}
 	}
 

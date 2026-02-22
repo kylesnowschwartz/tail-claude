@@ -47,11 +47,11 @@ var (
 	IconDot       = StyledIcon{"\u00B7", ColorTextMuted}     // middle dot
 	IconChat      = StyledIcon{"\uF086", ColorTextDim}       // nf-fa-comments (turn count badge)
 	IconLive      = StyledIcon{"\u25CF", ColorOngoing}       // filled circle (for ongoing indicator)
+	IconEllipsis  = StyledIcon{"\u2026", ColorTextDim}       // horizontal ellipsis (truncation hints)
 )
 
 // Plain glyphs -- used as raw strings (never styled via StyledIcon).
 const (
-	GlyphEllipsis  = "\u2026" // horizontal ellipsis (truncation hints)
 	GlyphHRule     = "\u2500" // box drawing horizontal (compact separators)
 	GlyphBeadFull  = "\u25CF" // black circle (activity indicator bead, bright)
 	GlyphBeadEmpty = "\u00B7" // middle dot (activity indicator bead, dim/unused)
