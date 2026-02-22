@@ -228,22 +228,17 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 		}, true
 	}
 
-	// Internal user messages (isMeta=true, tool results) -> AI message.
-	if e.Type == "user" && e.IsMeta {
-		blocks := extractMetaBlocks(e.Message.Content, contentStr)
-		return AIMsg{
-			Timestamp: ts,
-			Text:      contentStr,
-			IsMeta:    true,
-			Blocks:    blocks,
-		}, true
-	}
-
-	// Fallback: remaining user messages that weren't caught above -> AI message.
+	// Fallback: remaining user messages -> AI message.
+	// Covers both isMeta=true entries (slash commands etc.) and tool_result
+	// entries where isMeta is null in the JSONL. extractMetaBlocks handles both:
+	// if the content has tool_result blocks it extracts them; otherwise it returns
+	// a text fallback that mergeAIBuffer silently ignores.
+	blocks := extractMetaBlocks(e.Message.Content, contentStr)
 	return AIMsg{
 		Timestamp: ts,
 		Text:      contentStr,
 		IsMeta:    true,
+		Blocks:    blocks,
 	}, true
 }
 

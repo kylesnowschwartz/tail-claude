@@ -565,6 +565,96 @@ func TestClassify_SummaryProducesCompactMsg(t *testing.T) {
 	}
 }
 
+// TestClassify_ToolResultWithoutIsMeta verifies that tool_result entries
+// where isMeta is not set (null in JSONL -> false in Go) are still classified
+// correctly. In practice, Claude Code writes isMeta=null on all tool_result
+// entries; our fix detects them by content rather than by the flag.
+func TestClassify_ToolResultWithoutIsMeta(t *testing.T) {
+	// Real JSONL shape: type=user, isMeta absent (false), content is an array
+	// with tool_result blocks containing tool_use_id.
+	content := json.RawMessage(`[
+		{"type":"tool_result","tool_use_id":"toolu_abc","content":[{"type":"text","text":"On branch main\nnothing to commit"}]}
+	]`)
+	e := makeEntry("user", "u2", "2025-01-15T10:00:02.000Z", content)
+	// IsMeta is intentionally NOT set (zero value = false).
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed for tool_result entry without isMeta")
+	}
+	ai, isAI := msg.(parser.AIMsg)
+	if !isAI {
+		t.Fatalf("expected AIMsg, got %T", msg)
+	}
+	if !ai.IsMeta {
+		t.Error("IsMeta should be true")
+	}
+	if len(ai.Blocks) != 1 {
+		t.Fatalf("len(Blocks) = %d, want 1", len(ai.Blocks))
+	}
+	b := ai.Blocks[0]
+	if b.Type != "tool_result" {
+		t.Errorf("Block.Type = %q, want tool_result", b.Type)
+	}
+	if b.ToolID != "toolu_abc" {
+		t.Errorf("Block.ToolID = %q, want toolu_abc", b.ToolID)
+	}
+	if b.Content != "On branch main\nnothing to commit" {
+		t.Errorf("Block.Content = %q", b.Content)
+	}
+}
+
+// TestClassify_ToolPipelineEndToEnd verifies the full path from Entry -> Classify
+// -> BuildChunks when isMeta is not set on the tool_result entry. This is the
+// real-world case that was silently dropping tool results and their tokens.
+func TestClassify_ToolPipelineEndToEnd(t *testing.T) {
+	assistantContent := json.RawMessage(`[
+		{"type":"tool_use","id":"toolu_abc","name":"Bash","input":{"command":"git status","description":"Check git status"}}
+	]`)
+	toolResultContent := json.RawMessage(`[
+		{"type":"tool_result","tool_use_id":"toolu_abc","content":[{"type":"text","text":"On branch main\nnothing to commit, working tree clean"}]}
+	]`)
+
+	eAssistant := makeEntry("assistant", "a1", "2025-01-15T10:00:00.000Z", assistantContent, withModel("claude-sonnet-4-6"))
+	eResult := makeEntry("user", "u1", "2025-01-15T10:00:01.500Z", toolResultContent)
+	// eResult.IsMeta is false — the real-world shape.
+
+	var msgs []parser.ClassifiedMsg
+	for _, e := range []parser.Entry{eAssistant, eResult} {
+		msg, ok := parser.Classify(e)
+		if !ok {
+			t.Fatalf("Classify(%s entry) returned false", e.Type)
+		}
+		msgs = append(msgs, msg)
+	}
+
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+	item := items[0]
+	if item.Type != parser.ItemToolCall {
+		t.Errorf("Type = %v, want ItemToolCall", item.Type)
+	}
+	if item.ToolResult == "" {
+		t.Error("ToolResult is empty — tool result was not linked to tool_use")
+	}
+	if item.DurationMs != 1500 {
+		t.Errorf("DurationMs = %d, want 1500", item.DurationMs)
+	}
+	resultText := "On branch main\nnothing to commit, working tree clean"
+	inputJSON := `{"command":"git status","description":"Check git status"}`
+	wantTokens := len(inputJSON)/4 + len(resultText)/4
+	if item.TokenCount != wantTokens {
+		t.Errorf("TokenCount = %d, want %d (input %d + result %d)",
+			item.TokenCount, wantTokens, len(inputJSON)/4, len(resultText)/4)
+	}
+}
+
 func TestClassify_SummaryEmptyContent(t *testing.T) {
 	e := makeEntry("summary", "s1", "2025-01-15T10:00:00Z",
 		json.RawMessage(`""`))
