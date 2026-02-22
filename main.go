@@ -134,6 +134,7 @@ type model struct {
 	sessionCwd    string
 	sessionBranch string
 	sessionMode   string
+	sessionDirty  bool // true when git working tree has uncommitted changes
 
 	// Footer toggle (? key)
 	showKeybinds bool
@@ -240,6 +241,7 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.sessionCwd = result.meta.Cwd
 	m.sessionBranch = result.meta.GitBranch
 	m.sessionMode = result.meta.PermissionMode
+	m.sessionDirty = checkGitDirty(result.meta.Cwd)
 	m.animFrame = 0
 	m.view = viewList
 	m.layoutList()
@@ -320,6 +322,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.permissionMode != "" {
 			m.sessionMode = msg.permissionMode
 		}
+		m.sessionDirty = checkGitDirty(m.sessionCwd)
 
 		// Clamp cursor if the message list somehow shrank.
 		if m.cursor >= len(m.messages) && len(m.messages) > 0 {
@@ -681,6 +684,7 @@ Flags:
 		m.sessionCwd = result.meta.Cwd
 		m.sessionBranch = result.meta.GitBranch
 		m.sessionMode = result.meta.PermissionMode
+		m.sessionDirty = checkGitDirty(result.meta.Cwd)
 		if expandAll {
 			for i := range m.messages {
 				m.expanded[i] = true
@@ -706,6 +710,7 @@ Flags:
 	m.sessionCwd = result.meta.Cwd
 	m.sessionBranch = result.meta.GitBranch
 	m.sessionMode = result.meta.PermissionMode
+	m.sessionDirty = checkGitDirty(result.meta.Cwd)
 
 	// When the session was auto-discovered (no explicit path) and it's stale,
 	// start on the picker so the user can choose instead of seeing old output.

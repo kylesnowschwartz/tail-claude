@@ -866,21 +866,28 @@ func (m model) renderActivityIndicator(width int) string {
 
 // -- Info bar -----------------------------------------------------------------
 
-// renderModePill renders the permission mode as a colored background pill.
+// renderModePill renders the permission mode as a colored border pill (│ label │).
+// Border and text use the mode color; no background fill.
 // bypassPermissions -> red, acceptEdits -> purple, plan -> green, default -> plain muted text.
 func renderModePill(mode string) string {
 	label := shortMode(mode)
-	pillFg := lipgloss.AdaptiveColor{Light: "15", Dark: "15"} // white on all colored pills
+	var color lipgloss.AdaptiveColor
 	switch mode {
 	case "bypassPermissions":
-		return lipgloss.NewStyle().Background(ColorPillBypass).Foreground(pillFg).Padding(0, 1).Render(label)
+		color = ColorPillBypass
 	case "acceptEdits":
-		return lipgloss.NewStyle().Background(ColorPillAcceptEdits).Foreground(pillFg).Padding(0, 1).Render(label)
+		color = ColorPillAcceptEdits
 	case "plan":
-		return lipgloss.NewStyle().Background(ColorPillPlan).Foreground(pillFg).Padding(0, 1).Render(label)
+		color = ColorPillPlan
 	default:
 		return StyleMuted.Render(label)
 	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, true, false, true).
+		BorderForeground(color).
+		Foreground(color).
+		Padding(0, 1).
+		Render(label)
 }
 
 // renderInfoBar renders a single-line session metadata bar.
@@ -894,9 +901,13 @@ func (m model) renderInfoBar() string {
 		left = append(left, StyleSecondary.Render(proj))
 	}
 
-	// Git branch
+	// Git branch with optional dirty indicator
 	if m.sessionBranch != "" {
-		left = append(left, StyleDim.Render(m.sessionBranch))
+		branch := StyleDim.Render(m.sessionBranch)
+		if m.sessionDirty {
+			branch += lipgloss.NewStyle().Foreground(ColorContextWarn).Render("*")
+		}
+		left = append(left, branch)
 	}
 
 	// Permission mode pill
