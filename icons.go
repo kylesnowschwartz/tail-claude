@@ -33,7 +33,6 @@ var (
 	IconSystem    = StyledIcon{"\uF120", ColorTextMuted}     // nf-fa-terminal
 	IconExpanded  = StyledIcon{"\uF078", ColorTextPrimary}   // nf-fa-chevron_down
 	IconCollapsed = StyledIcon{"\uF054", ColorTextDim}       // nf-fa-chevron_right
-	IconCursor    = StyledIcon{"\uF054", ColorAccent}        // nf-fa-chevron_right
 	IconDrillDown = StyledIcon{"\uF061", ColorAccent}        // nf-fa-arrow_right
 	IconThinking  = StyledIcon{"", ColorTextDim}            // nf-fa-lightbulb_o
 	IconOutput    = StyledIcon{"󰆂", ColorAccent}             // nf-fa-file_code_o
@@ -46,13 +45,11 @@ var (
 	IconClock     = StyledIcon{"\uF017", ColorTextDim}       // nf-fa-clock_o
 	IconDot       = StyledIcon{"\u00B7", ColorTextMuted}     // middle dot
 	IconChat      = StyledIcon{"\uF086", ColorTextDim}       // nf-fa-comments (turn count badge)
-	IconLive      = StyledIcon{"\u25CF", ColorOngoing}       // filled circle (for ongoing indicator)
 	IconEllipsis  = StyledIcon{"\u2026", ColorTextDim}       // horizontal ellipsis (truncation hints)
 )
 
 // Plain glyphs -- used as raw strings (never styled via StyledIcon).
 const (
-	GlyphHRule     = "\u2500" // box drawing horizontal (compact separators)
-	GlyphBeadFull  = "\u25CF" // black circle (activity indicator bead, bright)
-	GlyphBeadEmpty = "\u00B7" // middle dot (activity indicator bead, dim/unused)
+	GlyphHRule    = "\u2500" // box drawing horizontal (compact separators)
+	GlyphBeadFull = "\u25CF" // black circle (activity indicator bead, bright)
 )
