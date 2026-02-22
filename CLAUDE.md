@@ -17,7 +17,7 @@ Pure data transformation -- no side effects except file IO in `ReadSession` / `R
 - **entry.go** -- JSONL line to `Entry` struct (raw deserialization)
 - **classify.go** -- `Entry` to `ClassifiedMsg` (sealed interface: `UserMsg`, `AIMsg`, `SystemMsg`, `TeammateMsg`, `CompactMsg`). Noise filtering lives here.
 - **sanitize.go** -- XML tag stripping, command display formatting, text extraction from JSON content blocks
-- **chunk.go** -- `[]ClassifiedMsg` to `[]Chunk`. Merges consecutive AI messages into single display units.
+- **chunk.go** -- `[]ClassifiedMsg` to `[]Chunk`. Merges consecutive AI messages into single display units. `Chunk.Usage` is the last assistant message's context-window snapshot, not the sum.
 - **session.go** -- File IO: `ReadSession` (full), `ReadSessionIncremental` (from offset), session discovery
 - **last_output.go** -- `FindLastOutput`: extracts the final text or tool result from a chunk for collapsed preview
 - **subagent.go** -- Subagent/teammate process discovery and linking across chunks

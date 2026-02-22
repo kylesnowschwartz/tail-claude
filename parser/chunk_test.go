@@ -87,12 +87,12 @@ func TestBuildChunks_ConsecutiveAIMerged(t *testing.T) {
 	if len(c.ToolCalls) != 2 {
 		t.Errorf("len(ToolCalls) = %d, want 2", len(c.ToolCalls))
 	}
-	// Tokens summed.
-	if c.Usage.InputTokens != 300 {
-		t.Errorf("InputTokens = %d, want 300", c.Usage.InputTokens)
+	// Usage = last non-meta assistant's snapshot (the first message; second is meta).
+	if c.Usage.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100 (snapshot)", c.Usage.InputTokens)
 	}
-	if c.Usage.OutputTokens != 125 {
-		t.Errorf("OutputTokens = %d, want 125", c.Usage.OutputTokens)
+	if c.Usage.OutputTokens != 50 {
+		t.Errorf("OutputTokens = %d, want 50 (snapshot)", c.Usage.OutputTokens)
 	}
 }
 
@@ -740,5 +740,178 @@ func TestBuildChunks_CompactChunkFlushesAIBuffer(t *testing.T) {
 	}
 	if chunks[2].Type != parser.AIChunk {
 		t.Errorf("chunks[2].Type = %d, want AIChunk", chunks[2].Type)
+	}
+}
+
+// --- Usage snapshot tests ---
+// The Claude API reports input_tokens as the full context window per API call,
+// not incremental. Chunk.Usage should reflect the last assistant message's
+// usage (a context-window snapshot), not the sum of all messages.
+
+func TestBuildChunks_UsageLastAssistantSnapshot(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		// First assistant response (tool_use)
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			Text:      "Let me check that file.",
+			Usage:     parser.Usage{InputTokens: 1000, OutputTokens: 50},
+			Blocks: []parser.ContentBlock{
+				{Type: "text", Text: "Let me check that file."},
+				{Type: "tool_use", ToolID: "c1", ToolName: "Read", ToolInput: json.RawMessage(`{"file_path":"a.go"}`)},
+			},
+		},
+		// Tool result (meta, zero usage)
+		parser.AIMsg{
+			Timestamp: t0.Add(1 * time.Second),
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "c1", Content: "package main"},
+			},
+		},
+		// Second assistant response (final text)
+		parser.AIMsg{
+			Timestamp: t0.Add(2 * time.Second),
+			Model:     "claude-opus-4-6",
+			Text:      "The file looks good.",
+			Usage:     parser.Usage{InputTokens: 2000, OutputTokens: 80},
+			Blocks: []parser.ContentBlock{
+				{Type: "text", Text: "The file looks good."},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+	c := chunks[0]
+
+	// Usage = last non-meta assistant's usage (context window snapshot).
+	if c.Usage.InputTokens != 2000 {
+		t.Errorf("Usage.InputTokens = %d, want 2000 (last assistant snapshot)", c.Usage.InputTokens)
+	}
+	if c.Usage.OutputTokens != 80 {
+		t.Errorf("Usage.OutputTokens = %d, want 80 (last assistant snapshot)", c.Usage.OutputTokens)
+	}
+}
+
+func TestBuildChunks_UsageThreeToolRoundTrips(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{Timestamp: t0, Model: "claude-opus-4-6",
+			Usage: parser.Usage{InputTokens: 1000, OutputTokens: 50}},
+		parser.AIMsg{Timestamp: t0.Add(1 * time.Second), IsMeta: true},
+		parser.AIMsg{Timestamp: t0.Add(2 * time.Second), Model: "claude-opus-4-6",
+			Usage: parser.Usage{InputTokens: 2000, OutputTokens: 60}},
+		parser.AIMsg{Timestamp: t0.Add(3 * time.Second), IsMeta: true},
+		parser.AIMsg{Timestamp: t0.Add(4 * time.Second), Model: "claude-opus-4-6",
+			Text:  "Done.",
+			Usage: parser.Usage{InputTokens: 3000, OutputTokens: 70, CacheReadTokens: 500}},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+	c := chunks[0]
+
+	// Last non-meta assistant: InputTokens=3000, OutputTokens=70, CacheReadTokens=500
+	if c.Usage.InputTokens != 3000 {
+		t.Errorf("InputTokens = %d, want 3000", c.Usage.InputTokens)
+	}
+	if c.Usage.OutputTokens != 70 {
+		t.Errorf("OutputTokens = %d, want 70", c.Usage.OutputTokens)
+	}
+	if c.Usage.CacheReadTokens != 500 {
+		t.Errorf("CacheReadTokens = %d, want 500", c.Usage.CacheReadTokens)
+	}
+	if c.Usage.TotalTokens() != 3570 {
+		t.Errorf("TotalTokens = %d, want 3570", c.Usage.TotalTokens())
+	}
+}
+
+func TestBuildChunks_UsageOnlyMetaMessages(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			IsMeta:    true,
+			Text:      "tool result",
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+	if chunks[0].Usage.TotalTokens() != 0 {
+		t.Errorf("Usage.TotalTokens = %d, want 0 (no non-meta assistant)", chunks[0].Usage.TotalTokens())
+	}
+}
+
+func TestBuildChunks_UsageSingleMessage(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			Text:      "Hello!",
+			Usage:     parser.Usage{InputTokens: 500, OutputTokens: 30},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	c := chunks[0]
+	if c.Usage.InputTokens != 500 {
+		t.Errorf("InputTokens = %d, want 500", c.Usage.InputTokens)
+	}
+	if c.Usage.OutputTokens != 30 {
+		t.Errorf("OutputTokens = %d, want 30", c.Usage.OutputTokens)
+	}
+}
+
+func TestBuildChunks_ItemTokenCountMultipleTools(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	bashInput := `{"command":"ls"}`
+	readInput := `{"file_path":"main.go"}`
+	bashResult := "file1.go\nfile2.go"
+	readResult := "package main\n\nfunc main() {}"
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "c1", ToolName: "Bash", ToolInput: json.RawMessage(bashInput)},
+				{Type: "tool_use", ToolID: "c2", ToolName: "Read", ToolInput: json.RawMessage(readInput)},
+			},
+		},
+		parser.AIMsg{
+			Timestamp: t0.Add(1 * time.Second),
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "c1", Content: bashResult},
+			},
+		},
+		parser.AIMsg{
+			Timestamp: t0.Add(2 * time.Second),
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "c2", Content: readResult},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+	if len(items) != 2 {
+		t.Fatalf("len(Items) = %d, want 2", len(items))
+	}
+
+	// Each tool's TokenCount = input estimate + result estimate
+	wantBash := len(bashInput)/4 + len(bashResult)/4
+	if items[0].TokenCount != wantBash {
+		t.Errorf("Bash TokenCount = %d, want %d (input+result)", items[0].TokenCount, wantBash)
+	}
+	wantRead := len(readInput)/4 + len(readResult)/4
+	if items[1].TokenCount != wantRead {
+		t.Errorf("Read TokenCount = %d, want %d (input+result)", items[1].TokenCount, wantRead)
 	}
 }

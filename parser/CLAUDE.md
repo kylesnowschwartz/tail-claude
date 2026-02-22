@@ -42,6 +42,8 @@ Four chunk types: `UserChunk`, `AIChunk`, `SystemChunk`, `CompactChunk`.
 
 AI chunks carry: `Model`, `Text`, `ThinkingCount`, `ToolCalls`, `Items` ([]DisplayItem), `Usage`, `StopReason`, `DurationMs`.
 
+`Usage` is the **last non-meta assistant message's** context-window snapshot, not the sum of all messages. The Claude API reports `input_tokens` as the full context window per API call, so summing across tool-call round trips would overcount. Session-level totals (picker) are computed separately from raw entries in `scanSessionMetadata`.
+
 ### DisplayItem and DisplayItemType (`chunk.go`)
 
 Structured elements within an AI chunk's detail view. Built during `mergeAIBuffer` from ContentBlocks.

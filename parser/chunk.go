@@ -146,7 +146,6 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 		texts     []string
 		thinking  int
 		toolCalls []ToolCall
-		usage     Usage
 		model     string
 		stop      string
 	)
@@ -163,10 +162,6 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 		}
 		thinking += m.ThinkingCount
 		toolCalls = append(toolCalls, m.ToolCalls...)
-		usage.InputTokens += m.Usage.InputTokens
-		usage.OutputTokens += m.Usage.OutputTokens
-		usage.CacheReadTokens += m.Usage.CacheReadTokens
-		usage.CacheCreationTokens += m.Usage.CacheCreationTokens
 
 		if model == "" && !m.IsMeta && m.Model != "" {
 			model = m.Model
@@ -283,6 +278,17 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 	var finalItems []DisplayItem
 	if hasBlocks {
 		finalItems = items
+	}
+
+	// Usage snapshot: last non-meta assistant message's usage. The Claude API
+	// reports input_tokens as the full context window per call, so the last
+	// call is the correct per-turn metric (not the sum across round trips).
+	var usage Usage
+	for i := len(buf) - 1; i >= 0; i-- {
+		if !buf[i].IsMeta && buf[i].Usage.TotalTokens() > 0 {
+			usage = buf[i].Usage
+			break
+		}
 	}
 
 	return Chunk{

@@ -223,19 +223,16 @@ func readSubagentSession(path string) ([]Chunk, error) {
 	return BuildChunks(msgs), nil
 }
 
-// aggregateUsage sums token usage across all AI chunks.
+// aggregateUsage returns the last AI chunk's usage snapshot. Each chunk already
+// holds the last assistant message's context-window snapshot, so the final
+// chunk's snapshot represents the subagent's context state at completion.
 func aggregateUsage(chunks []Chunk) Usage {
-	var u Usage
-	for _, c := range chunks {
-		if c.Type != AIChunk {
-			continue
+	for i := len(chunks) - 1; i >= 0; i-- {
+		if chunks[i].Type == AIChunk && chunks[i].Usage.TotalTokens() > 0 {
+			return chunks[i].Usage
 		}
-		u.InputTokens += c.Usage.InputTokens
-		u.OutputTokens += c.Usage.OutputTokens
-		u.CacheReadTokens += c.Usage.CacheReadTokens
-		u.CacheCreationTokens += c.Usage.CacheCreationTokens
 	}
-	return u
+	return Usage{}
 }
 
 // LinkSubagents connects discovered subagent processes to their parent Task
