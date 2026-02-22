@@ -70,7 +70,7 @@ type message struct {
 	content          string
 	thinkingCount    int
 	toolCallCount    int
-	messages         int
+	outputCount      int
 	tokensRaw        int
 	durationMs       int64
 	timestamp        string

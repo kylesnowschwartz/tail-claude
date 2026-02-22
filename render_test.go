@@ -231,7 +231,7 @@ func TestDetailHeaderStats(t *testing.T) {
 	})
 
 	t.Run("1 message uses singular label", func(t *testing.T) {
-		msg := message{messages: 1}
+		msg := message{outputCount: 1}
 		got := detailHeaderStats(msg)
 		if !strings.Contains(got, "1 message") {
 			t.Errorf("should contain '1 message', got %q", got)

@@ -708,12 +708,12 @@ func detailHeaderStats(msg message) string {
 		}
 		parts = append(parts, fmt.Sprintf("%d %s", msg.toolCallCount, tcLabel))
 	}
-	if msg.messages > 0 {
+	if msg.outputCount > 0 {
 		label := "messages"
-		if msg.messages == 1 {
+		if msg.outputCount == 1 {
 			label = "message"
 		}
-		parts = append(parts, fmt.Sprintf("%d %s", msg.messages, label))
+		parts = append(parts, fmt.Sprintf("%d %s", msg.outputCount, label))
 	}
 	if msg.teammateSpawns > 0 {
 		label := "teammates"

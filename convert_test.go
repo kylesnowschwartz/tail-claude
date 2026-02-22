@@ -267,8 +267,8 @@ func TestBuildSubagentMessage(t *testing.T) {
 		t.Errorf("toolCallCount = %d, want 2", got.toolCallCount)
 	}
 	// UserChunk becomes an ItemOutput "Input" item; AIChunk ItemOutput also counted
-	if got.messages != 2 {
-		t.Errorf("messages = %d, want 2 (1 user input + 1 output item)", got.messages)
+	if got.outputCount != 2 {
+		t.Errorf("outputCount = %d, want 2 (1 user input + 1 output item)", got.outputCount)
 	}
 	if got.tokensRaw != 300 {
 		t.Errorf("tokensRaw = %d, want 300", got.tokensRaw)
