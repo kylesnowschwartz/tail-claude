@@ -171,12 +171,21 @@ func loadSession(path string) (loadResult, error) {
 	allSubagents := append(subagents, teamSessions...)
 	parser.LinkSubagents(allSubagents, chunks, path)
 
+	ongoing := parser.IsOngoing(chunks)
+	if ongoing {
+		if info, err := os.Stat(path); err == nil {
+			if time.Since(info.ModTime()) > parser.OngoingStalenessThreshold {
+				ongoing = false
+			}
+		}
+	}
+
 	return loadResult{
 		messages:     chunksToMessages(chunks, allSubagents),
 		path:         path,
 		classified:   classified,
 		offset:       offset,
-		ongoing:      parser.IsOngoing(chunks),
+		ongoing:      ongoing,
 		hasTeamTasks: len(teamSessions) > 0 || hasTeamTaskItems(chunks),
 	}, nil
 }

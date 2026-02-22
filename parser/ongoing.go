@@ -4,7 +4,14 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"time"
 )
+
+// OngoingStalenessThreshold is the maximum time since last file modification
+// before a session is considered dead regardless of content. Claude Code writes
+// on every API response and tool call, so 5 minutes of silence means the
+// process is gone.
+const OngoingStalenessThreshold = 5 * time.Minute
 
 // activityType classifies events for ongoing detection.
 type activityType int

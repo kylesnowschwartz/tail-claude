@@ -253,13 +253,18 @@ func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 			continue
 		}
 
+		isOngoing := meta.isOngoing
+		if isOngoing && time.Since(info.ModTime()) > OngoingStalenessThreshold {
+			isOngoing = false
+		}
+
 		sessions = append(sessions, SessionInfo{
 			Path:         path,
 			SessionID:    strings.TrimSuffix(name, ".jsonl"),
 			ModTime:      info.ModTime(),
 			FirstMessage: meta.firstMsg,
 			TurnCount:    meta.turnCount,
-			IsOngoing:    meta.isOngoing,
+			IsOngoing:    isOngoing,
 			TotalTokens:  meta.totalTokens,
 			DurationMs:   meta.durationMs,
 			Model:        meta.model,
