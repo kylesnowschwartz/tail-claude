@@ -25,6 +25,9 @@ import "github.com/charmbracelet/lipgloss"
 // | TokenHigh           |   "3" | "208" | gold          | orange (>150k) |
 // | Ongoing             |   "2" |  "76" | green dot     | green dot      |
 // | PickerSelectedBg    | "254" | "237" | subtle elev.  | subtle elev.   |
+// | PillBypass          |   "1" | "196" | red           | red            |
+// | PillAcceptEdits     |   "5" | "135" | magenta       | purple         |
+// | PillPlan            |   "2" | "114" | green         | green          |
 
 var (
 	// Text hierarchy
@@ -56,6 +59,11 @@ var (
 	ColorContextOk   = ac("2", "114")  // green: <50%
 	ColorContextWarn = ac("3", "208")  // yellow/orange: 50-80%
 	ColorContextCrit = ac("1", "196")  // red: >80%
+
+	// Permission mode pill backgrounds
+	ColorPillBypass      = ac("1", "196")  // red: bypassPermissions
+	ColorPillAcceptEdits = ac("5", "135")  // purple: acceptEdits
+	ColorPillPlan        = ac("2", "114")  // green: plan
 
 	// Picker
 	ColorPickerSelectedBg = ac("254", "237")

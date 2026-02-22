@@ -848,6 +848,23 @@ func (m model) renderActivityIndicator(width int) string {
 
 // -- Info bar -----------------------------------------------------------------
 
+// renderModePill renders the permission mode as a colored background pill.
+// bypassPermissions -> red, acceptEdits -> purple, plan -> green, default -> plain muted text.
+func renderModePill(mode string) string {
+	label := shortMode(mode)
+	pillFg := lipgloss.AdaptiveColor{Light: "15", Dark: "15"} // white on all colored pills
+	switch mode {
+	case "bypassPermissions":
+		return lipgloss.NewStyle().Background(ColorPillBypass).Foreground(pillFg).Padding(0, 1).Render(label)
+	case "acceptEdits":
+		return lipgloss.NewStyle().Background(ColorPillAcceptEdits).Foreground(pillFg).Padding(0, 1).Render(label)
+	case "plan":
+		return lipgloss.NewStyle().Background(ColorPillPlan).Foreground(pillFg).Padding(0, 1).Render(label)
+	default:
+		return StyleMuted.Render(label)
+	}
+}
+
 // renderInfoBar renders a single-line session metadata bar.
 // Layout: " project  branch  mode              42% ctx"
 func (m model) renderInfoBar() string {
@@ -864,9 +881,9 @@ func (m model) renderInfoBar() string {
 		left = append(left, StyleDim.Render(m.sessionBranch))
 	}
 
-	// Permission mode
+	// Permission mode pill
 	if m.sessionMode != "" {
-		left = append(left, StyleMuted.Render(shortMode(m.sessionMode)))
+		left = append(left, renderModePill(m.sessionMode))
 	}
 
 	// Context usage (right-aligned)
