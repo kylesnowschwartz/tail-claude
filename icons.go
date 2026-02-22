@@ -39,8 +39,8 @@ var (
 	IconOutput    = StyledIcon{"󰆂", ColorAccent}             // nf-fa-file_code_o
 	IconToolOk    = StyledIcon{"󰯠", ColorTextDim}            // nf-md-tools (same glyph as ToolErr, differentiated by color)
 	IconToolErr   = StyledIcon{"󰯠", ColorError}              // nf-md-tools (same glyph as ToolOk, differentiated by color)
-	IconSubagent  = StyledIcon{"󱙺", ColorAccent}             // nf-cod-hubot (same glyph as Claude/Teammate, differentiated by color)
-	IconTeammate  = StyledIcon{"󱙺", ColorAccent}             // nf-cod-hubot (same glyph as Claude/Subagent, differentiated by color)
+	IconSubagent  = StyledIcon{"󱙺", ColorAccent}             // nf-cod-hubot (same glyph and color as Teammate -- differentiated by context label)
+	IconTeammate  = StyledIcon{"󱙺", ColorAccent}             // nf-cod-hubot (same glyph and color as Subagent -- differentiated by context label)
 	IconSelected  = StyledIcon{"\u2502", ColorAccent}        // box drawing vertical
 	IconToken     = StyledIcon{"", ColorTextDim}            // nf-fae-coins
 	IconClock     = StyledIcon{"\uF017", ColorTextDim}       // nf-fa-clock_o

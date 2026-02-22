@@ -629,46 +629,12 @@ func (m model) renderToolExpanded(item displayItem, wrapWidth int, indent string
 // matching the claude-devtools layout: a header line with counts, followed
 // by a flat list of all items across the subagent's chunks.
 func (m model) renderSubagentTrace(item displayItem, wrapWidth int, indent string) string {
-	proc := item.subagentProcess
 	dimStyle := StyleDim
 
-	// Build flat trace items from all subagent chunks.
-	// UserChunks become "Input" items; AIChunk items pass through directly.
-	var traceItems []displayItem
-	var toolCount, msgCount int
-
-	for _, c := range proc.Chunks {
-		switch c.Type {
-		case parser.UserChunk:
-			traceItems = append(traceItems, displayItem{
-				itemType: parser.ItemOutput,
-				toolName: "Input", // overrides "Output" label in renderDetailItemRow
-				text:     c.UserText,
-			})
-			msgCount++
-		case parser.AIChunk:
-			for _, it := range c.Items {
-				traceItems = append(traceItems, displayItem{
-					itemType:     it.Type,
-					text:         it.Text,
-					toolName:     it.ToolName,
-					toolSummary:  it.ToolSummary,
-					toolResult:   it.ToolResult,
-					toolError:    it.ToolError,
-					durationMs:   it.DurationMs,
-					tokenCount:   it.TokenCount,
-					subagentType: it.SubagentType,
-					subagentDesc: it.SubagentDesc,
-				})
-				switch it.Type {
-				case parser.ItemToolCall, parser.ItemSubagent:
-					toolCount++
-				case parser.ItemOutput:
-					msgCount++
-				}
-			}
-		}
-	}
+	// Reuse the same trace-building logic used by the tree cursor navigation,
+	// so both codepaths produce identical display items.
+	traceItems := buildTraceItems(item)
+	toolCount, msgCount := traceItemStats(traceItems)
 
 	// Header: >_ Execution Trace · N tool calls, N messages
 	traceIcon := IconSystem.WithColor(ColorTextDim) // terminal icon for execution context
