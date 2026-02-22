@@ -38,19 +38,61 @@ go build -o tail-claude .
 
 ## Usage
 
-Run `tail-claude` to open the session picker. Select a session to view it.
+Run `tail-claude` to open the most recent session. If the session is stale (no activity in the last 12 hours), the session picker opens instead so you can choose a session.
+
+Pass a path directly to skip discovery:
+
+```bash
+tail-claude ~/.claude/projects/-Users-kyle-Code-foo/session.jsonl
+```
 
 ### Keybindings
 
+**List view**
+
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Move cursor down / up |
-| `Enter` | Expand message or toggle detail view |
-| `Esc` | Back to list / close |
-| `p` | Open session picker |
-| `e` | Expand all items in current message |
-| `G` / `g` | Jump to bottom / top |
-| `q` | Quit |
+| `j` / `↓` | Move cursor to next message / scroll down 3 lines |
+| `k` / `↑` | Move cursor to previous message / scroll up 3 lines |
+| `J` / `Ctrl+d` | Scroll viewport down half a page |
+| `K` / `Ctrl+u` | Scroll viewport up half a page |
+| `G` | Jump to last message |
+| `g` | Jump to first message |
+| `Tab` | Toggle expand/collapse current message |
+| `e` | Expand all Claude messages |
+| `c` | Collapse all Claude messages |
+| `Enter` | Open detail view for current message |
+| `s` | Open session picker |
+| `q` / `Esc` | Open session picker |
+| `Ctrl+c` | Quit |
+
+**Detail view**
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Next item (with items) / scroll down 3 lines |
+| `k` / `↑` | Previous item (with items) / scroll up 3 lines |
+| `J` / `Ctrl+d` | Scroll down half a page |
+| `K` / `Ctrl+u` | Scroll up half a page |
+| `G` | Jump to last item / scroll to bottom |
+| `g` | Jump to first item / scroll to top |
+| `Tab` | Toggle expand/collapse current item |
+| `Enter` | Drill into subagent / toggle expand |
+| `q` / `Esc` | Back to list (or pop subagent stack) |
+| `Ctrl+c` | Quit |
+
+**Session picker**
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Next session |
+| `k` / `↑` | Previous session |
+| `G` | Jump to last session |
+| `g` | Jump to first session |
+| `Tab` | Expand/collapse project group |
+| `Enter` | Open selected session |
+| `q` / `Esc` | Back to list |
+| `Ctrl+c` | Quit |
 
 ## Attribution
 
