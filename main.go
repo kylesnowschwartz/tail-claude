@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -596,14 +597,28 @@ func main() {
 
 	dumpMode := false
 	expandAll := false
+	dumpWidth := 0
 	var sessionPath string
 
-	for _, arg := range os.Args[1:] {
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
 		switch {
 		case arg == "--dump":
 			dumpMode = true
 		case arg == "--expand":
 			expandAll = true
+		case arg == "--width":
+			i++
+			if i >= len(os.Args) {
+				fmt.Fprintln(os.Stderr, "--width requires a value")
+				os.Exit(1)
+			}
+			n, err := strconv.Atoi(os.Args[i])
+			if err != nil || n < 40 {
+				fmt.Fprintln(os.Stderr, "--width must be an integer >= 40")
+				os.Exit(1)
+			}
+			dumpWidth = n
 		case strings.HasPrefix(arg, "-"):
 			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", arg)
 			os.Exit(1)
@@ -620,6 +635,9 @@ func main() {
 
 	if dumpMode {
 		width := maxContentWidth
+		if dumpWidth > 0 {
+			width = dumpWidth
+		}
 		m := initialModel(result.messages, hasDarkBg)
 		m.width = width
 		m.height = 1_000_000
@@ -628,6 +646,7 @@ func main() {
 				m.expanded[i] = true
 			}
 		}
+		m.layoutList()
 		fmt.Println(m.View())
 		return
 	}

@@ -159,7 +159,13 @@ func (m model) renderMessage(msg message, containerWidth int, isSelected, isExpa
 func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, isExpanded bool) string {
 	sel := selectionIndicator(isSelected)
 	chev := chevron(isExpanded)
-	maxWidth := containerWidth - 4 // selection indicator (2) + gutter (2)
+	// Left-aligned with a right gutter for chat-bubble asymmetry.
+	// Wide terminals (>= content cap): 3/4 width. Narrow: 7/8 to conserve space.
+	fraction := 3 * containerWidth / 4
+	if containerWidth < maxContentWidth {
+		fraction = 7 * containerWidth / 8
+	}
+	maxWidth := fraction - 4 // minus selection indicator (2) + gutter (2)
 
 	headerLine := sel + "  " + m.renderDetailHeader(msg, maxWidth, chev).content
 	body := m.claudeMessageBody(msg, isExpanded, contentWidth(maxWidth))
@@ -265,12 +271,9 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 	sel := selectionIndicator(isSelected)
 	maxBubbleWidth := containerWidth * 3 / 4
 
-	// Use full terminal width for alignment so user messages right-align to
-	// the terminal edge, not just within the 120-col content area.
-	alignWidth := m.width
-	if alignWidth < containerWidth {
-		alignWidth = containerWidth
-	}
+	// Right-align within the content column; centerBlock in viewList
+	// handles centering the whole block within the terminal.
+	alignWidth := containerWidth
 
 	// Header: right-aligned to terminal edge
 	rightPart := userHeaderLine(msg)
