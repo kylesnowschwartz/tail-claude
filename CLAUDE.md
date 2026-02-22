@@ -130,3 +130,4 @@ just race     # build with race detector
 - Test files live alongside source (`*_test.go`)
 - Test fixtures in `parser/testdata/`
 - No external dependencies beyond bubbletea, lipgloss, and fsnotify
+- Attribution for ported parsing logic documented in ATTRIBUTION.md
