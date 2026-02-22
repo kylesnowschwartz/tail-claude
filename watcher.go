@@ -15,8 +15,9 @@ import (
 // We send the complete list (not a diff) because BuildChunks merges consecutive
 // AI messages -- the last chunk can grow as new tool calls or text arrive.
 type tailUpdateMsg struct {
-	messages []message
-	ongoing  bool // whether the session appears to still be in progress
+	messages       []message
+	ongoing        bool   // whether the session appears to still be in progress
+	permissionMode string // last-seen permissionMode from new entries; empty if unchanged
 }
 
 // watcherErrMsg reports errors from the file watcher goroutine.
@@ -26,8 +27,9 @@ type watcherErrMsg struct {
 
 // tailUpdate bundles the rebuilt message list with session state metadata.
 type tailUpdate struct {
-	messages []message
-	ongoing  bool
+	messages       []message
+	ongoing        bool
+	permissionMode string // last-seen permissionMode from new entries; empty if unchanged
 }
 
 // sessionWatcher monitors a JSONL session file for appended lines and pushes
@@ -178,9 +180,18 @@ func (w *sessionWatcher) readAndRebuild() {
 	}
 
 	// Update offset and classified messages if there's new data.
+	// Scan new messages for the last-seen permissionMode while we have them.
+	var permissionMode string
 	if len(newMsgs) > 0 || newOffset != w.offset {
 		w.offset = newOffset
 		w.allClassified = append(w.allClassified, newMsgs...)
+
+		for i := len(newMsgs) - 1; i >= 0; i-- {
+			if u, ok := newMsgs[i].(parser.UserMsg); ok && u.PermissionMode != "" {
+				permissionMode = u.PermissionMode
+				break
+			}
+		}
 	}
 
 	chunks := parser.BuildChunks(w.allClassified)
@@ -195,8 +206,9 @@ func (w *sessionWatcher) readAndRebuild() {
 	w.hasTeamTasks = len(teamSessions) > 0 || hasTeamTaskItems(chunks)
 
 	update := tailUpdate{
-		messages: chunksToMessages(chunks, allSubagents),
-		ongoing:  parser.IsOngoing(chunks),
+		messages:       chunksToMessages(chunks, allSubagents),
+		ongoing:        parser.IsOngoing(chunks),
+		permissionMode: permissionMode,
 	}
 
 	// Non-blocking send: drop stale update if receiver hasn't consumed yet.

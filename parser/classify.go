@@ -14,8 +14,9 @@ type ClassifiedMsg interface {
 
 // UserMsg represents genuine user input that starts a new request cycle.
 type UserMsg struct {
-	Timestamp time.Time
-	Text      string // sanitized display text
+	Timestamp      time.Time
+	Text           string // sanitized display text
+	PermissionMode string // "default", "acceptEdits", "bypassPermissions", "plan"; empty if not present
 }
 
 func (UserMsg) classifiedMsg() {}
@@ -198,8 +199,9 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 
 		if !excluded && hasUserContent(e.Message.Content, contentStr) {
 			return UserMsg{
-				Timestamp: ts,
-				Text:      SanitizeContent(contentStr),
+				Timestamp:      ts,
+				Text:           SanitizeContent(contentStr),
+				PermissionMode: e.PermissionMode,
 			}, true
 		}
 	}
