@@ -295,18 +295,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tailUpdateMsg:
-		// Auto-follow: if cursor was on the last message, track the new tail.
-		wasAtEnd := m.cursor >= len(m.messages)-1
+		// Auto-follow only when the user is in the list view AND the cursor
+		// is already on the last message. Other views (detail, picker) should
+		// receive fresh data but not have their cursor or scroll disturbed.
+		wasAtEnd := m.view == viewList && m.cursor >= len(m.messages)-1
 		m.messages = msg.messages
-		if wasAtEnd && len(m.messages) > 0 {
-			m.cursor = len(m.messages) - 1
-		}
+
 		// Clamp cursor if the message list somehow shrank.
 		if m.cursor >= len(m.messages) && len(m.messages) > 0 {
 			m.cursor = len(m.messages) - 1
 		}
-		m.computeLineOffsets()
-		m.ensureCursorVisible()
+
+		if wasAtEnd && len(m.messages) > 0 {
+			m.cursor = len(m.messages) - 1
+		}
+
+		// Only recompute list layout when we're looking at it.
+		if m.view == viewList {
+			m.computeLineOffsets()
+			if wasAtEnd {
+				m.ensureCursorVisible()
+			}
+		} else if m.view == viewDetail {
+			// The current detail message may have grown (new tool calls,
+			// streaming text). Recompute max scroll so the user can reach
+			// the new content, but don't move their scroll position.
+			m.computeDetailMaxScroll()
+		}
 
 		// Start or stop the animation tick based on ongoing state.
 		wasOngoing := m.sessionOngoing
