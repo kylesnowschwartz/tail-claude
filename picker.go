@@ -457,7 +457,6 @@ func (m model) renderPickerHeader(category parser.DateCategory, width int) strin
 // Selected: background highlight band. Unselected: plain text.
 // Matches claude-devtools: every row has a bottom border, selected gets bg.
 func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width int, itemIndex int) []string {
-	isMicro := s.TurnCount > 0 && s.TurnCount < 3 && !isSelected
 	indent := "  "
 	innerWidth := width - 4 // indent (2) + right gutter (2)
 	if innerWidth < 20 {
@@ -486,9 +485,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	if isSelected {
 		previewColor = ColorTextSecondary
 	}
-	if isMicro {
-		previewColor = ColorTextDim
-	}
+
 
 	previewMaxWidth := innerWidth
 	if s.IsOngoing {
@@ -519,7 +516,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	if s.Model != "" {
 		short := fmt.Sprintf("%-10s", shortModel(s.Model))
 		mColor := modelColor(s.Model)
-		if m.pickerUniformModel || isMicro {
+		if m.pickerUniformModel {
 			mColor = metaColor
 		}
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(mColor).Render(short))
@@ -539,7 +536,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	if s.TotalTokens > 0 {
 		tokStr := fmt.Sprintf("%6s", formatTokens(s.TotalTokens))
 		tokColor := metaColor
-		if s.TotalTokens > 150_000 && !isMicro {
+		if s.TotalTokens > 150_000 {
 			tokColor = ColorTokenHigh
 		}
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(tokColor).Render(tokStr))
