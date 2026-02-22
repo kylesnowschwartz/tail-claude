@@ -23,6 +23,11 @@ type Entry struct {
 		} `json:"usage"`
 	} `json:"message"`
 
+	// Session-level metadata. Present on most entry types.
+	Cwd            string `json:"cwd"`
+	GitBranch      string `json:"gitBranch"`
+	PermissionMode string `json:"permissionMode"` // "default", "acceptEdits", "bypassPermissions", "plan"
+
 	// Tool result metadata (present on isMeta user entries for tool results).
 	// ToolUseResult holds structured output from the tool execution (agentId,
 	// status, usage, etc.). SourceToolUseID links back to the originating

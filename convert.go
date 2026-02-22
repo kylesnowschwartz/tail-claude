@@ -40,6 +40,7 @@ func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess)
 				toolCallCount:    len(c.ToolCalls),
 				outputCount:      countOutputItems(c.Items),
 				tokensRaw:        c.Usage.TotalTokens(),
+				contextTokens:    c.Usage.InputTokens + c.Usage.CacheReadTokens + c.Usage.CacheCreationTokens,
 				durationMs:       c.DurationMs,
 				timestamp:        formatTime(c.Timestamp),
 				items:            convertDisplayItems(c.Items, subagents),

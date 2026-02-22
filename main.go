@@ -73,6 +73,7 @@ type message struct {
 	toolCallCount    int
 	outputCount      int
 	tokensRaw        int
+	contextTokens    int // input + cache tokens (context window snapshot, excludes output)
 	durationMs       int64
 	timestamp        string
 	items            []displayItem
@@ -129,6 +130,14 @@ type model struct {
 	traceMsg    *message          // non-nil when viewing a subagent's execution trace
 	savedDetail *savedDetailState // parent detail state to restore on drill-back
 
+	// Session metadata (extracted once on load, displayed in info bar)
+	sessionCwd    string
+	sessionBranch string
+	sessionMode   string
+
+	// Footer toggle (? key)
+	showKeybinds bool
+
 	// Session picker state
 	pickerSessions     []parser.SessionInfo
 	pickerItems        []pickerItem
@@ -150,6 +159,7 @@ type loadResult struct {
 	offset       int64
 	ongoing      bool
 	hasTeamTasks bool
+	meta         parser.SessionMeta // cwd, branch, permission mode
 }
 
 // loadSession reads a JSONL session file and converts chunks to display messages.
@@ -206,6 +216,7 @@ func loadSession(path string) (loadResult, error) {
 		offset:       offset,
 		ongoing:      ongoing,
 		hasTeamTasks: len(teamSessions) > 0 || hasTeamTaskItems(chunks),
+		meta:         parser.ExtractSessionMeta(path),
 	}, nil
 }
 
@@ -226,6 +237,9 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.detailCursor = 0
 	m.sessionPath = result.path
 	m.sessionOngoing = result.ongoing
+	m.sessionCwd = result.meta.Cwd
+	m.sessionBranch = result.meta.GitBranch
+	m.sessionMode = result.meta.PermissionMode
 	m.animFrame = 0
 	m.view = viewList
 	m.layoutList()
@@ -250,6 +264,7 @@ func initialModel(msgs []message, hasDarkBg bool) model {
 		messages:            msgs,
 		expanded:            make(map[int]bool), // all messages start collapsed
 		cursor:              0,
+		showKeybinds:        true,
 		detailExpanded:      make(map[int]bool),
 		detailChildExpanded: make(map[visibleRowKey]bool),
 		md:                  newMdRenderer(hasDarkBg),
@@ -427,6 +442,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			offset:       msg.offset,
 			ongoing:      msg.ongoing,
 			hasTeamTasks: msg.hasTeamTasks,
+			meta:         msg.meta,
 		})
 
 	case tea.KeyMsg:
@@ -494,8 +510,8 @@ func (m model) viewList() string {
 		output += "\n" + indicator
 	}
 
-	// Status bar
-	status := m.renderStatusBar(
+	// Footer: info bar + optional keybind hints
+	footer := m.renderFooter(
 		"j/k", "nav",
 		"↑/↓", "scroll",
 		"G/g", "jump",
@@ -503,10 +519,10 @@ func (m model) viewList() string {
 		"enter", "detail",
 		"e/c", "expand/collapse",
 		"q/esc", "sessions",
-		"^C", "quit",
+		"?", "keys",
 	)
 
-	return output + "\n" + status
+	return output + "\n" + footer
 }
 
 // viewDetail renders a single message full-screen with scrolling.
@@ -563,11 +579,11 @@ func (m model) viewDetail() string {
 		output += "\n" + indicator
 	}
 
-	// Status bar varies by message type
+	// Footer varies by message type
 	hasItems := msg.role == RoleClaude && len(msg.items) > 0
-	var status string
+	var footer string
 	if hasItems {
-		status = m.renderStatusBar(
+		footer = m.renderFooter(
 			"j/k", "items",
 			"tab", "toggle",
 			"enter", "open",
@@ -575,17 +591,19 @@ func (m model) viewDetail() string {
 			"J/K", "page",
 			"G/g", "jump",
 			"q/esc", "back"+scrollInfo,
+			"?", "keys",
 		)
 	} else {
-		status = m.renderStatusBar(
+		footer = m.renderFooter(
 			"j/k", "scroll",
 			"↑/↓", "scroll",
 			"G/g", "jump",
 			"q/esc", "back"+scrollInfo,
+			"?", "keys",
 		)
 	}
 
-	return output + "\n" + status
+	return output + "\n" + footer
 }
 
 func main() {
@@ -657,6 +675,9 @@ Flags:
 		m := initialModel(result.messages, hasDarkBg)
 		m.width = width
 		m.height = 1_000_000
+		m.sessionCwd = result.meta.Cwd
+		m.sessionBranch = result.meta.GitBranch
+		m.sessionMode = result.meta.PermissionMode
 		if expandAll {
 			for i := range m.messages {
 				m.expanded[i] = true
@@ -679,6 +700,9 @@ Flags:
 	m.tailSub = watcher.sub
 	m.tailErrc = watcher.errc
 	m.sessionOngoing = result.ongoing
+	m.sessionCwd = result.meta.Cwd
+	m.sessionBranch = result.meta.GitBranch
+	m.sessionMode = result.meta.PermissionMode
 
 	// When the session was auto-discovered (no explicit path) and it's stale,
 	// start on the picker so the user can choose instead of seeing old output.

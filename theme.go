@@ -52,6 +52,11 @@ var (
 	// Ongoing indicator
 	ColorOngoing = ac("2", "76")
 
+	// Context usage thresholds
+	ColorContextOk   = ac("2", "114")  // green: <50%
+	ColorContextWarn = ac("3", "208")  // yellow/orange: 50-80%
+	ColorContextCrit = ac("1", "196")  // red: >80%
+
 	// Picker
 	ColorPickerSelectedBg = ac("254", "237")
 )

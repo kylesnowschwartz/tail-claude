@@ -80,7 +80,15 @@ View() -> viewList/viewDetail/viewPicker
 **Layout constants (`render.go`):**
 - `maxContentWidth = 160` -- content rendering width cap.
 - `maxCollapsedLines = 12` -- collapsed message line limit before truncation.
-- `statusBarHeight = 3` -- rounded border: top + content + bottom.
+- `keybindBarHeight = 3` -- rounded border: top + content + bottom.
+- `infoBarHeight = 1` -- session metadata bar (always visible).
+- `footerHeight()` -- dynamic: `infoBarHeight` + `keybindBarHeight` when `showKeybinds` is true.
+
+**Info bar (`render.go`):**
+- `renderInfoBar()` renders a single-line bar: project name, git branch, permission mode (left), context % (right).
+- Session metadata (`cwd`, `gitBranch`, `permissionMode`) extracted from JSONL via `parser.ExtractSessionMeta`.
+- Context % computed from last AI message's input tokens / 200k context window.
+- `?` key toggles keybind hints in all three views.
 
 **Theme (`theme.go`):**
 - All colors are `lipgloss.AdaptiveColor` with Light/Dark values.
