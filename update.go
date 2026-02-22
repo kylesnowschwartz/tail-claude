@@ -247,12 +247,15 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if hasItems {
 			rows := m.detailVisibleRows()
 			m.detailCursor = len(rows) - 1
+			m.ensureDetailCursorVisible()
+		} else {
+			m.detailScroll = m.detailMaxScroll
 		}
-		m.detailScroll = m.detailMaxScroll
 	case "g":
 		m.detailScroll = 0
 		if hasItems {
 			m.detailCursor = 0
+			m.ensureDetailCursorVisible()
 		}
 	case "ctrl+c":
 		return m, tea.Quit
