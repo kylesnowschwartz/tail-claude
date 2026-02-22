@@ -9,18 +9,26 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "q", "esc", "escape", "backspace":
 		return m, loadPickerSessionsCmd
-	case "j", "down":
+	case "j":
 		if m.cursor < len(m.messages)-1 {
 			m.cursor++
 		}
 		m.computeLineOffsets()
 		m.ensureCursorVisible()
-	case "k", "up":
+	case "k":
 		if m.cursor > 0 {
 			m.cursor--
 		}
 		m.computeLineOffsets()
 		m.ensureCursorVisible()
+	case "down":
+		m.scroll += 3
+		m.clampListScroll()
+	case "up":
+		m.scroll -= 3
+		if m.scroll < 0 {
+			m.scroll = 0
+		}
 	case "G":
 		if len(m.messages) > 0 {
 			m.cursor = len(m.messages) - 1
@@ -171,7 +179,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailCursor = 0
 			m.detailExpanded = make(map[int]bool)
 		}
-	case "j", "down":
+	case "j":
 		if hasItems {
 			if m.detailCursor < len(detailMsg.items)-1 {
 				m.detailCursor++
@@ -180,7 +188,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.detailScroll++
 		}
-	case "k", "up":
+	case "k":
 		if hasItems {
 			if m.detailCursor > 0 {
 				m.detailCursor--
@@ -190,6 +198,13 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.detailScroll > 0 {
 				m.detailScroll--
 			}
+		}
+	case "down":
+		m.detailScroll += 3
+	case "up":
+		m.detailScroll -= 3
+		if m.detailScroll < 0 {
+			m.detailScroll = 0
 		}
 	case "J", "ctrl+d":
 		m.detailScroll += m.height / 2

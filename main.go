@@ -179,8 +179,6 @@ func loadSession(path string) (loadResult, error) {
 	}, nil
 }
 
-
-
 func initialModel(msgs []message, hasDarkBg bool) model {
 	return model{
 		messages:       msgs,
@@ -384,9 +382,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-
-
-
 func (m model) View() string {
 	if m.width == 0 {
 		return "Loading..."
@@ -442,6 +437,7 @@ func (m model) viewList() string {
 	// Status bar
 	status := m.renderStatusBar(
 		"j/k", "nav",
+		"↑/↓", "scroll",
 		"G/g", "jump",
 		"tab", "toggle",
 		"enter", "detail",
@@ -515,13 +511,15 @@ func (m model) viewDetail() string {
 			"j/k", "items",
 			"tab", "toggle",
 			"enter", "open",
-			"J/K", "scroll",
+			"↑/↓", "scroll",
+			"J/K", "page",
 			"G/g", "jump",
 			"q/esc", "back"+scrollInfo,
 		)
 	} else {
 		status = m.renderStatusBar(
 			"j/k", "scroll",
+			"↑/↓", "scroll",
 			"G/g", "jump",
 			"q/esc", "back"+scrollInfo,
 		)
@@ -529,7 +527,6 @@ func (m model) viewDetail() string {
 
 	return output + "\n" + status
 }
-
 
 func main() {
 	// Detect terminal background ONCE, before Bubble Tea takes over.

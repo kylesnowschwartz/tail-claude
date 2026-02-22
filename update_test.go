@@ -48,13 +48,18 @@ func TestUpdateList(t *testing.T) {
 		}
 	})
 
-	t.Run("down key increments cursor", func(t *testing.T) {
+	t.Run("down key scrolls viewport", func(t *testing.T) {
 		m := testModel()
-		m.cursor = 0
+		m.totalRenderedLines = 100
+		m.scroll = 0
 		result, _ := m.updateList(key("down"))
 		got := asModel(result)
-		if got.cursor != 1 {
-			t.Errorf("cursor = %d, want 1", got.cursor)
+		if got.scroll != 3 {
+			t.Errorf("scroll = %d, want 3 (scrolled by 3)", got.scroll)
+		}
+		// cursor must not change
+		if got.cursor != 0 {
+			t.Errorf("cursor = %d, want 0 (unchanged)", got.cursor)
 		}
 	})
 
@@ -78,13 +83,17 @@ func TestUpdateList(t *testing.T) {
 		}
 	})
 
-	t.Run("up key decrements cursor", func(t *testing.T) {
+	t.Run("up key scrolls viewport", func(t *testing.T) {
 		m := testModel()
-		m.cursor = 2
+		m.scroll = 9
 		result, _ := m.updateList(key("up"))
 		got := asModel(result)
-		if got.cursor != 1 {
-			t.Errorf("cursor = %d, want 1", got.cursor)
+		if got.scroll != 6 {
+			t.Errorf("scroll = %d, want 6 (scrolled by 3)", got.scroll)
+		}
+		// cursor must not change
+		if got.cursor != 0 {
+			t.Errorf("cursor = %d, want 0 (unchanged)", got.cursor)
 		}
 	})
 
