@@ -13,13 +13,13 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(m.messages)-1 {
 			m.cursor++
 		}
-		m.computeLineOffsets()
+		m.layoutList()
 		m.ensureCursorVisible()
 	case "k":
 		if m.cursor > 0 {
 			m.cursor--
 		}
-		m.computeLineOffsets()
+		m.layoutList()
 		m.ensureCursorVisible()
 	case "down":
 		m.scroll += 3
@@ -32,12 +32,13 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "G":
 		if len(m.messages) > 0 {
 			m.cursor = len(m.messages) - 1
-			m.computeLineOffsets()
+			m.layoutList()
 			m.ensureCursorVisible()
 		}
 	case "g":
 		m.cursor = 0
 		m.scroll = 0
+		m.layoutList()
 	case "tab":
 		// Toggle expand/collapse for Claude and User messages
 		if m.cursor < len(m.messages) {
@@ -46,7 +47,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.expanded[m.cursor] = !m.expanded[m.cursor]
 			}
 		}
-		m.computeLineOffsets()
+		m.layoutList()
 		m.clampListScroll()
 	case "enter":
 		// Enter detail view for current message
@@ -67,7 +68,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.expanded[i] = true
 			}
 		}
-		m.computeLineOffsets()
+		m.layoutList()
 		m.ensureCursorVisible()
 	case "c":
 		// Collapse all Claude messages
@@ -76,7 +77,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.expanded[i] = false
 			}
 		}
-		m.computeLineOffsets()
+		m.layoutList()
 		m.ensureCursorVisible()
 	case "s":
 		// Open session picker

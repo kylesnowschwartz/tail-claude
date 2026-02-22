@@ -1,7 +1,10 @@
 package main
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
 // scrollModel builds a model with pre-populated scroll state so tests don't
@@ -177,6 +180,61 @@ func TestViewHeights(t *testing.T) {
 		got := m.listViewHeight()
 		if got != 35 {
 			t.Errorf("listViewHeight with indicator = %d, want 35", got)
+		}
+	})
+}
+
+// --- layoutList / viewList agreement --------------------------------------
+
+func TestLayoutListAgreement(t *testing.T) {
+	t.Run("listParts line counts match lineOffsets and messageLines", func(t *testing.T) {
+		msgs := []message{
+			{role: RoleUser, content: "Hello", timestamp: "10:00:00 AM"},
+			{
+				role: RoleClaude, model: "opus4.6", content: "Response here",
+				thinkingCount: 1, toolCallCount: 2, timestamp: "10:00:01 AM",
+				items: []displayItem{
+					{itemType: parser.ItemThinking, text: "thinking"},
+					{itemType: parser.ItemToolCall, toolName: "Read", toolSummary: "file.go"},
+				},
+			},
+			{role: RoleSystem, content: "system note", timestamp: "10:00:02 AM"},
+			{role: RoleCompact, content: "--- context window ---"},
+		}
+		m := initialModel(msgs, true)
+		m.width = 120
+		m.height = 40
+		// Expand the Claude message so it renders items.
+		m.expanded[1] = true
+		m.layoutList()
+
+		if len(m.listParts) != len(msgs) {
+			t.Fatalf("listParts length = %d, want %d", len(m.listParts), len(msgs))
+		}
+
+		// Join listParts the same way viewList does and verify totals.
+		joined := strings.Join(m.listParts, "\n")
+		totalLines := strings.Count(joined, "\n") + 1
+
+		// Each part's line count should match messageLines.
+		for i, part := range m.listParts {
+			got := strings.Count(part, "\n") + 1
+			if got != m.messageLines[i] {
+				t.Errorf("message %d: listParts lines = %d, messageLines = %d", i, got, m.messageLines[i])
+			}
+		}
+
+		// lineOffsets should be cumulative.
+		wantOffset := 0
+		for i := range msgs {
+			if m.lineOffsets[i] != wantOffset {
+				t.Errorf("message %d: lineOffsets = %d, want %d", i, m.lineOffsets[i], wantOffset)
+			}
+			wantOffset += m.messageLines[i]
+		}
+
+		if m.totalRenderedLines != totalLines {
+			t.Errorf("totalRenderedLines = %d, joined line count = %d", m.totalRenderedLines, totalLines)
 		}
 	})
 }

@@ -300,7 +300,7 @@ func TestUpdateDetail(t *testing.T) {
 		m.cursor = 0
 		m.view = viewDetail
 		m.detailCursor = 0
-		m.computeLineOffsets()
+		m.layoutList()
 
 		result, _ := m.updateDetail(key("j"))
 		got := asModel(result)
@@ -316,7 +316,7 @@ func TestUpdateDetail(t *testing.T) {
 		m.cursor = 0
 		m.view = viewDetail
 		m.detailCursor = 2 // at last item (3 items: 0,1,2)
-		m.computeLineOffsets()
+		m.layoutList()
 
 		result, _ := m.updateDetail(key("j"))
 		got := asModel(result)
@@ -347,7 +347,7 @@ func TestUpdateDetail(t *testing.T) {
 		m.cursor = 0
 		m.view = viewDetail
 		m.detailCursor = 2
-		m.computeLineOffsets()
+		m.layoutList()
 
 		result, _ := m.updateDetail(key("k"))
 		got := asModel(result)
@@ -363,7 +363,7 @@ func TestUpdateDetail(t *testing.T) {
 		m.cursor = 0
 		m.view = viewDetail
 		m.detailCursor = 0
-		m.computeLineOffsets()
+		m.layoutList()
 
 		result, _ := m.updateDetail(key("k"))
 		got := asModel(result)
@@ -379,7 +379,7 @@ func TestUpdateDetail(t *testing.T) {
 		m.cursor = 0
 		m.view = viewDetail
 		m.detailCursor = 0
-		m.computeLineOffsets()
+		m.layoutList()
 
 		result, _ := m.updateDetail(key("G"))
 		got := asModel(result)
@@ -396,7 +396,7 @@ func TestUpdateDetail(t *testing.T) {
 		m.view = viewDetail
 		m.detailCursor = 2
 		m.detailScroll = 10
-		m.computeLineOffsets()
+		m.layoutList()
 
 		result, _ := m.updateDetail(key("g"))
 		got := asModel(result)
@@ -417,7 +417,7 @@ func TestUpdateDetail(t *testing.T) {
 		m.detailCursor = 1
 		m.width = 120
 		m.height = 40
-		m.computeLineOffsets()
+		m.layoutList()
 
 		result, _ := m.updateDetail(key("tab"))
 		got := asModel(result)
@@ -465,7 +465,7 @@ func detailModel(msg message) model {
 	m.height = 40
 	m.view = viewDetail
 	m.cursor = 0
-	m.computeLineOffsets()
+	m.layoutList()
 	return m
 }
 

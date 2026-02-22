@@ -14,20 +14,23 @@ func (m model) clampWidth() int {
 	return m.width
 }
 
-// computeLineOffsets calculates the starting line of each message in the
-// rendered output. Must mirror View()'s rendering to keep scroll accurate.
-func (m *model) computeLineOffsets() {
+// layoutList renders every message once, caching both the rendered content
+// (listParts) and the line-offset metadata used by scroll math. viewList
+// assembles its output from listParts, so layout and view always agree.
+func (m *model) layoutList() {
 	if m.width == 0 || len(m.messages) == 0 {
 		return
 	}
 	width := m.clampWidth()
 
+	m.listParts = make([]string, len(m.messages))
 	m.lineOffsets = make([]int, len(m.messages))
 	m.messageLines = make([]int, len(m.messages))
 	currentLine := 0
 	for i, msg := range m.messages {
 		m.lineOffsets[i] = currentLine
-		r := m.renderMessage(msg, width, false, m.expanded[i])
+		r := m.renderMessage(msg, width, i == m.cursor, m.expanded[i])
+		m.listParts[i] = r.content
 		m.messageLines[i] = r.lines
 		currentLine += r.lines
 	}

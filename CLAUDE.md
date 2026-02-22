@@ -68,7 +68,7 @@ View() -> viewList/viewDetail/viewPicker
 - `renderDetailItemExpanded` renders indented content -- markdown for thinking/output/teammate, input+separator+result for tool calls/subagents.
 
 **Scroll computation:**
-- `computeLineOffsets` pre-renders every message to calculate per-message line counts. Used by `ensureCursorVisible` to keep the cursor in the viewport.
+- `layoutList` renders every message once, caching both rendered content (`listParts`) and line-offset metadata. `viewList` assembles from the cache -- one render pass, one source of truth.
 - `computeDetailMaxScroll` renders the detail content once to calculate total lines.
 - `ensureDetailCursorVisible` counts header lines + item rows + expanded content to find the cursor's line position.
 

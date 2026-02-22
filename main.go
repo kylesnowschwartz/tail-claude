@@ -98,10 +98,11 @@ type model struct {
 	width        int
 	height       int
 	scroll       int
-	lineOffsets  []int // starting line of each message in rendered output
-	messageLines []int // number of rendered lines per message
+	listParts    []string // cached per-message rendered content, set by layoutList
+	lineOffsets  []int    // starting line of each message in rendered output
+	messageLines []int    // number of rendered lines per message
 
-	totalRenderedLines int // total lines in list view, updated by computeLineOffsets
+	totalRenderedLines int // total lines in list view, updated by layoutList
 
 	// Detail view state
 	view                viewState
@@ -226,7 +227,7 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.sessionOngoing = result.ongoing
 	m.animFrame = 0
 	m.view = viewList
-	m.computeLineOffsets()
+	m.layoutList()
 
 	w := newSessionWatcher(result.path, result.classified, result.offset)
 	w.hasTeamTasks = result.hasTeamTasks
@@ -280,7 +281,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.computeLineOffsets()
+		m.layoutList()
 		m.ensureCursorVisible()
 		if m.view == viewDetail {
 			m.computeDetailMaxScroll()
@@ -312,7 +313,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Only recompute list layout when we're looking at it.
 		if m.view == viewList {
-			m.computeLineOffsets()
+			m.layoutList()
 			if wasAtEnd {
 				m.ensureCursorVisible()
 			}
@@ -463,17 +464,10 @@ func (m model) View() string {
 }
 
 // viewList renders the message list (main view).
+// Content comes from listParts, populated by layoutList — one render pass,
+// one source of truth for both layout metadata and display content.
 func (m model) viewList() string {
-	width := m.clampWidth()
-
-	var parts []string
-	for i, msg := range m.messages {
-		isSelected := i == m.cursor
-		isExpanded := m.expanded[i]
-		parts = append(parts, m.renderMessage(msg, width, isSelected, isExpanded).content)
-	}
-
-	content := strings.Join(parts, "\n")
+	content := strings.Join(m.listParts, "\n")
 
 	// Simple line-based scroll
 	lines := strings.Split(content, "\n")

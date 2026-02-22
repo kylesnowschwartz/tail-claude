@@ -59,7 +59,7 @@ func testModel() model {
 	m := initialModel(msgs, true) // dark background
 	m.width = 120
 	m.height = 40
-	m.computeLineOffsets()
+	m.layoutList()
 	return m
 }
 
