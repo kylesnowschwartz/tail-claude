@@ -307,10 +307,7 @@ func (m model) pickerItemHeight(index int) int {
 	contentLines := 2 // preview + metadata
 	if m.pickerExpanded[index] {
 		width := m.clampWidth()
-		innerWidth := width - 4 // indent (2) + gutter (2)
-		if innerWidth < 20 {
-			innerWidth = 20
-		}
+		innerWidth := max(width-4, 20) // indent (2) + gutter (2)
 		preview := item.session.FirstMessage
 		if preview != "" {
 			wrapped := wrapText(preview, innerWidth)
@@ -452,10 +449,7 @@ func (m model) renderPickerHeader(category parser.DateCategory, width int) strin
 // Matches claude-devtools: every row has a bottom border, selected gets bg.
 func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width int, itemIndex int) []string {
 	indent := "  "
-	innerWidth := width - 4 // indent (2) + right gutter (2)
-	if innerWidth < 20 {
-		innerWidth = 20
-	}
+	innerWidth := max(width-4, 20) // indent (2) + right gutter (2)
 
 	// --- Line 1: ongoing dot + preview text ---
 	var line1Parts []string
@@ -485,9 +479,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	if s.IsOngoing {
 		previewMaxWidth -= 2
 	}
-	if previewMaxWidth < 20 {
-		previewMaxWidth = 20
-	}
+	previewMaxWidth = max(previewMaxWidth, 20)
 	if lipgloss.Width(preview) > previewMaxWidth {
 		preview = parser.TruncateWord(preview, previewMaxWidth)
 	}
@@ -545,10 +537,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 
 	// Tab-expanded preview.
 	if m.pickerExpanded[itemIndex] && s.FirstMessage != "" {
-		wrapWidth := innerWidth
-		if wrapWidth < 20 {
-			wrapWidth = 20
-		}
+		wrapWidth := max(innerWidth, 20)
 		expandStyle := StyleSecondary
 		wrapped := wrapText(s.FirstMessage, wrapWidth)
 		for _, wl := range wrapped {

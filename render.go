@@ -82,11 +82,7 @@ func indentBlock(text string, indent string) string {
 // contentWidth returns the inner width for card content, given a card width.
 // Subtracts border (2) + padding (4) = 6 and floors at 20.
 func contentWidth(cardWidth int) int {
-	w := cardWidth - 6
-	if w < 20 {
-		w = 20
-	}
-	return w
+	return max(cardWidth-6, 20)
 }
 
 // truncateLines caps content to maxLines and returns the truncated text plus
@@ -281,10 +277,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 	}
 
 	// Render markdown content inside the bubble, then append the hint
-	bubbleInnerWidth := maxBubbleWidth - 6 // subtract border (2) + padding (4)
-	if bubbleInnerWidth < 20 {
-		bubbleInnerWidth = 20
-	}
+	bubbleInnerWidth := max(maxBubbleWidth-6, 20) // subtract border (2) + padding (4)
 	rendered := m.md.renderMarkdown(content, bubbleInnerWidth)
 	if hint != "" {
 		rendered += "\n" + hint
@@ -392,10 +385,7 @@ func (m model) renderDetailItemsContent(msg message, width int) string {
 	rows := buildVisibleRows(msg.items, m.detailExpanded)
 
 	childIndent := "    " // 4 spaces for child rows
-	childWidth := width - 4
-	if childWidth < 20 {
-		childWidth = 20
-	}
+	childWidth := max(width-4, 20)
 
 	var itemLines []string
 	for ri, row := range rows {
@@ -563,10 +553,7 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 // renderDetailItemExpanded renders the expanded content for a detail item.
 // Indented 4 spaces, word-wrapped to width-8.
 func (m model) renderDetailItemExpanded(item displayItem, width int) rendered {
-	wrapWidth := width - 8
-	if wrapWidth < 20 {
-		wrapWidth = 20
-	}
+	wrapWidth := max(width-8, 20)
 	indent := "    "
 
 	var content string

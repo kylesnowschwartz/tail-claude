@@ -106,10 +106,7 @@ func (m *model) computeDetailMaxScroll() {
 func (m *model) detailRowLines(row visibleRow, width int) int {
 	lines := 1 // the row itself
 
-	childWidth := width - 4
-	if childWidth < 20 {
-		childWidth = 20
-	}
+	childWidth := max(width-4, 20)
 
 	if row.childIndex == -1 {
 		// Parent row.
