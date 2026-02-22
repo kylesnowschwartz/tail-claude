@@ -82,54 +82,6 @@ func TestFormatTime(t *testing.T) {
 	}
 }
 
-func TestTruncate(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		maxLen int
-		want   string
-	}{
-		{
-			name:   "shorter than max",
-			input:  "hello",
-			maxLen: 10,
-			want:   "hello",
-		},
-		{
-			name:   "exactly at max",
-			input:  "hello",
-			maxLen: 5,
-			want:   "hello",
-		},
-		{
-			name:   "longer than max truncated with ellipsis",
-			input:  "hello world this is long",
-			maxLen: 10,
-			want:   "hello wor…",
-		},
-		{
-			name:   "newlines collapsed to spaces",
-			input:  "line one\nline two\nline three",
-			maxLen: 50,
-			want:   "line one line two line three",
-		},
-		{
-			name:   "newlines collapsed then truncated",
-			input:  "first\nsecond\nthird",
-			maxLen: 12,
-			want:   "first secon…",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := truncate(tt.input, tt.maxLen)
-			if got != tt.want {
-				t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestModelColor(t *testing.T) {
 	tests := []struct {
 		model string

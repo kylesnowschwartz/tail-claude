@@ -111,7 +111,7 @@ func formatToolResultPreview(lo *parser.LastOutput) string {
 	// Collapse newlines for single-line preview
 	result = strings.ReplaceAll(result, "\n", " ")
 
-	return icon.Render() + " " + nameStyle.Render(lo.ToolName) + " " + resultStyle.Render(truncate(result, 80))
+	return icon.Render() + " " + nameStyle.Render(lo.ToolName) + " " + resultStyle.Render(parser.Truncate(result, 80))
 }
 
 // -- Message rendering --------------------------------------------------------
@@ -502,7 +502,7 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 	var summary string
 	switch item.itemType {
 	case parser.ItemThinking, parser.ItemOutput:
-		summary = truncate(item.text, 40)
+		summary = parser.Truncate(item.text, 40)
 	case parser.ItemToolCall:
 		summary = item.toolSummary
 	case parser.ItemSubagent:
@@ -511,7 +511,7 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 			summary = item.toolSummary
 		}
 	case parser.ItemTeammateMessage:
-		summary = truncate(item.text, 60)
+		summary = parser.Truncate(item.text, 60)
 	}
 	summaryRendered := StyleSecondary.Render(summary)
 

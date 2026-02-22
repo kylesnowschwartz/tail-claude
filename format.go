@@ -104,10 +104,6 @@ func formatDuration(ms int64) string {
 	}
 }
 
-// truncate delegates to parser.Truncate for consistent truncation behavior.
-func truncate(s string, maxLen int) string {
-	return parser.Truncate(s, maxLen)
-}
 
 // hasTeamTaskItems checks if any chunk contains team Task items (Task calls
 // with team_name + name in input). Used to decide whether directory events
