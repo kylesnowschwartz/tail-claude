@@ -12,15 +12,38 @@ import (
 
 // SessionInfo holds metadata about a discovered session file for the picker.
 type SessionInfo struct {
-	Path         string
-	SessionID    string
-	ModTime      time.Time
-	FirstMessage string // first user message text, truncated
-	TurnCount    int    // conversation turns (user messages + their first AI responses)
-	IsOngoing    bool   // AI activity after last ending event
-	TotalTokens  int    // sum of all assistant usage tokens
-	DurationMs   int64  // last timestamp - first timestamp
-	Model        string // model from first real assistant entry
+	Path           string
+	SessionID      string
+	ModTime        time.Time
+	FirstMessage   string // first user message text, truncated
+	TurnCount      int    // conversation turns (user messages + their first AI responses)
+	IsOngoing      bool   // AI activity after last ending event
+	TotalTokens    int    // sum of all assistant usage tokens
+	DurationMs     int64  // last timestamp - first timestamp
+	Model          string // model from first real assistant entry
+	Cwd            string // working directory from session entries
+	GitBranch      string // git branch from session entries
+	PermissionMode string // last permission mode: "default", "acceptEdits", "bypassPermissions", "plan"
+}
+
+// SessionMeta holds session-level metadata extracted from a JSONL file.
+// Unlike SessionInfo (which is for the picker), SessionMeta is designed for
+// the info bar -- just the metadata fields, no picker-specific data.
+type SessionMeta struct {
+	Cwd            string
+	GitBranch      string
+	PermissionMode string
+}
+
+// ExtractSessionMeta returns session-level metadata from a JSONL file.
+// Reads the full file to capture the last permissionMode (mode can change mid-session).
+func ExtractSessionMeta(path string) SessionMeta {
+	m := scanSessionMetadata(path)
+	return SessionMeta{
+		Cwd:            m.cwd,
+		GitBranch:      m.gitBranch,
+		PermissionMode: m.permissionMode,
+	}
 }
 
 // ReadSession reads a JSONL session file and returns the fully processed chunk list.
@@ -259,15 +282,18 @@ func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 		}
 
 		sessions = append(sessions, SessionInfo{
-			Path:         path,
-			SessionID:    strings.TrimSuffix(name, ".jsonl"),
-			ModTime:      info.ModTime(),
-			FirstMessage: meta.firstMsg,
-			TurnCount:    meta.turnCount,
-			IsOngoing:    isOngoing,
-			TotalTokens:  meta.totalTokens,
-			DurationMs:   meta.durationMs,
-			Model:        meta.model,
+			Path:           path,
+			SessionID:      strings.TrimSuffix(name, ".jsonl"),
+			ModTime:        info.ModTime(),
+			FirstMessage:   meta.firstMsg,
+			TurnCount:      meta.turnCount,
+			IsOngoing:      isOngoing,
+			TotalTokens:    meta.totalTokens,
+			DurationMs:     meta.durationMs,
+			Model:          meta.model,
+			Cwd:            meta.cwd,
+			GitBranch:      meta.gitBranch,
+			PermissionMode: meta.permissionMode,
 		})
 	}
 
@@ -280,12 +306,15 @@ func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 
 // sessionMetadata holds all metadata extracted from a single-pass file scan.
 type sessionMetadata struct {
-	firstMsg    string
-	turnCount   int
-	isOngoing   bool
-	totalTokens int
-	durationMs  int64
-	model       string
+	firstMsg       string
+	turnCount      int
+	isOngoing      bool
+	totalTokens    int
+	durationMs     int64
+	model          string
+	cwd            string // first non-empty cwd from any entry
+	gitBranch      string // first non-empty gitBranch from any entry
+	permissionMode string // last non-empty permissionMode (mode can change mid-session)
 }
 
 // scanSessionMetadata extracts all session metadata in a single streaming pass.
@@ -352,6 +381,17 @@ func scanSessionMetadata(path string) sessionMetadata {
 				firstTS = ts
 			}
 			lastTS = ts
+		}
+
+		// --- Session-level metadata (cwd, branch: first seen; mode: last seen) ---
+		if meta.cwd == "" && raw.Cwd != "" {
+			meta.cwd = raw.Cwd
+		}
+		if meta.gitBranch == "" && raw.GitBranch != "" {
+			meta.gitBranch = raw.GitBranch
+		}
+		if raw.PermissionMode != "" {
+			meta.permissionMode = raw.PermissionMode
 		}
 
 		// --- Turn counting (matches isParsedUserChunkMessage + AI pairing) ---
@@ -447,13 +487,16 @@ func scanSessionMetadata(path string) sessionMetadata {
 // It captures toolUseResult as raw JSON because the field can be either a
 // string or an object, and we need the raw value for rejection detection.
 type metadataScanEntry struct {
-	UUID        string          `json:"uuid"`
-	Type        string          `json:"type"`
-	Timestamp   string          `json:"timestamp"`
-	IsSidechain bool            `json:"isSidechain"`
-	IsMeta      bool            `json:"isMeta"`
-	ToolResult  json.RawMessage `json:"toolUseResult"`
-	Message     struct {
+	UUID           string          `json:"uuid"`
+	Type           string          `json:"type"`
+	Timestamp      string          `json:"timestamp"`
+	IsSidechain    bool            `json:"isSidechain"`
+	IsMeta         bool            `json:"isMeta"`
+	Cwd            string          `json:"cwd"`
+	GitBranch      string          `json:"gitBranch"`
+	PermissionMode string          `json:"permissionMode"`
+	ToolResult     json.RawMessage `json:"toolUseResult"`
+	Message        struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 		Model   string          `json:"model"`

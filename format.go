@@ -89,6 +89,56 @@ func formatDuration(ms int64) string {
 }
 
 
+// shortPath abbreviates a working directory path for the info bar.
+// Returns the last path component (project name).
+func shortPath(cwd string) string {
+	if cwd == "" {
+		return ""
+	}
+	// Show last path component as the project name.
+	parts := strings.Split(cwd, "/")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i] != "" {
+			return parts[i]
+		}
+	}
+	return cwd
+}
+
+// shortMode returns a human-readable label for a permission mode.
+func shortMode(mode string) string {
+	switch mode {
+	case "default":
+		return "default"
+	case "acceptEdits":
+		return "auto-edit"
+	case "bypassPermissions":
+		return "yolo"
+	case "plan":
+		return "plan"
+	default:
+		return mode
+	}
+}
+
+// contextPercent returns the context window usage percentage (0-100) based on
+// the last AI message's input tokens. Returns -1 if no usage data is available.
+func contextPercent(msgs []message) int {
+	// All current Claude models share a 200k context window.
+	const contextWindowSize = 200_000
+
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].role == RoleClaude && msgs[i].contextTokens > 0 {
+			pct := msgs[i].contextTokens * 100 / contextWindowSize
+			if pct > 100 {
+				pct = 100
+			}
+			return pct
+		}
+	}
+	return -1
+}
+
 // hasTeamTaskItems checks if any chunk contains team Task items (Task calls
 // with team_name + name in input). Used to decide whether directory events
 // should trigger team session re-discovery.

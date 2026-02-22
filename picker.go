@@ -28,6 +28,7 @@ type loadSessionMsg struct {
 	offset       int64
 	ongoing      bool
 	hasTeamTasks bool
+	meta         parser.SessionMeta
 	err          error
 }
 
@@ -69,6 +70,7 @@ func loadSessionCmd(path string) tea.Cmd {
 			offset:       result.offset,
 			ongoing:      result.ongoing,
 			hasTeamTasks: result.hasTeamTasks,
+			meta:         result.meta,
 		}
 	}
 }
@@ -168,6 +170,9 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, loadSessionCmd(s.Path)
 		}
+	case "?":
+		m.showKeybinds = !m.showKeybinds
+		m.ensurePickerVisible()
 	}
 	return m, nil
 }
@@ -358,24 +363,27 @@ func (m model) viewPicker() string {
 
 	content := header + "\n" + strings.Join(visible, "\n")
 
-	// Pad to fill viewport so status bar stays at bottom.
+	// Pad to fill viewport so footer stays at bottom.
+	// 2 = picker header lines. footerHeight() accounts for info bar + optional keybinds.
+	targetLines := m.height - m.footerHeight()
 	renderedLines := strings.Count(content, "\n") + 1
-	if renderedLines < m.height-2 {
-		content += strings.Repeat("\n", m.height-2-renderedLines)
+	if renderedLines < targetLines {
+		content += strings.Repeat("\n", targetLines-renderedLines)
 	}
 
 	// Scroll position indicator.
 	scrollInfo := m.pickerScrollInfo()
 
-	status := m.renderStatusBar(
+	footer := m.renderFooter(
 		"j/k", "nav",
 		"tab", "preview",
 		"enter", "open",
 		"G/g", "jump",
 		"q/esc", "back"+scrollInfo,
+		"?", "keys",
 	)
 
-	return content + "\n" + status
+	return content + "\n" + footer
 }
 
 // renderPickerItems renders all picker items (headers + sessions) into lines.

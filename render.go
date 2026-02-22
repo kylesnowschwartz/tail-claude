@@ -31,9 +31,12 @@ const maxContentWidth = 120
 // maxCollapsedLines is the maximum content lines shown when a message is collapsed.
 const maxCollapsedLines = 12
 
-// statusBarHeight is the number of rendered lines the status bar occupies.
-// Rounded border: top + content + bottom = 3 lines.
-const statusBarHeight = 3
+// keybindBarHeight is the rendered line count of the keybind hints bar
+// (rounded border: top + content + bottom = 3 lines).
+const keybindBarHeight = 3
+
+// infoBarHeight is the rendered line count of the session info bar (1 line).
+const infoBarHeight = 1
 
 // detailItemTokWidth is the fixed column width for token counts in the detail
 // item row right side. Fits "~9.9k tok" (9 chars); right-aligns smaller values.
@@ -763,16 +766,28 @@ func (m model) activityIndicatorHeight() int {
 	return 0
 }
 
+// -- Footer height ------------------------------------------------------------
+
+// footerHeight returns the total footer line count: info bar (always) +
+// keybind hints (when showKeybinds is true).
+func (m model) footerHeight() int {
+	h := infoBarHeight
+	if m.showKeybinds {
+		h += keybindBarHeight
+	}
+	return h
+}
+
 // -- Viewport height ----------------------------------------------------------
 // Named methods for the three viewport height formulas. Each includes a <= 0
 // guard returning 1 so callers never divide by zero or produce negative slices.
 //
 // The -1 in list view accounts for the blank line between the last message and
-// the status bar area. Picker's -2 accounts for the 2-line header.
+// the footer area. Picker's -2 accounts for the 2-line header.
 
 // listViewHeight returns the visible content lines in the message list view.
 func (m model) listViewHeight() int {
-	h := m.height - statusBarHeight - m.activityIndicatorHeight() - 1
+	h := m.height - m.footerHeight() - m.activityIndicatorHeight() - 1
 	if h <= 0 {
 		return 1
 	}
@@ -781,7 +796,7 @@ func (m model) listViewHeight() int {
 
 // detailViewHeight returns the visible content lines in the detail view.
 func (m model) detailViewHeight() int {
-	h := m.height - statusBarHeight - m.activityIndicatorHeight()
+	h := m.height - m.footerHeight() - m.activityIndicatorHeight()
 	if h <= 0 {
 		return 1
 	}
@@ -790,7 +805,7 @@ func (m model) detailViewHeight() int {
 
 // pickerViewHeight returns the visible content lines in the session picker.
 func (m model) pickerViewHeight() int {
-	h := m.height - 2 - statusBarHeight
+	h := m.height - 2 - m.footerHeight()
 	if h <= 0 {
 		return 1
 	}
@@ -829,6 +844,60 @@ func (m model) renderActivityIndicator(width int) string {
 
 	line := strings.Join(dots, " ")
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, line)
+}
+
+// -- Info bar -----------------------------------------------------------------
+
+// renderInfoBar renders a single-line session metadata bar.
+// Layout: " project  branch  mode              42% ctx"
+func (m model) renderInfoBar() string {
+	sep := " " + IconDot.Render() + " "
+	var left []string
+
+	// Project name from cwd
+	if proj := shortPath(m.sessionCwd); proj != "" {
+		left = append(left, StyleSecondary.Render(proj))
+	}
+
+	// Git branch
+	if m.sessionBranch != "" {
+		left = append(left, StyleDim.Render(m.sessionBranch))
+	}
+
+	// Permission mode
+	if m.sessionMode != "" {
+		left = append(left, StyleMuted.Render(shortMode(m.sessionMode)))
+	}
+
+	// Context usage (right-aligned)
+	var right string
+	if pct := contextPercent(m.messages); pct >= 0 {
+		var color lipgloss.AdaptiveColor
+		switch {
+		case pct > 80:
+			color = ColorContextCrit
+		case pct > 50:
+			color = ColorContextWarn
+		default:
+			color = ColorContextOk
+		}
+		right = lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%d%% ctx", pct))
+	}
+
+	leftStr := strings.Join(left, sep)
+	if right != "" {
+		return spaceBetween(" "+leftStr, right+" ", m.width)
+	}
+	return " " + leftStr
+}
+
+// renderFooter builds the complete footer: info bar + optional keybind hints.
+func (m model) renderFooter(keybindPairs ...string) string {
+	footer := m.renderInfoBar()
+	if m.showKeybinds {
+		footer += "\n" + m.renderStatusBar(keybindPairs...)
+	}
+	return footer
 }
 
 // -- Status bar ---------------------------------------------------------------

@@ -92,6 +92,10 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.scroll < 0 {
 			m.scroll = 0
 		}
+	case "?":
+		m.showKeybinds = !m.showKeybinds
+		m.layoutList()
+		m.clampListScroll()
 	}
 	return m, nil
 }
@@ -256,6 +260,9 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if hasItems {
 			m.detailCursor = 0
 		}
+	case "?":
+		m.showKeybinds = !m.showKeybinds
+		m.computeDetailMaxScroll()
 	case "ctrl+c":
 		return m, tea.Quit
 	}

@@ -115,36 +115,38 @@ func TestEnsureCursorVisible(t *testing.T) {
 // --- view height methods --------------------------------------------------
 
 func TestViewHeights(t *testing.T) {
+	// footerHeight with showKeybinds=true: infoBarHeight(1) + keybindBarHeight(3) = 4
+
 	t.Run("listViewHeight normal", func(t *testing.T) {
-		m := model{height: 40}
-		// 40 - statusBarHeight(3) - activityIndicatorHeight(0) - 1 = 36
+		m := model{height: 40, showKeybinds: true}
+		// 40 - footerHeight(4) - activityIndicatorHeight(0) - 1 = 35
 		got := m.listViewHeight()
-		if got != 36 {
-			t.Errorf("listViewHeight = %d, want 36", got)
+		if got != 35 {
+			t.Errorf("listViewHeight = %d, want 35", got)
 		}
 	})
 
 	t.Run("detailViewHeight normal", func(t *testing.T) {
-		m := model{height: 40}
-		// 40 - 3 - 0 = 37
+		m := model{height: 40, showKeybinds: true}
+		// 40 - 4 - 0 = 36
 		got := m.detailViewHeight()
-		if got != 37 {
-			t.Errorf("detailViewHeight = %d, want 37", got)
+		if got != 36 {
+			t.Errorf("detailViewHeight = %d, want 36", got)
 		}
 	})
 
 	t.Run("pickerViewHeight normal", func(t *testing.T) {
-		m := model{height: 40}
-		// 40 - 2 - 3 = 35
+		m := model{height: 40, showKeybinds: true}
+		// 40 - 2 - 4 = 34
 		got := m.pickerViewHeight()
-		if got != 35 {
-			t.Errorf("pickerViewHeight = %d, want 35", got)
+		if got != 34 {
+			t.Errorf("pickerViewHeight = %d, want 34", got)
 		}
 	})
 
 	t.Run("tiny height — listViewHeight guards against zero/negative", func(t *testing.T) {
-		m := model{height: 3} // exactly statusBarHeight
-		// 3 - 3 - 0 - 1 = -1 → returns 1
+		m := model{height: 4, showKeybinds: true} // exactly footerHeight
+		// 4 - 4 - 0 - 1 = -1 → returns 1
 		got := m.listViewHeight()
 		if got != 1 {
 			t.Errorf("listViewHeight(%d) = %d, want 1 (guard)", m.height, got)
@@ -152,8 +154,8 @@ func TestViewHeights(t *testing.T) {
 	})
 
 	t.Run("tiny height — detailViewHeight guards", func(t *testing.T) {
-		m := model{height: 2}
-		// 2 - 3 = -1 → returns 1
+		m := model{height: 3, showKeybinds: true}
+		// 3 - 4 = -1 → returns 1
 		got := m.detailViewHeight()
 		if got != 1 {
 			t.Errorf("detailViewHeight(%d) = %d, want 1 (guard)", m.height, got)
@@ -161,8 +163,8 @@ func TestViewHeights(t *testing.T) {
 	})
 
 	t.Run("tiny height — pickerViewHeight guards", func(t *testing.T) {
-		m := model{height: 4}
-		// 4 - 2 - 3 = -1 → returns 1
+		m := model{height: 5, showKeybinds: true}
+		// 5 - 2 - 4 = -1 → returns 1
 		got := m.pickerViewHeight()
 		if got != 1 {
 			t.Errorf("pickerViewHeight(%d) = %d, want 1 (guard)", m.height, got)
@@ -172,14 +174,25 @@ func TestViewHeights(t *testing.T) {
 	t.Run("with activity indicator — list view shrinks by 1", func(t *testing.T) {
 		m := model{
 			height:         40,
+			showKeybinds:   true,
 			watching:       true,
 			sessionOngoing: true,
 		}
 		// activityIndicatorHeight returns 1 when watching && ongoing
-		// 40 - 3 - 1 - 1 = 35
+		// 40 - 4 - 1 - 1 = 34
 		got := m.listViewHeight()
-		if got != 35 {
-			t.Errorf("listViewHeight with indicator = %d, want 35", got)
+		if got != 34 {
+			t.Errorf("listViewHeight with indicator = %d, want 34", got)
+		}
+	})
+
+	t.Run("keybinds hidden — footer shrinks to info bar only", func(t *testing.T) {
+		m := model{height: 40, showKeybinds: false}
+		// footerHeight with showKeybinds=false: infoBarHeight(1) = 1
+		// 40 - 1 - 0 - 1 = 38
+		got := m.listViewHeight()
+		if got != 38 {
+			t.Errorf("listViewHeight (keybinds hidden) = %d, want 38", got)
 		}
 	})
 }
