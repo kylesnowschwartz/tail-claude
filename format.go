@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -42,21 +41,6 @@ func modelColor(model string) lipgloss.AdaptiveColor {
 	}
 }
 
-// isTeamTaskItem checks whether a DisplayItem is a team Task call by looking
-// for team_name and name in ToolInput. Thin wrapper matching parser.isTeamTask
-// but takes a pointer to avoid allocation.
-func isTeamTaskItem(it *parser.DisplayItem) bool {
-	if len(it.ToolInput) == 0 {
-		return false
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(it.ToolInput, &fields); err != nil {
-		return false
-	}
-	_, hasTeamName := fields["team_name"]
-	_, hasName := fields["name"]
-	return hasTeamName && hasName
-}
 
 // countOutputItems counts text output items in a display items slice.
 func countOutputItems(items []parser.DisplayItem) int {
@@ -112,7 +96,7 @@ func hasTeamTaskItems(chunks []parser.Chunk) bool {
 	for i := range chunks {
 		for j := range chunks[i].Items {
 			it := &chunks[i].Items[j]
-			if it.Type == parser.ItemSubagent && isTeamTaskItem(it) {
+			if it.Type == parser.ItemSubagent && parser.IsTeamTask(it) {
 				return true
 			}
 		}

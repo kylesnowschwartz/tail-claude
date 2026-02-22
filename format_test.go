@@ -191,9 +191,9 @@ func TestIsTeamTaskItem(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isTeamTaskItem(tt.item)
+			got := parser.IsTeamTask(tt.item)
 			if got != tt.want {
-				t.Errorf("isTeamTaskItem() = %v, want %v", got, tt.want)
+				t.Errorf("parser.IsTeamTask() = %v, want %v", got, tt.want)
 			}
 		})
 	}

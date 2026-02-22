@@ -344,7 +344,7 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 	}
 	var unmatchedTasks []*DisplayItem
 	for _, it := range taskItems {
-		if !matchedTools[it.ToolID] && !isTeamTask(it) {
+		if !matchedTools[it.ToolID] && !IsTeamTask(it) {
 			unmatchedTasks = append(unmatchedTasks, it)
 		}
 	}
@@ -362,16 +362,16 @@ func filterTeamTasks(items []*DisplayItem, matched map[string]bool) []*DisplayIt
 		if matched[it.ToolID] {
 			continue
 		}
-		if isTeamTask(it) {
+		if IsTeamTask(it) {
 			out = append(out, it)
 		}
 	}
 	return out
 }
 
-// isTeamTask checks whether a Task DisplayItem's input contains both
+// IsTeamTask checks whether a Task DisplayItem's input contains both
 // team_name and name keys, marking it as a team member spawn.
-func isTeamTask(it *DisplayItem) bool {
+func IsTeamTask(it *DisplayItem) bool {
 	if len(it.ToolInput) == 0 {
 		return false
 	}
@@ -610,7 +610,7 @@ func scanTeamInfo(chunks []Chunk) []teamMember {
 		}
 		for j := range c.Items {
 			it := &c.Items[j]
-			if it.Type != ItemSubagent || !isTeamTask(it) {
+			if it.Type != ItemSubagent || !IsTeamTask(it) {
 				continue
 			}
 			name, team := extractTeamTaskFields(it)

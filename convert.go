@@ -25,7 +25,7 @@ func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess)
 			var teamSpawns int
 			teammateIDs := make(map[string]bool)
 			for _, it := range c.Items {
-				if it.Type == parser.ItemSubagent && isTeamTaskItem(&it) {
+				if it.Type == parser.ItemSubagent && parser.IsTeamTask(&it) {
 					teamSpawns++
 				}
 				if it.Type == parser.ItemTeammateMessage && it.TeammateID != "" {
