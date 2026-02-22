@@ -29,7 +29,7 @@ func newRendered(content string) rendered {
 const maxContentWidth = 120
 
 // maxCollapsedLines is the maximum content lines shown when a message is collapsed.
-const maxCollapsedLines = 6
+const maxCollapsedLines = 12
 
 // statusBarHeight is the number of rendered lines the status bar occupies.
 // Rounded border: top + content + bottom = 3 lines.
