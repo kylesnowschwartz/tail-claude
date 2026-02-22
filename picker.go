@@ -273,7 +273,8 @@ func (m *model) updatePickerSessionState() tea.Cmd {
 		}
 	}
 
-	if m.pickerHasOngoing {
+	if m.pickerHasOngoing && !m.pickerTickActive {
+		m.pickerTickActive = true
 		return pickerTickCmd()
 	}
 	return nil

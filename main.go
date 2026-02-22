@@ -127,8 +127,9 @@ type model struct {
 	pickerCursor       int
 	pickerScroll       int
 	pickerWatcher      *pickerWatcher
-	pickerAnimFrame    int          // 0 or 1, toggled by tick for ongoing dot blink
-	pickerHasOngoing   bool         // gates tick command
+	pickerAnimFrame    int          // spinner frame counter, incremented each tick
+	pickerHasOngoing   bool         // true when any session is still in progress
+	pickerTickActive   bool         // true while the picker tick loop is running
 	pickerExpanded     map[int]bool // tab-expanded previews in picker
 	pickerUniformModel bool         // all sessions share the same model family
 }
@@ -302,6 +303,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pickerAnimFrame++
 			return m, pickerTickCmd()
 		}
+		m.pickerTickActive = false
 		return m, nil
 
 	case pickerSessionsMsg:
