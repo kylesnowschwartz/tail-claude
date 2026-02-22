@@ -8,13 +8,14 @@ import (
 // need to trigger rendering. Enough messages to have meaningful offsets.
 func scrollModel(totalLines, viewportH int) model {
 	m := model{
-		width:              120,
-		height:             viewportH,
-		totalRenderedLines: totalLines,
-		messages:           make([]message, 3),
-		expanded:           make(map[int]bool),
-		detailExpanded:     make(map[int]bool),
-		md:                 newMdRenderer(true),
+		width:               120,
+		height:              viewportH,
+		totalRenderedLines:  totalLines,
+		messages:            make([]message, 3),
+		expanded:            make(map[int]bool),
+		detailExpanded:      make(map[int]bool),
+		detailChildExpanded: make(map[visibleRowKey]bool),
+		md:                  newMdRenderer(true),
 	}
 	// Three 5-line messages at lines 0, 6, 12 (5 lines + 1 separator each).
 	m.lineOffsets = []int{0, 6, 12}
@@ -89,9 +90,9 @@ func TestEnsureCursorVisible(t *testing.T) {
 		m.scroll = 0
 		m.ensureCursorVisible()
 		// scroll should move so cursorEnd (16) is at the bottom of viewport
-		viewH := m.listViewHeight() // 6
+		viewH := m.listViewHeight()                           // 6
 		cursorEnd := m.lineOffsets[2] + m.messageLines[2] - 1 // 12 + 5 - 1 = 16
-		want := cursorEnd - viewH + 1                          // 16 - 6 + 1 = 11
+		want := cursorEnd - viewH + 1                         // 16 - 6 + 1 = 11
 		if m.scroll != want {
 			t.Errorf("scroll = %d, want %d (scrolled to show cursor)", m.scroll, want)
 		}

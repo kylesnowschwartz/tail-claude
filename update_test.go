@@ -262,7 +262,12 @@ func TestUpdateDetail(t *testing.T) {
 		m := testModel()
 		m.view = viewDetail
 		trace := &message{role: RoleClaude, subagentLabel: "Explore"}
-		saved := &savedDetailState{cursor: 2, scroll: 0, expanded: map[int]bool{1: true}}
+		saved := &savedDetailState{
+			cursor:        2,
+			scroll:        0,
+			expanded:      map[int]bool{1: true},
+			childExpanded: make(map[visibleRowKey]bool),
+		}
 		m.traceMsg = trace
 		m.savedDetail = saved
 
@@ -427,6 +432,212 @@ func TestUpdateDetail(t *testing.T) {
 		_, cmd := m.updateDetail(key("ctrl+c"))
 		if !isQuit(cmd) {
 			t.Errorf("ctrl+c should return Quit command, got %T", cmd)
+		}
+	})
+}
+
+// --- TestUpdateDetail_TreeCursor -------------------------------------------
+
+// claudeMsgWithSubagent builds a claude message with a subagent item that has
+// a linked process with 2 trace items: Input and a Read tool call.
+func claudeMsgWithSubagent() message {
+	proc := &parser.SubagentProcess{
+		Chunks: []parser.Chunk{
+			{Type: parser.UserChunk, UserText: "investigate this"},
+			{Type: parser.AIChunk, Items: []parser.DisplayItem{
+				{Type: parser.ItemToolCall, ToolName: "Read", ToolSummary: "file.go"},
+			}},
+		},
+	}
+	return claudeMsg(func(m *message) {
+		m.items = []displayItem{
+			{itemType: parser.ItemThinking, text: "let me think"},
+			{itemType: parser.ItemSubagent, subagentType: "Explore", subagentProcess: proc},
+			{itemType: parser.ItemOutput, text: "done"},
+		}
+	})
+}
+
+// detailModel builds a model in detail view with one message containing items.
+func detailModel(msg message) model {
+	m := initialModel([]message{msg}, true)
+	m.width = 120
+	m.height = 40
+	m.view = viewDetail
+	m.cursor = 0
+	m.computeLineOffsets()
+	return m
+}
+
+func TestUpdateDetail_TreeCursor(t *testing.T) {
+	t.Run("j navigates into expanded subagent children", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		// Expand the subagent (parent index 1).
+		m.detailExpanded[1] = true
+		m.detailCursor = 1 // on the subagent parent row
+
+		// Visible rows: [Thinking(0), Subagent(1), Input(child0), Read(child1), Output(2)]
+		// j from row 1 should move to row 2 (first child).
+		result, _ := m.updateDetail(key("j"))
+		got := asModel(result)
+		if got.detailCursor != 2 {
+			t.Errorf("detailCursor = %d, want 2 (first child)", got.detailCursor)
+		}
+
+		// Another j moves to row 3 (second child).
+		result2, _ := got.updateDetail(key("j"))
+		got2 := asModel(result2)
+		if got2.detailCursor != 3 {
+			t.Errorf("detailCursor = %d, want 3 (second child)", got2.detailCursor)
+		}
+	})
+
+	t.Run("k navigates back out of children", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		m.detailExpanded[1] = true
+		m.detailCursor = 2 // on first child row
+
+		result, _ := m.updateDetail(key("k"))
+		got := asModel(result)
+		if got.detailCursor != 1 {
+			t.Errorf("detailCursor = %d, want 1 (subagent parent)", got.detailCursor)
+		}
+	})
+
+	t.Run("j from last child moves to next parent", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		m.detailExpanded[1] = true
+		m.detailCursor = 3 // on last child (Read tool call)
+
+		// Next row is Output parent (visible row 4).
+		result, _ := m.updateDetail(key("j"))
+		got := asModel(result)
+		if got.detailCursor != 4 {
+			t.Errorf("detailCursor = %d, want 4 (Output parent)", got.detailCursor)
+		}
+	})
+
+	t.Run("G jumps to last visible row including children", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		m.detailExpanded[1] = true
+		m.detailCursor = 0
+
+		// 5 visible rows total: Thinking, Subagent, Input, Read, Output.
+		result, _ := m.updateDetail(key("G"))
+		got := asModel(result)
+		if got.detailCursor != 4 {
+			t.Errorf("detailCursor = %d, want 4 (last visible row)", got.detailCursor)
+		}
+	})
+
+	t.Run("g jumps to first row", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		m.detailExpanded[1] = true
+		m.detailCursor = 4
+
+		result, _ := m.updateDetail(key("g"))
+		got := asModel(result)
+		if got.detailCursor != 0 {
+			t.Errorf("detailCursor = %d, want 0 (first row)", got.detailCursor)
+		}
+	})
+
+	t.Run("tab on parent subagent expands children", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		m.detailCursor = 1 // subagent row
+
+		result, _ := m.updateDetail(key("tab"))
+		got := asModel(result)
+		if !got.detailExpanded[1] {
+			t.Error("subagent parent should be expanded after tab")
+		}
+
+		// After expansion, visible rows include children.
+		rows := got.detailVisibleRows()
+		if len(rows) != 5 {
+			t.Errorf("visible rows = %d, want 5 (3 parents + 2 children)", len(rows))
+		}
+	})
+
+	t.Run("tab on parent subagent collapses children", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		m.detailExpanded[1] = true
+		m.detailCursor = 1 // subagent row
+
+		result, _ := m.updateDetail(key("tab"))
+		got := asModel(result)
+		if got.detailExpanded[1] {
+			t.Error("subagent parent should be collapsed after second tab")
+		}
+
+		rows := got.detailVisibleRows()
+		if len(rows) != 3 {
+			t.Errorf("visible rows = %d, want 3 (parents only)", len(rows))
+		}
+	})
+
+	t.Run("tab on child toggles child content expansion", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		m.detailExpanded[1] = true
+		m.detailCursor = 3 // second child (Read tool call)
+
+		result, _ := m.updateDetail(key("tab"))
+		got := asModel(result)
+
+		childKey := visibleRowKey{parentIndex: 1, childIndex: 1}
+		if !got.detailChildExpanded[childKey] {
+			t.Error("child content should be expanded after tab")
+		}
+
+		// Tab again collapses.
+		result2, _ := got.updateDetail(key("tab"))
+		got2 := asModel(result2)
+		if got2.detailChildExpanded[childKey] {
+			t.Error("child content should be collapsed after second tab")
+		}
+	})
+
+	t.Run("enter on child toggles expansion same as tab", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		m.detailExpanded[1] = true
+		m.detailCursor = 2 // first child (Input)
+
+		result, _ := m.updateDetail(key("enter"))
+		got := asModel(result)
+
+		childKey := visibleRowKey{parentIndex: 1, childIndex: 0}
+		if !got.detailChildExpanded[childKey] {
+			t.Error("child should be expanded after enter")
+		}
+	})
+
+	t.Run("enter on parent subagent drills into trace", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		m.detailCursor = 1 // subagent row (not expanded, so visible row = parent index)
+
+		result, _ := m.updateDetail(key("enter"))
+		got := asModel(result)
+
+		if got.traceMsg == nil {
+			t.Fatal("traceMsg should be set after enter on subagent")
+		}
+		if got.savedDetail == nil {
+			t.Fatal("savedDetail should be set for drill-down restore")
+		}
+		if got.detailCursor != 0 {
+			t.Errorf("detailCursor = %d, want 0 (reset for trace view)", got.detailCursor)
+		}
+	})
+
+	t.Run("j does not exceed last visible row with children", func(t *testing.T) {
+		m := detailModel(claudeMsgWithSubagent())
+		m.detailExpanded[1] = true
+		m.detailCursor = 4 // last visible row (Output parent)
+
+		result, _ := m.updateDetail(key("j"))
+		got := asModel(result)
+		if got.detailCursor != 4 {
+			t.Errorf("detailCursor = %d, want 4 (clamped at last)", got.detailCursor)
 		}
 	})
 }

@@ -78,10 +78,11 @@ type message struct {
 // savedDetailState preserves parent detail view state when drilling into a
 // subagent trace. Restored on Escape.
 type savedDetailState struct {
-	cursor   int
-	scroll   int
-	expanded map[int]bool
-	label    string // breadcrumb label for the parent view, e.g. "Claude opus4.6"
+	cursor        int
+	scroll        int
+	expanded      map[int]bool
+	childExpanded map[visibleRowKey]bool
+	label         string // breadcrumb label for the parent view, e.g. "Claude opus4.6"
 }
 
 type model struct {
@@ -97,11 +98,12 @@ type model struct {
 	totalRenderedLines int // total lines in list view, updated by computeLineOffsets
 
 	// Detail view state
-	view            viewState
-	detailScroll    int          // scroll offset within the detail view
-	detailMaxScroll int          // cached max scroll for detail view, updated on enter/resize
-	detailCursor    int          // selected item index within the detail message
-	detailExpanded  map[int]bool // which detail items are expanded
+	view                viewState
+	detailScroll        int                    // scroll offset within the detail view
+	detailMaxScroll     int                    // cached max scroll for detail view, updated on enter/resize
+	detailCursor        int                    // selected row in the flat visible-row list
+	detailExpanded      map[int]bool           // which parent items are expanded
+	detailChildExpanded map[visibleRowKey]bool // which child items have expanded content
 
 	// Markdown rendering
 	md *mdRenderer
@@ -179,13 +181,50 @@ func loadSession(path string) (loadResult, error) {
 	}, nil
 }
 
+// switchSession replaces the current session with a new one, stopping the old
+// watcher and starting a new one. Centralizes the state reset that happens when
+// the user picks a different session from the picker.
+func (m model) switchSession(result loadResult) (model, tea.Cmd) {
+	if m.watcher != nil {
+		m.watcher.stop()
+	}
+
+	m.messages = result.messages
+	m.expanded = make(map[int]bool)
+	m.detailExpanded = make(map[int]bool)
+	m.detailChildExpanded = make(map[visibleRowKey]bool)
+	m.cursor = 0
+	m.scroll = 0
+	m.detailCursor = 0
+	m.sessionPath = result.path
+	m.sessionOngoing = result.ongoing
+	m.animFrame = 0
+	m.view = viewList
+	m.computeLineOffsets()
+
+	w := newSessionWatcher(result.path, result.classified, result.offset)
+	w.hasTeamTasks = result.hasTeamTasks
+	go w.run()
+	m.watcher = w
+	m.watching = true
+	m.tailSub = w.sub
+	m.tailErrc = w.errc
+
+	cmds := []tea.Cmd{waitForTailUpdate(m.tailSub), waitForWatcherErr(m.tailErrc)}
+	if m.sessionOngoing {
+		cmds = append(cmds, tickCmd())
+	}
+	return m, tea.Batch(cmds...)
+}
+
 func initialModel(msgs []message, hasDarkBg bool) model {
 	return model{
-		messages:       msgs,
-		expanded:       make(map[int]bool), // all messages start collapsed
-		cursor:         0,
-		detailExpanded: make(map[int]bool),
-		md:             newMdRenderer(hasDarkBg),
+		messages:            msgs,
+		expanded:            make(map[int]bool), // all messages start collapsed
+		cursor:              0,
+		detailExpanded:      make(map[int]bool),
+		detailChildExpanded: make(map[visibleRowKey]bool),
+		md:                  newMdRenderer(hasDarkBg),
 	}
 }
 
@@ -332,35 +371,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil || len(msg.messages) == 0 {
 			return m, nil
 		}
-		// Stop the old watcher before switching sessions.
-		if m.watcher != nil {
-			m.watcher.stop()
-		}
-		m.messages = msg.messages
-		m.expanded = make(map[int]bool)
-		m.detailExpanded = make(map[int]bool)
-		m.cursor = 0
-		m.scroll = 0
-		m.detailCursor = 0
-		m.sessionPath = msg.path
-		m.sessionOngoing = msg.ongoing
-		m.animFrame = 0
-		m.view = viewList
-		m.computeLineOffsets()
-
-		// Start a new watcher for the selected session.
-		w := newSessionWatcher(msg.path, msg.classified, msg.offset)
-		w.hasTeamTasks = msg.hasTeamTasks
-		go w.run()
-		m.watcher = w
-		m.watching = true
-		m.tailSub = w.sub
-		m.tailErrc = w.errc
-		cmds := []tea.Cmd{waitForTailUpdate(m.tailSub), waitForWatcherErr(m.tailErrc)}
-		if m.sessionOngoing {
-			cmds = append(cmds, tickCmd())
-		}
-		return m, tea.Batch(cmds...)
+		return m.switchSession(loadResult{
+			messages:     msg.messages,
+			path:         msg.path,
+			classified:   msg.classified,
+			offset:       msg.offset,
+			ongoing:      msg.ongoing,
+			hasTeamTasks: msg.hasTeamTasks,
+		})
 
 	case tea.KeyMsg:
 		switch m.view {

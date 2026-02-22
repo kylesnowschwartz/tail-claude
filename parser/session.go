@@ -304,6 +304,10 @@ func scanSessionMetadata(path string) sessionMetadata {
 	var commandFallback string
 	previewFound := false
 	linesRead := 0
+	// maxPreviewLines caps how many raw JSONL lines we scan for the session preview.
+	// 200 is generous enough to find the first real user message even in sessions
+	// that start with many system/meta entries, without scanning enormous files.
+	// Ported from claude-devtools' extractFirstUserMessagePreview.
 	const maxPreviewLines = 200
 
 	// Turn counting: user message increments, then first qualifying AI response increments.
@@ -595,7 +599,11 @@ type ongoingUserBlock struct {
 	Text      string `json:"text"`
 }
 
-// isToolUseRejection checks if a raw toolUseResult value equals "User rejected tool use".
+// toolUseRejectedMsg is the exact string Claude Code writes to toolUseResult
+// when a user rejects a tool invocation.
+const toolUseRejectedMsg = "User rejected tool use"
+
+// isToolUseRejection checks if a raw toolUseResult value equals the rejection string.
 func isToolUseRejection(raw json.RawMessage) bool {
 	if len(raw) == 0 {
 		return false
@@ -604,5 +612,5 @@ func isToolUseRejection(raw json.RawMessage) bool {
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return false
 	}
-	return s == "User rejected tool use"
+	return s == toolUseRejectedMsg
 }

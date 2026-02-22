@@ -37,16 +37,16 @@ var (
 	IconDrillDown = StyledIcon{"\uF061", ColorAccent}        // nf-fa-arrow_right
 	IconThinking  = StyledIcon{"", ColorTextDim}            // nf-fa-lightbulb_o
 	IconOutput    = StyledIcon{"󰆂", ColorAccent}             // nf-fa-file_code_o
-	IconToolOk    = StyledIcon{"󰯠", ColorTextDim}
-	IconToolErr   = StyledIcon{"󰯠", ColorError} // nf-fa-times
-	IconSubagent  = StyledIcon{"󱙺", ColorAccent}
-	IconTeammate  = StyledIcon{"󱙺", ColorAccent}         // nf-fa-comment
-	IconSelected  = StyledIcon{"\u2502", ColorAccent}    // box drawing vertical
-	IconToken     = StyledIcon{"", ColorTextDim}        // nf-fae-coins
-	IconClock     = StyledIcon{"\uF017", ColorTextDim}   // nf-fa-clock_o
-	IconDot       = StyledIcon{"\u00B7", ColorTextMuted} // middle dot
-	IconChat      = StyledIcon{"\uF086", ColorTextDim}   // nf-fa-comments (turn count badge)
-	IconLive      = StyledIcon{"\u25CF", ColorOngoing}   // filled circle (for ongoing indicator)
+	IconToolOk    = StyledIcon{"󰯠", ColorTextDim}            // nf-md-tools (same glyph as ToolErr, differentiated by color)
+	IconToolErr   = StyledIcon{"󰯠", ColorError}              // nf-md-tools (same glyph as ToolOk, differentiated by color)
+	IconSubagent  = StyledIcon{"󱙺", ColorAccent}             // nf-cod-hubot (same glyph as Claude/Teammate, differentiated by color)
+	IconTeammate  = StyledIcon{"󱙺", ColorAccent}             // nf-cod-hubot (same glyph as Claude/Subagent, differentiated by color)
+	IconSelected  = StyledIcon{"\u2502", ColorAccent}        // box drawing vertical
+	IconToken     = StyledIcon{"", ColorTextDim}            // nf-fae-coins
+	IconClock     = StyledIcon{"\uF017", ColorTextDim}       // nf-fa-clock_o
+	IconDot       = StyledIcon{"\u00B7", ColorTextMuted}     // middle dot
+	IconChat      = StyledIcon{"\uF086", ColorTextDim}       // nf-fa-comments (turn count badge)
+	IconLive      = StyledIcon{"\u25CF", ColorOngoing}       // filled circle (for ongoing indicator)
 )
 
 // Plain glyphs -- used as raw strings (never styled via StyledIcon).

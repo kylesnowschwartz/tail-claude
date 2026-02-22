@@ -50,26 +50,20 @@ func loadPickerSessionsCmd() tea.Msg {
 }
 
 // loadSessionCmd returns a command that loads a session file into messages.
-// Uses ReadSessionIncremental so the result includes classified messages and
-// offset for handing off to a new watcher.
+// Delegates to loadSession so the parsing pipeline lives in one place.
 func loadSessionCmd(path string) tea.Cmd {
 	return func() tea.Msg {
-		classified, offset, err := parser.ReadSessionIncremental(path, 0)
+		result, err := loadSession(path)
 		if err != nil {
 			return loadSessionMsg{err: err, path: path}
 		}
-		chunks := parser.BuildChunks(classified)
-		subagents, _ := parser.DiscoverSubagents(path)
-		teamSessions, _ := parser.DiscoverTeamSessions(path, chunks)
-		allSubagents := append(subagents, teamSessions...)
-		parser.LinkSubagents(allSubagents, chunks, path)
 		return loadSessionMsg{
-			messages:     chunksToMessages(chunks, allSubagents),
-			path:         path,
-			classified:   classified,
-			offset:       offset,
-			ongoing:      parser.IsOngoing(chunks),
-			hasTeamTasks: len(teamSessions) > 0 || hasTeamTaskItems(chunks),
+			messages:     result.messages,
+			path:         result.path,
+			classified:   result.classified,
+			offset:       result.offset,
+			ongoing:      result.ongoing,
+			hasTeamTasks: result.hasTeamTasks,
 		}
 	}
 }

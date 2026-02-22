@@ -2,7 +2,6 @@ package parser
 
 import (
 	"encoding/json"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -23,13 +22,14 @@ func (UserMsg) classifiedMsg() {}
 
 // ContentBlock represents a single content block from an assistant or tool result message.
 type ContentBlock struct {
-	Type      string          // "thinking", "text", "tool_use", "tool_result"
-	Text      string          // thinking or text content
-	ToolID    string          // tool_use: call ID; tool_result: tool_use_id
-	ToolName  string          // tool_use only
-	ToolInput json.RawMessage // tool_use only
-	Content   string          // tool_result content (stringified)
-	IsError   bool            // tool_result only
+	Type       string          // "thinking", "text", "tool_use", "tool_result", "teammate"
+	Text       string          // thinking or text content
+	ToolID     string          // tool_use: call ID; tool_result: tool_use_id
+	ToolName   string          // tool_use only
+	ToolInput  json.RawMessage // tool_use only
+	Content    string          // tool_result content (stringified)
+	IsError    bool            // tool_result only
+	TeammateID string          // teammate only
 }
 
 // AIMsg represents assistant responses and internal flow messages (tool results).
@@ -121,10 +121,6 @@ var systemOutputTags = []string{
 var emptyStdout = "<local-command-stdout></local-command-stdout>"
 var emptyStderr = "<local-command-stderr></local-command-stderr>"
 
-var teammateMessageRe = regexp.MustCompile(`^<teammate-message\s+teammate_id="[^"]+"`)
-var teammateIDRe = regexp.MustCompile(`teammate_id="([^"]+)"`)
-var teammateContentRe = regexp.MustCompile(`(?s)<teammate-message[^>]*>(.*)</teammate-message>`)
-
 // Classify maps a raw Entry to one of the classified message types.
 // Returns false for noise entries (filtered out) and sidechain messages.
 func Classify(e Entry) (ClassifiedMsg, bool) {
@@ -157,34 +153,14 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 	// Get string content for user-type checks.
 	contentStr := ExtractText(e.Message.Content)
 
-	// Hard noise checks for user-type entries.
+	// Filter user-type noise (hard noise tags, empty output, interruptions).
+	if e.Type == "user" && isUserNoise(e.Message.Content, contentStr) {
+		return nil, false
+	}
+
+	// Teammate messages: classify as TeammateMsg.
 	if e.Type == "user" {
 		trimmed := strings.TrimSpace(contentStr)
-
-		// Wrapped entirely in a hard noise tag.
-		for _, tag := range hardNoiseTags {
-			closeTag := strings.Replace(tag, "<", "</", 1)
-			if strings.HasPrefix(trimmed, tag) && strings.HasSuffix(trimmed, closeTag) {
-				return nil, false
-			}
-		}
-
-		// Empty command output.
-		if trimmed == emptyStdout || trimmed == emptyStderr {
-			return nil, false
-		}
-
-		// Interruption messages.
-		if strings.HasPrefix(trimmed, "[Request interrupted by user") {
-			return nil, false
-		}
-
-		// Array content with single interruption text block.
-		if isArrayInterruption(e.Message.Content) {
-			return nil, false
-		}
-
-		// Teammate messages: classify as TeammateMsg instead of filtering.
 		if teammateMessageRe.MatchString(trimmed) {
 			teammateID := extractTeammateID(trimmed)
 			text := SanitizeContent(extractTeammateContent(trimmed))
@@ -314,10 +290,7 @@ func hasUserContent(raw json.RawMessage, strContent string) bool {
 	}
 
 	// Array content: check for text or image blocks.
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
+	var blocks []textBlockJSON
 	if err := json.Unmarshal(raw, &blocks); err != nil {
 		return false
 	}
@@ -329,13 +302,35 @@ func hasUserContent(raw json.RawMessage, strContent string) bool {
 	return false
 }
 
+// isUserNoise returns true if a user-type entry is noise that should be dropped.
+// Checks: hard noise tag wrapping, empty command output, interruption messages.
+func isUserNoise(raw json.RawMessage, contentStr string) bool {
+	trimmed := strings.TrimSpace(contentStr)
+
+	// Wrapped entirely in a hard noise tag.
+	for _, tag := range hardNoiseTags {
+		closeTag := strings.Replace(tag, "<", "</", 1)
+		if strings.HasPrefix(trimmed, tag) && strings.HasSuffix(trimmed, closeTag) {
+			return true
+		}
+	}
+
+	// Empty command output.
+	if trimmed == emptyStdout || trimmed == emptyStderr {
+		return true
+	}
+
+	// Interruption messages (string content or array with single text block).
+	if strings.HasPrefix(trimmed, "[Request interrupted by user") {
+		return true
+	}
+	return isArrayInterruption(raw)
+}
+
 // isArrayInterruption checks if content is an array with a single text block
 // starting with "[Request interrupted by user".
 func isArrayInterruption(raw json.RawMessage) bool {
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
+	var blocks []textBlockJSON
 	if err := json.Unmarshal(raw, &blocks); err != nil {
 		return false
 	}
@@ -348,14 +343,7 @@ func isArrayInterruption(raw json.RawMessage) bool {
 // extractAssistantDetails pulls thinking count, tool calls, and structured
 // content blocks from an assistant message's content array.
 func extractAssistantDetails(raw json.RawMessage) (int, []ToolCall, []ContentBlock) {
-	var blocks []struct {
-		Type     string          `json:"type"`
-		ID       string          `json:"id"`
-		Name     string          `json:"name"`
-		Text     string          `json:"text"`
-		Thinking string          `json:"thinking"`
-		Input    json.RawMessage `json:"input"`
-	}
+	var blocks []contentBlockJSON
 	if err := json.Unmarshal(raw, &blocks); err != nil {
 		return 0, nil, nil
 	}
@@ -400,12 +388,7 @@ func extractAssistantDetails(raw json.RawMessage) (int, []ToolCall, []ContentBlo
 // extractMetaBlocks parses isMeta user content (tool results) into ContentBlocks.
 // Falls back to a single text block if content isn't a JSON array of tool_result blocks.
 func extractMetaBlocks(raw json.RawMessage, textFallback string) []ContentBlock {
-	var blocks []struct {
-		Type      string          `json:"type"`
-		ToolUseID string          `json:"tool_use_id"`
-		Content   json.RawMessage `json:"content"`
-		IsError   bool            `json:"is_error"`
-	}
+	var blocks []contentBlockJSON
 	if err := json.Unmarshal(raw, &blocks); err != nil {
 		// String content or unparseable -> single text block.
 		return []ContentBlock{{Type: "text", Text: textFallback}}
@@ -452,10 +435,7 @@ func stringifyContent(raw json.RawMessage) string {
 	}
 
 	// Try array of text blocks.
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
+	var blocks []textBlockJSON
 	if err := json.Unmarshal(raw, &blocks); err == nil {
 		var parts []string
 		for _, b := range blocks {

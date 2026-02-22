@@ -184,7 +184,7 @@ func (m model) claudeMessageBody(msg message, isExpanded bool, cw int) string {
 func (m model) claudeExpandedItems(msg message, cw int) string {
 	var rows []string
 	for i, item := range msg.items {
-		rows = append(rows, m.renderDetailItemRow(item, i, -1, cw))
+		rows = append(rows, m.renderDetailItemRow(item, i, -1, false, cw))
 	}
 
 	// Append truncated last output text below the items
@@ -376,35 +376,86 @@ func (m model) renderDetailContent(msg message, width int) rendered {
 // renderDetailItemsContent renders the full content for an AI message with
 // structured items (header + items list + expanded content). Returns the
 // complete string before scrolling is applied.
+//
+// Uses the flat visible-row list so that expanded subagent children are
+// interleaved with parent items and can receive cursor highlights.
 func (m model) renderDetailItemsContent(msg message, width int) string {
 	header := m.renderDetailHeader(msg, width).content
+	rows := buildVisibleRows(msg.items, m.detailExpanded)
+
+	childIndent := "    " // 4 spaces for child rows
+	childWidth := width - 4
+	if childWidth < 20 {
+		childWidth = 20
+	}
 
 	var itemLines []string
-	for i, item := range msg.items {
-		row := m.renderDetailItemRow(item, i, m.detailCursor, width)
+	for ri, row := range rows {
+		if row.childIndex == -1 {
+			// Parent row.
+			isExp := m.detailExpanded[row.parentIndex]
+			rowStr := m.renderDetailItemRow(row.item, ri, m.detailCursor, isExp, width)
 
-		if m.detailExpanded[i] {
-			expanded := m.renderDetailItemExpanded(item, width)
-			if expanded.content != "" {
-				row += "\n" + expanded.content
+			if isExp {
+				if row.item.itemType == parser.ItemSubagent && row.item.subagentProcess != nil {
+					// Trace header separates parent from its children.
+					hdr := renderTraceHeader(row.item)
+					rowStr += "\n" + childIndent + hdr
+				} else {
+					// Non-subagent or subagent without process: inline content.
+					expanded := m.renderDetailItemExpanded(row.item, width)
+					if expanded.content != "" {
+						rowStr += "\n" + expanded.content
+					}
+				}
 			}
+			itemLines = append(itemLines, rowStr)
+		} else {
+			// Child row (indented, belongs to an expanded subagent).
+			key := visibleRowKey{row.parentIndex, row.childIndex}
+			isExp := m.detailChildExpanded[key]
+			childRow := m.renderDetailItemRow(row.item, ri, m.detailCursor, isExp, childWidth)
+
+			rowStr := childIndent + childRow
+			if isExp {
+				expanded := m.renderDetailItemExpanded(row.item, childWidth)
+				if expanded.content != "" {
+					rowStr += "\n" + indentBlock(expanded.content, childIndent)
+				}
+			}
+			itemLines = append(itemLines, rowStr)
 		}
-		itemLines = append(itemLines, row)
 	}
 
 	return header + "\n\n" + strings.Join(itemLines, "\n")
 }
 
+// renderTraceHeader renders the "Execution Trace" separator between a parent
+// subagent row and its child trace items. Not a navigable row.
+func renderTraceHeader(parent displayItem) string {
+	items := buildTraceItems(parent)
+	toolCount, msgCount := traceItemStats(items)
+
+	dimStyle := StyleDim
+	traceIcon := IconSystem.WithColor(ColorTextDim)
+	traceLabel := StylePrimaryBold.Render("Execution Trace")
+	dot := dimStyle.Render(" " + IconDot.Glyph + " ")
+	countStr := dimStyle.Render(fmt.Sprintf("%d tool calls, %d messages", toolCount, msgCount))
+
+	return traceIcon + "  " + traceLabel + dot + countStr
+}
+
 // renderDetailItemRow renders a single item row in the detail view.
 // Format: {cursor} {indicator} {name:<12} {summary}  {tokens} {duration}
-func (m model) renderDetailItemRow(item displayItem, index, cursorIndex, width int) string {
+// isExpanded controls the cursor chevron direction (down vs right).
+func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isExpanded bool, width int) string {
 	// Cursor indicator: drillable items get a distinct arrow, expanded items
 	// get chevron-down, collapsed items get chevron-right.
 	cursor := "  "
 	if index == cursorIndex {
 		if item.subagentProcess != nil {
 			cursor = IconDrillDown.RenderBold() + " "
-		} else if m.detailExpanded[index] {
+		} else if isExpanded {
 			cursor = IconExpanded.RenderBold() + " "
 		} else {
 			cursor = IconCollapsed.Render() + " "
@@ -631,7 +682,7 @@ func (m model) renderSubagentTrace(item displayItem, wrapWidth int, indent strin
 	// All trace items as compact rows (no cursor, no cap).
 	nestedWidth := wrapWidth - 4
 	for i, di := range traceItems {
-		row := m.renderDetailItemRow(di, i, -1, nestedWidth)
+		row := m.renderDetailItemRow(di, i, -1, false, nestedWidth)
 		lines = append(lines, indent+"  "+row)
 	}
 

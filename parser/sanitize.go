@@ -6,12 +6,6 @@ import (
 	"strings"
 )
 
-// Tag constants matching the TypeScript messageTags.ts.
-const (
-	localCommandStdoutTag = "<local-command-stdout>"
-	localCommandStderrTag = "<local-command-stderr>"
-)
-
 // Noise tag patterns - system-generated metadata stripped from display content.
 var noiseTagPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?is)<local-command-caveat>.*?</local-command-caveat>`),
@@ -24,13 +18,6 @@ var commandTagPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?is)<command-message>.*?</command-message>`),
 	regexp.MustCompile(`(?is)<command-args>.*?</command-args>`),
 }
-
-var (
-	reCommandName = regexp.MustCompile(`<command-name>/([^<]+)</command-name>`)
-	reCommandArgs = regexp.MustCompile(`<command-args>([^<]*)</command-args>`)
-	reStdout      = regexp.MustCompile(`(?is)<local-command-stdout>(.*?)</local-command-stdout>`)
-	reStderr      = regexp.MustCompile(`(?is)<local-command-stderr>(.*?)</local-command-stderr>`)
-)
 
 // SanitizeContent removes noise XML tags and converts command tags into
 // a human-readable slash command format for display.
@@ -93,10 +80,7 @@ func ExtractText(content json.RawMessage) string {
 	}
 
 	// Array of content blocks.
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
+	var blocks []textBlockJSON
 	if err := json.Unmarshal(content, &blocks); err != nil {
 		return ""
 	}

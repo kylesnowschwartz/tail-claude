@@ -55,6 +55,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailScroll = 0
 			m.detailCursor = 0
 			m.detailExpanded = make(map[int]bool)
+			m.detailChildExpanded = make(map[visibleRowKey]bool)
 			m.traceMsg = nil
 			m.savedDetail = nil
 			m.computeDetailMaxScroll()
@@ -99,10 +100,44 @@ func (m model) detailHasItems() bool {
 	return len(m.currentDetailMsg().items) > 0
 }
 
+// detailVisibleRows builds the flat visible row list for the current detail message.
+func (m model) detailVisibleRows() []visibleRow {
+	return buildVisibleRows(m.currentDetailMsg().items, m.detailExpanded)
+}
+
+// toggleDetailExpansion preserves the cursor's visual position while toggling
+// expansion state. Shared by tab and enter-on-non-drillable handlers.
+func (m *model) toggleDetailExpansion() {
+	rows := m.detailVisibleRows()
+	if m.detailCursor >= len(rows) {
+		return
+	}
+
+	visualRow := m.detailCursorLine() - m.detailScroll
+	row := rows[m.detailCursor]
+
+	if row.childIndex == -1 {
+		// Parent row: toggle parent expansion.
+		m.detailExpanded[row.parentIndex] = !m.detailExpanded[row.parentIndex]
+	} else {
+		// Child row: toggle child content expansion.
+		key := visibleRowKey{row.parentIndex, row.childIndex}
+		m.detailChildExpanded[key] = !m.detailChildExpanded[key]
+	}
+
+	m.computeDetailMaxScroll()
+	m.detailScroll = m.detailCursorLine() - visualRow
+	if m.detailScroll < 0 {
+		m.detailScroll = 0
+	}
+	if m.detailScroll > m.detailMaxScroll {
+		m.detailScroll = m.detailMaxScroll
+	}
+}
+
 // updateDetail handles key events in the full-screen detail view.
 func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	hasItems := m.detailHasItems()
-
 	detailMsg := m.currentDetailMsg()
 
 	switch msg.String() {
@@ -112,6 +147,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailCursor = m.savedDetail.cursor
 			m.detailScroll = m.savedDetail.scroll
 			m.detailExpanded = m.savedDetail.expanded
+			m.detailChildExpanded = m.savedDetail.childExpanded
 			m.traceMsg = nil
 			m.savedDetail = nil
 			m.computeDetailMaxScroll()
@@ -119,69 +155,63 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.view = viewList
 			m.detailCursor = 0
 			m.detailExpanded = make(map[int]bool)
+			m.detailChildExpanded = make(map[visibleRowKey]bool)
 		}
 	case "tab":
 		if hasItems {
-			visualRow := m.detailCursorLine() - m.detailScroll
-			m.detailExpanded[m.detailCursor] = !m.detailExpanded[m.detailCursor]
-			m.computeDetailMaxScroll()
-			m.detailScroll = m.detailCursorLine() - visualRow
-			if m.detailScroll < 0 {
-				m.detailScroll = 0
-			}
-			if m.detailScroll > m.detailMaxScroll {
-				m.detailScroll = m.detailMaxScroll
-			}
+			m.toggleDetailExpansion()
 		}
 	case "enter":
 		if hasItems {
-			item := detailMsg.items[m.detailCursor]
-			if item.subagentProcess != nil {
-				// Drill into subagent execution trace.
-				synth := buildSubagentMessage(item.subagentProcess, item.subagentType)
-				cloned := make(map[int]bool, len(m.detailExpanded))
-				for k, v := range m.detailExpanded {
-					cloned[k] = v
-				}
-				// Build breadcrumb label from parent message.
-				parentLabel := detailMsg.subagentLabel
-				if parentLabel == "" {
-					parentLabel = "Claude"
-				}
-				if detailMsg.model != "" {
-					parentLabel += " " + detailMsg.model
-				}
-				m.savedDetail = &savedDetailState{
-					cursor:   m.detailCursor,
-					scroll:   m.detailScroll,
-					expanded: cloned,
-					label:    parentLabel,
-				}
-				m.traceMsg = &synth
-				m.detailCursor = 0
-				m.detailScroll = 0
-				m.detailExpanded = make(map[int]bool)
-				m.computeDetailMaxScroll()
-			} else {
-				visualRow := m.detailCursorLine() - m.detailScroll
-				m.detailExpanded[m.detailCursor] = !m.detailExpanded[m.detailCursor]
-				m.computeDetailMaxScroll()
-				m.detailScroll = m.detailCursorLine() - visualRow
-				if m.detailScroll < 0 {
+			rows := m.detailVisibleRows()
+			if m.detailCursor < len(rows) {
+				row := rows[m.detailCursor]
+				// Only parent subagent rows with a linked process drill in.
+				if row.childIndex == -1 && row.item.subagentProcess != nil {
+					synth := buildSubagentMessage(row.item.subagentProcess, row.item.subagentType)
+					clonedExp := make(map[int]bool, len(m.detailExpanded))
+					for k, v := range m.detailExpanded {
+						clonedExp[k] = v
+					}
+					clonedChild := make(map[visibleRowKey]bool, len(m.detailChildExpanded))
+					for k, v := range m.detailChildExpanded {
+						clonedChild[k] = v
+					}
+					parentLabel := detailMsg.subagentLabel
+					if parentLabel == "" {
+						parentLabel = "Claude"
+					}
+					if detailMsg.model != "" {
+						parentLabel += " " + detailMsg.model
+					}
+					m.savedDetail = &savedDetailState{
+						cursor:        m.detailCursor,
+						scroll:        m.detailScroll,
+						expanded:      clonedExp,
+						childExpanded: clonedChild,
+						label:         parentLabel,
+					}
+					m.traceMsg = &synth
+					m.detailCursor = 0
 					m.detailScroll = 0
-				}
-				if m.detailScroll > m.detailMaxScroll {
-					m.detailScroll = m.detailMaxScroll
+					m.detailExpanded = make(map[int]bool)
+					m.detailChildExpanded = make(map[visibleRowKey]bool)
+					m.computeDetailMaxScroll()
+				} else {
+					// All other rows: toggle expansion (same as tab).
+					m.toggleDetailExpansion()
 				}
 			}
 		} else {
 			m.view = viewList
 			m.detailCursor = 0
 			m.detailExpanded = make(map[int]bool)
+			m.detailChildExpanded = make(map[visibleRowKey]bool)
 		}
 	case "j":
 		if hasItems {
-			if m.detailCursor < len(detailMsg.items)-1 {
+			rows := m.detailVisibleRows()
+			if m.detailCursor < len(rows)-1 {
 				m.detailCursor++
 			}
 			m.ensureDetailCursorVisible()
@@ -215,7 +245,8 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "G":
 		if hasItems {
-			m.detailCursor = len(detailMsg.items) - 1
+			rows := m.detailVisibleRows()
+			m.detailCursor = len(rows) - 1
 		}
 		m.detailScroll = m.detailMaxScroll
 	case "g":

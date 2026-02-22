@@ -10,7 +10,7 @@ import (
 type DisplayItemType int
 
 const (
-	ItemThinking        DisplayItemType = iota
+	ItemThinking DisplayItemType = iota
 	ItemOutput
 	ItemToolCall
 	ItemSubagent        // Task tool spawned subagent
@@ -114,9 +114,9 @@ func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 				Timestamp: m.Timestamp,
 				IsMeta:    true,
 				Blocks: []ContentBlock{{
-					Type:   "teammate",
-					Text:   m.Text,
-					ToolID: m.TeammateID,
+					Type:       "teammate",
+					Text:       m.Text,
+					TeammateID: m.TeammateID,
 				}},
 			})
 		case CompactMsg:
@@ -257,7 +257,7 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 					items = append(items, DisplayItem{
 						Type:       ItemTeammateMessage,
 						Text:       b.Text,
-						TeammateID: b.ToolID, // teammate_id stored in ToolID field
+						TeammateID: b.TeammateID,
 						Timestamp:  m.Timestamp,
 						TokenCount: len(b.Text) / 4,
 					})
@@ -305,10 +305,12 @@ func extractSubagentInfo(input json.RawMessage) (subagentType, description strin
 	if err := json.Unmarshal(input, &fields); err != nil {
 		return "", ""
 	}
+	// Inner unmarshal errors are intentionally ignored — these are optional string
+	// fields and "" is the correct default when absent or non-string.
 	if raw, ok := fields["subagent_type"]; ok {
 		json.Unmarshal(raw, &subagentType)
 	}
-	// Try "description" first, then "prompt" as fallback
+	// Try "description" first, then "prompt" as fallback.
 	if raw, ok := fields["description"]; ok {
 		json.Unmarshal(raw, &description)
 	}

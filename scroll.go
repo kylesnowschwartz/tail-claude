@@ -1,6 +1,10 @@
 package main
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/kylesnowschwartz/tail-claude/parser"
+)
 
 // computeLineOffsets calculates the starting line of each message in the
 // rendered output. Must mirror View()'s rendering to keep scroll accurate.
@@ -95,9 +99,45 @@ func (m *model) computeDetailMaxScroll() {
 	}
 }
 
+// detailRowLines returns the number of rendered lines a single visible row
+// occupies, including any expanded content or trace header below it.
+func (m *model) detailRowLines(row visibleRow, width int) int {
+	lines := 1 // the row itself
+
+	childWidth := width - 4
+	if childWidth < 20 {
+		childWidth = 20
+	}
+
+	if row.childIndex == -1 {
+		// Parent row.
+		if m.detailExpanded[row.parentIndex] {
+			if row.item.itemType == parser.ItemSubagent && row.item.subagentProcess != nil {
+				lines++ // trace header line
+			} else {
+				expanded := m.renderDetailItemExpanded(row.item, width)
+				if expanded.content != "" {
+					lines += expanded.lines
+				}
+			}
+		}
+	} else {
+		// Child row.
+		key := visibleRowKey{row.parentIndex, row.childIndex}
+		if m.detailChildExpanded[key] {
+			expanded := m.renderDetailItemExpanded(row.item, childWidth)
+			if expanded.content != "" {
+				lines += expanded.lines
+			}
+		}
+	}
+
+	return lines
+}
+
 // detailCursorLine returns the absolute line offset of the current detail
-// cursor item. Counts header lines + item rows + expanded content lines for
-// all items before the cursor.
+// cursor row. Iterates visible rows, counting each row's lines (including
+// expanded content and trace headers) for all rows before the cursor.
 func (m *model) detailCursorLine() int {
 	msg := m.currentDetailMsg()
 	if len(msg.items) == 0 {
@@ -113,20 +153,18 @@ func (m *model) detailCursorLine() int {
 	header := m.renderDetailHeader(msg, width)
 	cursorLine := header.lines + 1 // +1 for blank line separator from "\n\n"
 
-	// Count lines for items before the cursor
-	for i := 0; i < m.detailCursor && i < len(msg.items); i++ {
-		cursorLine++ // the item row itself
-		if m.detailExpanded[i] {
-			expanded := m.renderDetailItemExpanded(msg.items[i], width)
-			cursorLine += expanded.lines
-		}
+	rows := buildVisibleRows(msg.items, m.detailExpanded)
+
+	// Count lines for rows before the cursor.
+	for i := 0; i < m.detailCursor && i < len(rows); i++ {
+		cursorLine += m.detailRowLines(rows[i], width)
 	}
 	return cursorLine
 }
 
 // ensureDetailCursorVisible adjusts detailScroll so the current detail cursor
-// item is within the visible viewport. Uses detailCursorLine to find the
-// cursor's absolute line position, then scrolls to keep the full item
+// row is within the visible viewport. Uses detailCursorLine to find the
+// cursor's absolute line position, then scrolls to keep the full row
 // (including expanded content) visible.
 func (m *model) ensureDetailCursorVisible() {
 	if m.width == 0 || m.height == 0 {
@@ -144,11 +182,11 @@ func (m *model) ensureDetailCursorVisible() {
 
 	cursorLine := m.detailCursorLine()
 
-	// Count lines for the cursor item itself (row + expanded content)
-	cursorEnd := cursorLine // the row line
-	if m.detailCursor < len(msg.items) && m.detailExpanded[m.detailCursor] {
-		expanded := m.renderDetailItemExpanded(msg.items[m.detailCursor], width)
-		cursorEnd += expanded.lines
+	// Count lines for the cursor row itself (row + expanded content).
+	cursorEnd := cursorLine
+	rows := buildVisibleRows(msg.items, m.detailExpanded)
+	if m.detailCursor < len(rows) {
+		cursorEnd += m.detailRowLines(rows[m.detailCursor], width) - 1
 	}
 
 	viewHeight := m.detailViewHeight()
