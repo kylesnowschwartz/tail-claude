@@ -866,28 +866,33 @@ func (m model) renderActivityIndicator(width int) string {
 
 // -- Info bar -----------------------------------------------------------------
 
-// renderModePill renders the permission mode as a colored border pill (│ label │).
-// Border and text use the mode color; no background fill.
+// renderModePill renders the permission mode as a single-line rounded pill using
+// Nerd Font powerline half-circle glyphs as caps.
+//
+//	GlyphPillLeft + [bg-colored " label "] + GlyphPillRight
+//
+// The cap glyphs share the pill foreground color; the center fill carries the
+// background. Together they create a seamless rounded pill on one line.
 // bypassPermissions -> red, acceptEdits -> purple, plan -> green, default -> plain muted text.
 func renderModePill(mode string) string {
 	label := shortMode(mode)
-	var color lipgloss.AdaptiveColor
+	var bg lipgloss.AdaptiveColor
 	switch mode {
 	case "bypassPermissions":
-		color = ColorPillBypass
+		bg = ColorPillBypass
 	case "acceptEdits":
-		color = ColorPillAcceptEdits
+		bg = ColorPillAcceptEdits
 	case "plan":
-		color = ColorPillPlan
+		bg = ColorPillPlan
 	default:
 		return StyleMuted.Render(label)
 	}
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, true, false, true).
-		BorderForeground(color).
-		Foreground(color).
-		Padding(0, 1).
-		Render(label)
+	fg := lipgloss.AdaptiveColor{Light: "15", Dark: "15"} // white pill text
+	capStyle := lipgloss.NewStyle().Foreground(bg)
+	midStyle := lipgloss.NewStyle().Background(bg).Foreground(fg)
+	return capStyle.Render(GlyphPillLeft) +
+		midStyle.Render(" "+label+" ") +
+		capStyle.Render(GlyphPillRight)
 }
 
 // renderInfoBar renders a single-line session metadata bar.

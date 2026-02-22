@@ -50,6 +50,8 @@ var (
 
 // Plain glyphs -- used as raw strings (never styled via StyledIcon).
 const (
-	GlyphHRule    = "\u2500" // box drawing horizontal (compact separators)
-	GlyphBeadFull = "\u25CF" // black circle (activity indicator bead, bright)
+	GlyphHRule     = "\u2500" // box drawing horizontal (compact separators)
+	GlyphBeadFull  = "\u25CF" // black circle (activity indicator bead, bright)
+	GlyphPillLeft  = "\uE0B6" // nf-ple-left_half_circle_thick  (rounded left pill cap)
+	GlyphPillRight = "\uE0B4" // nf-ple-right_half_circle_thick (rounded right pill cap)
 )
