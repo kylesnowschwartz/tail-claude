@@ -47,6 +47,18 @@ func tickCmd() tea.Cmd {
 	})
 }
 
+// gitDirtyTickMsg triggers a periodic check of the git working-tree state.
+type gitDirtyTickMsg struct{}
+
+// gitDirtyTickCmd schedules a gitDirtyTickMsg every 3 seconds.
+// This is independent of the JSONL watcher so file edits are detected
+// even when no new session entries are written.
+func gitDirtyTickCmd() tea.Cmd {
+	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+		return gitDirtyTickMsg{}
+	})
+}
+
 // displayItem is a structured element within an AI message's detail view.
 // Mirrors parser.DisplayItem but with pre-formatted fields for rendering.
 type displayItem struct {
@@ -131,13 +143,13 @@ type model struct {
 	savedDetail *savedDetailState // parent detail state to restore on drill-back
 
 	// Session metadata (extracted once on load, displayed in info bar)
-	sessionCwd   string
-	sessionMode  string
+	sessionCwd  string
+	sessionMode string
 
 	// Live git context — based on where tail-claude is invoked from (os.Getwd),
 	// not the session's cwd. This correctly reflects worktrees and the user's
 	// actual current branch, rather than historical data from the JSONL.
-	gitCwd    string
+	gitCwd        string
 	sessionBranch string // current branch at gitCwd
 	sessionDirty  bool   // true when gitCwd working tree has uncommitted changes
 
@@ -296,6 +308,11 @@ func (m model) Init() tea.Cmd {
 		cmds = append(cmds, loadPickerSessionsCmd(m.sessionPath))
 	}
 
+	// Poll git dirty state every 3 seconds regardless of JSONL activity.
+	if m.gitCwd != "" {
+		cmds = append(cmds, gitDirtyTickCmd())
+	}
+
 	return tea.Batch(cmds...)
 }
 
@@ -317,6 +334,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tickCmd()
 		}
 		return m, nil
+
+	case gitDirtyTickMsg:
+		m.sessionDirty = checkGitDirty(m.gitCwd)
+		return m, gitDirtyTickCmd()
 
 	case tailUpdateMsg:
 		// Auto-follow only when the user is in the list view AND the cursor
