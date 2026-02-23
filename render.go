@@ -586,7 +586,16 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 	}
 	var rightSide string
 	if tokStr != "" || durStr != "" {
-		rightSide = StyleDim.Render(fmt.Sprintf("%*s  %-*s", detailItemTokWidth, tokStr, detailItemDurWidth, durStr))
+		tokPart := StyleDim.Render(fmt.Sprintf("%*s", detailItemTokWidth, tokStr))
+		durPart := StyleDim.Render(fmt.Sprintf("%-*s", detailItemDurWidth, durStr))
+		// When both present, prefix duration with a green dot separator.
+		// The dot + space adds 2 visible chars; pad the else branch to match.
+		if tokStr != "" && durStr != "" {
+			dot := lipgloss.NewStyle().Foreground(ColorOngoing).Render(IconDot.Glyph)
+			rightSide = tokPart + "  " + dot + " " + durPart
+		} else {
+			rightSide = tokPart + "    " + durPart
+		}
 	}
 
 	var left string
