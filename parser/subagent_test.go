@@ -2,7 +2,6 @@ package parser_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -247,12 +246,12 @@ func makeTeamTaskChunk(toolID, subagentType, desc, teamName, memberName string) 
 // contains a <teammate-message summary="..."> tag, matching real JSONL format.
 // Phase 2 matches by comparing this summary to the Task call's SubagentDesc.
 func makeTeamSubagentWithSummary(id string, startTime time.Time, summary string) parser.SubagentProcess {
-	userText := fmt.Sprintf(`<teammate-message teammate_id="leader" summary="%s" color="#ff0000">Do the thing</teammate-message>`, summary)
 	return parser.SubagentProcess{
-		ID:        id,
-		StartTime: startTime,
+		ID:          id,
+		StartTime:   startTime,
+		TeamSummary: summary,
 		Chunks: []parser.Chunk{
-			{Type: parser.UserChunk, Timestamp: startTime, UserText: userText},
+			{Type: parser.AIChunk, Timestamp: startTime, Model: "claude-haiku-4-5"},
 			{Type: parser.AIChunk, Timestamp: startTime.Add(time.Second), Model: "claude-haiku-4-5"},
 		},
 	}
@@ -576,68 +575,15 @@ func TestLinkSubagents_TeamEarliestWins(t *testing.T) {
 	}
 }
 
-// --- extractTeamMessageSummary tests ---
-
-func TestExtractTeamMessageSummary(t *testing.T) {
-	tests := []struct {
-		name   string
-		chunks []parser.Chunk
-		want   string
-	}{
-		{
-			name: "extracts summary from teammate-message tag",
-			chunks: []parser.Chunk{
-				{Type: parser.UserChunk, UserText: `<teammate-message teammate_id="leader" summary="Implement feature" color="#ff0000">Do stuff</teammate-message>`},
-			},
-			want: "Implement feature",
-		},
-		{
-			name: "no teammate-message tag",
-			chunks: []parser.Chunk{
-				{Type: parser.UserChunk, UserText: "Just a regular user message"},
-			},
-			want: "",
-		},
-		{
-			name: "teammate-message without summary attribute",
-			chunks: []parser.Chunk{
-				{Type: parser.UserChunk, UserText: `<teammate-message teammate_id="leader" color="#ff0000">Do stuff</teammate-message>`},
-			},
-			want: "",
-		},
-		{
-			name:   "empty chunks",
-			chunks: nil,
-			want:   "",
-		},
-		{
-			name: "only AI chunks, no user chunk",
-			chunks: []parser.Chunk{
-				{Type: parser.AIChunk, Model: "claude-haiku-4-5"},
-			},
-			want: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parser.ExtractTeamMessageSummary(tt.chunks)
-			if got != tt.want {
-				t.Errorf("ExtractTeamMessageSummary() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestLinkSubagents_TeamContinuationFile(t *testing.T) {
-	// Continuation files have <teammate-message> but no summary attribute.
-	// They should NOT false-match to a team Task call.
+	// Continuation files have no summary attribute in their teammate-message tag.
+	// readSubagentSession sets TeamSummary="" for these. They should NOT match.
 	procs := []parser.SubagentProcess{
 		{
-			ID:        "continuation-1",
-			StartTime: time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC),
+			ID:          "continuation-1",
+			StartTime:   time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC),
+			TeamSummary: "", // continuation — no summary attribute
 			Chunks: []parser.Chunk{
-				{Type: parser.UserChunk, UserText: `<teammate-message teammate_id="leader" color="#ff0000">Continue working</teammate-message>`},
 				{Type: parser.AIChunk, Model: "claude-haiku-4-5"},
 			},
 		},
@@ -655,6 +601,116 @@ func TestLinkSubagents_TeamContinuationFile(t *testing.T) {
 	// Should remain unmatched -- no summary to compare.
 	if procs[0].ParentTaskID != "" {
 		t.Errorf("continuation.ParentTaskID = %q, want empty", procs[0].ParentTaskID)
+	}
+}
+
+// --- Integration test: full pipeline from JSONL fixtures ---
+
+func TestTeamLinkingIntegration(t *testing.T) {
+	// Exercises the full pipeline from JSONL on disk through
+	// DiscoverSubagents -> ReadSession -> BuildChunks -> LinkSubagents.
+	//
+	// The fixture has 3 team Task calls in the parent with team-style
+	// agent_ids ("name@team") that can't match by UUID, forcing Phase 2
+	// (summary matching). A 4th continuation file has no summary attribute
+	// and must NOT match.
+	//
+	// This test would have failed with the original bug where
+	// ExtractTeamMessageSummary operated on chunk text (post-Classify)
+	// instead of raw entry content (pre-Classify).
+	parentPath := filepath.Join("testdata", "team-parent.jsonl")
+
+	// Step 1: Discover subagents — exercises readSubagentSession which
+	// extracts TeamSummary from raw entry content before Classify strips it.
+	procs, err := parser.DiscoverSubagents(parentPath)
+	if err != nil {
+		t.Fatalf("DiscoverSubagents: %v", err)
+	}
+
+	// 4 agent files, all valid (no warmup/compact/empty).
+	if len(procs) != 4 {
+		t.Fatalf("got %d subagents, want 4", len(procs))
+	}
+
+	// Verify team summaries were extracted from raw content.
+	summaryByID := make(map[string]string, len(procs))
+	for _, p := range procs {
+		summaryByID[p.ID] = p.TeamSummary
+	}
+	wantSummaries := map[string]string{
+		"team-impl-001":      "Implement auth module",
+		"team-test-002":      "Write integration tests",
+		"team-research-003":  "Research API docs",
+		"team-impl-001-cont": "", // continuation — no summary attribute
+	}
+	for id, want := range wantSummaries {
+		got := summaryByID[id]
+		if got != want {
+			t.Errorf("TeamSummary[%s] = %q, want %q", id, got, want)
+		}
+	}
+
+	// Step 2: Parse the parent session through the full pipeline.
+	parentChunks, err := parser.ReadSession(parentPath)
+	if err != nil {
+		t.Fatalf("ReadSession: %v", err)
+	}
+
+	// Parent should have: 1 UserChunk + 3 AIChunks (each with a Task tool_use + tool_result).
+	// Count Task items across chunks.
+	var taskCount int
+	for _, c := range parentChunks {
+		for _, it := range c.Items {
+			if it.Type == parser.ItemSubagent {
+				taskCount++
+			}
+		}
+	}
+	if taskCount != 3 {
+		t.Fatalf("got %d Task items in parent chunks, want 3", taskCount)
+	}
+
+	// Step 3: Link subagents to parent Task calls.
+	parser.LinkSubagents(procs, parentChunks, parentPath)
+
+	// Build lookup for assertions.
+	procByID := make(map[string]parser.SubagentProcess, len(procs))
+	for _, p := range procs {
+		procByID[p.ID] = p
+	}
+
+	// Phase 1 should fail for all — agent_ids are "name@team", not file UUIDs.
+	// Phase 2 should match the 3 agents with summaries.
+	tests := []struct {
+		id         string
+		wantTaskID string
+		wantDesc   string
+		wantType   string
+		wantLinked bool
+	}{
+		{"team-impl-001", "task-1", "Implement auth module", "general-purpose", true},
+		{"team-test-002", "task-2", "Write integration tests", "sc-test-runner", true},
+		{"team-research-003", "task-3", "Research API docs", "Explore", true},
+		{"team-impl-001-cont", "", "", "", false}, // continuation: no summary, no match
+	}
+
+	for _, tt := range tests {
+		p := procByID[tt.id]
+		if tt.wantLinked {
+			if p.ParentTaskID != tt.wantTaskID {
+				t.Errorf("%s: ParentTaskID = %q, want %q", tt.id, p.ParentTaskID, tt.wantTaskID)
+			}
+			if p.Description != tt.wantDesc {
+				t.Errorf("%s: Description = %q, want %q", tt.id, p.Description, tt.wantDesc)
+			}
+			if p.SubagentType != tt.wantType {
+				t.Errorf("%s: SubagentType = %q, want %q", tt.id, p.SubagentType, tt.wantType)
+			}
+		} else {
+			if p.ParentTaskID != "" {
+				t.Errorf("%s: ParentTaskID = %q, want empty (should not match)", tt.id, p.ParentTaskID)
+			}
+		}
 	}
 }
 

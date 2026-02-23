@@ -24,6 +24,7 @@ type SubagentProcess struct {
 	Description  string
 	SubagentType string
 	ParentTaskID string // tool_use_id of spawning Task call
+	TeamSummary  string // summary attr from first <teammate-message> (team agents only)
 }
 
 // DiscoverSubagents finds and parses subagent files for a session.
@@ -87,7 +88,7 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 		// Subagent entries all have isSidechain=true (they run in the
 		// parent's sidechain context), but within the subagent file
 		// they're the main conversation.
-		chunks, err := readSubagentSession(filePath)
+		chunks, teamSummary, err := readSubagentSession(filePath)
 		if err != nil || len(chunks) == 0 {
 			continue
 		}
@@ -96,13 +97,14 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 		usage := aggregateUsage(chunks)
 
 		procs = append(procs, SubagentProcess{
-			ID:         agentID,
-			FilePath:   filePath,
-			Chunks:     chunks,
-			StartTime:  startTime,
-			EndTime:    endTime,
-			DurationMs: durationMs,
-			Usage:      usage,
+			ID:          agentID,
+			FilePath:    filePath,
+			Chunks:      chunks,
+			StartTime:   startTime,
+			EndTime:     endTime,
+			DurationMs:  durationMs,
+			Usage:       usage,
+			TeamSummary: teamSummary,
 		})
 	}
 
@@ -182,14 +184,17 @@ func chunkTiming(chunks []Chunk) (start, end time.Time, durationMs int64) {
 	return
 }
 
-// readSubagentSession reads a subagent JSONL file and returns chunks.
+// readSubagentSession reads a subagent JSONL file and returns chunks plus
+// the team summary (if any). The summary is extracted from the raw entry
+// content before Classify strips the XML tag attributes.
+//
 // Unlike ReadSession, it ignores the isSidechain flag since all entries
 // in subagent files are marked isSidechain=true but represent the
 // subagent's own main conversation.
-func readSubagentSession(path string) ([]Chunk, error) {
+func readSubagentSession(path string) ([]Chunk, string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer f.Close()
 
@@ -197,6 +202,7 @@ func readSubagentSession(path string) ([]Chunk, error) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
 	var msgs []ClassifiedMsg
+	var teamSummary string
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -206,6 +212,18 @@ func readSubagentSession(path string) ([]Chunk, error) {
 		if !ok {
 			continue
 		}
+
+		// Extract team summary from the first user entry's <teammate-message>
+		// tag before Classify strips the XML attributes.
+		if teamSummary == "" && entry.Type == "user" {
+			var contentStr string
+			if json.Unmarshal(entry.Message.Content, &contentStr) == nil {
+				if m := teammateSummaryRe.FindStringSubmatch(contentStr); len(m) > 1 {
+					teamSummary = m[1]
+				}
+			}
+		}
+
 		// Clear sidechain flag so Classify doesn't filter these out.
 		entry.IsSidechain = false
 		msg, ok := Classify(entry)
@@ -215,10 +233,10 @@ func readSubagentSession(path string) ([]Chunk, error) {
 		msgs = append(msgs, msg)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return BuildChunks(msgs), nil
+	return BuildChunks(msgs), teamSummary, nil
 }
 
 // aggregateUsage returns the last AI chunk's usage snapshot. Each chunk already
@@ -305,24 +323,13 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 	// in the subagent's first <teammate-message> tag.
 	teamTaskItems := filterTeamTasks(taskItems, matchedTools)
 	if len(teamTaskItems) > 0 {
-		// Build summary map for unmatched processes.
-		summaries := make(map[string]string) // process ID -> summary
-		for i := range processes {
-			if matchedProcs[processes[i].ID] {
-				continue
-			}
-			if s := ExtractTeamMessageSummary(processes[i].Chunks); s != "" {
-				summaries[processes[i].ID] = s
-			}
-		}
-
 		for _, it := range teamTaskItems {
 			var best *SubagentProcess
 			for i := range processes {
 				if matchedProcs[processes[i].ID] {
 					continue
 				}
-				if summaries[processes[i].ID] != it.SubagentDesc {
+				if processes[i].TeamSummary == "" || processes[i].TeamSummary != it.SubagentDesc {
 					continue
 				}
 				if best == nil || processes[i].StartTime.Before(best.StartTime) {
@@ -487,24 +494,4 @@ func enrichProcess(proc *SubagentProcess, item *DisplayItem) {
 	proc.ParentTaskID = item.ToolID
 	proc.Description = item.SubagentDesc
 	proc.SubagentType = item.SubagentType
-}
-
-// extractTeamMessageSummary extracts the summary attribute from the first
-// <teammate-message> tag in a process's chunks. Team-spawned agents receive
-// their prompt wrapped in <teammate-message summary="..."> — the summary
-// matches the Task call's description, giving us a reliable linking key.
-//
-// Returns "" if no teammate-message with a summary attribute is found.
-func ExtractTeamMessageSummary(chunks []Chunk) string {
-	for _, c := range chunks {
-		if c.Type != UserChunk {
-			continue
-		}
-		m := teammateSummaryRe.FindStringSubmatch(c.UserText)
-		if len(m) > 1 {
-			return m[1]
-		}
-		return "" // only check the first UserChunk
-	}
-	return ""
 }

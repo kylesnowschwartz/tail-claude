@@ -83,6 +83,7 @@ Metadata for the session picker: `Path`, `SessionID`, `ModTime`, `FirstMessage` 
   5. Sidechain messages (`IsSidechain=true`) are dropped unconditionally
 - **AI buffer merging.** `BuildChunks` buffers consecutive `AIMsg` entries and flushes them into a single `AIChunk` when a `UserMsg` or `SystemMsg` appears (or at end of input). `TeammateMsg` folds into the buffer as a synthetic `AIMsg` with a `"teammate"` content block.
 - **Tool result matching.** `mergeAIBuffer` tracks pending `tool_use` blocks by `ToolID`. When a `tool_result` block arrives in a meta message, it fills in `ToolResult`, `ToolError`, and `DurationMs` on the matching `DisplayItem`.
+- **Classify is destructive.** `Classify` and `SanitizeContent` strip XML tags, attributes, and structural markers from raw entry content. Data that any downstream consumer needs (subagent metadata, session metadata, team summaries) must be extracted at the Entry layer -- either in `ParseEntry`, `ReadSession`/`ReadSessionIncremental`, or `readSubagentSession` -- before `Classify` runs. Never write a function that regexes chunk text for data that `Classify` strips. The `teammateSummaryRe` regex is applied in `readSubagentSession` on raw entry content, not on chunks, for exactly this reason.
 
 ## Tool Summary Coverage (`summary.go`)
 
@@ -111,3 +112,4 @@ Unknown tools fall back to common parameter names (`name`, `path`, `file`, `quer
 Test files live alongside source (`*_test.go`). Fixtures in `parser/testdata/`:
 - `minimal.jsonl` -- basic session for integration tests
 - `noise.jsonl` -- noise filtering edge cases
+- `team-parent.jsonl` + `team-parent/subagents/` -- full-pipeline integration test for team agent discovery and linking (exercises `DiscoverSubagents` -> `ReadSession` -> `LinkSubagents`)
