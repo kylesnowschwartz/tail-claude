@@ -38,46 +38,62 @@ race:
 
 # Bump version (patch, minor, or major)
 bump version:
-    #!/usr/bin/env bash
-    if [[ "{{version}}" != @(patch|minor|major) ]]; then
-        echo "Usage: just bump <patch|minor|major>"
-        exit 1
-    fi
+    #!/usr/bin/env zsh
+    set -e
 
-    # Read current version from VERSION file (default to v0.0.0)
-    current=$(cat VERSION 2>/dev/null || echo "v0.0.0")
-    current=${current#v}  # Remove 'v' prefix
+    # Parse current version
+    v=$(cat VERSION)
+    IFS='.' read -r M m p <<< "$v"
 
-    # Parse version
-    IFS='.' read -r major minor patch <<< "$current"
-    major=${major:-0}
-    minor=${minor:-0}
-    patch=${patch:-0}
-
-    # Bump the requested part
-    case "{{version}}" in
-        patch) ((patch++)) ;;
-        minor) minor=$((minor+1)); patch=0 ;;
-        major) major=$((major+1)); minor=0; patch=0 ;;
+    # Calculate new version
+    case {{version}} in
+        patch) new="$M.$m.$((p+1))" ;;
+        minor) new="$M.$((m+1)).0" ;;
+        major) new="$((M+1)).0.0" ;;
+        *) echo "Usage: just bump patch|minor|major" && exit 1 ;;
     esac
 
-    new_version="v${major}.${minor}.${patch}"
-    echo "$new_version" > VERSION
-    echo "Bumped version: $current → $new_version"
+    echo "Bumping $v → $new"
 
-# Create a release tag
-release: check
-    #!/usr/bin/env bash
-    version=$(cat VERSION 2>/dev/null || echo "v0.0.0")
+    # Update VERSION file
+    echo "$new" > VERSION
 
-    # Check if tag already exists
-    if git rev-parse "$version" >/dev/null 2>&1; then
-        echo "Tag $version already exists"
+    # Stage the change
+    git add VERSION
+
+    echo "Version bumped to $new. Changes staged and ready. Run 'just release' to commit, tag, and push."
+
+# Commit, tag, and push the release
+release:
+    #!/usr/bin/env zsh
+    set -e
+
+    v=$(cat VERSION)
+
+    # Safety: ensure we're on main and up to date
+    branch=$(git branch --show-current)
+    if [[ "$branch" != "main" ]]; then
+        echo "Error: must be on main branch (currently on $branch)"
         exit 1
     fi
 
-    # Create annotated tag
-    git tag -a "$version" -m "Release $version"
-    echo "Created tag: $version"
-    echo ""
-    echo "Push with: git push origin $version"
+    git fetch origin main
+    behind=$(git rev-list HEAD..origin/main --count)
+    if [[ "$behind" -gt 0 ]]; then
+        echo "Error: $behind commit(s) behind origin/main"
+        echo "Run 'git pull --rebase' first"
+        exit 1
+    fi
+
+    # Check for uncommitted changes (should have version bump staged)
+    if git diff --cached --quiet; then
+        echo "Error: nothing staged. Run 'just bump' first."
+        exit 1
+    fi
+
+    # Commit, tag, push
+    git commit -m "chore: Bump version to $v"
+    git tag "$v"
+    git push && git push --tags
+
+    echo "Released $v"
