@@ -93,6 +93,7 @@ type message struct {
 	subagentLabel    string // non-empty for trace views: "Explore", "Plan", etc.
 	teammateSpawns   int    // count of distinct team-spawned subagent Task calls
 	teammateMessages int    // count of distinct teammate IDs sending messages
+	isError          bool   // system message: bash stderr or killed task
 }
 
 // savedDetailState preserves parent detail view state when drilling into a
@@ -283,7 +284,7 @@ func initialModel(msgs []message, hasDarkBg bool) model {
 		messages:            msgs,
 		expanded:            make(map[int]bool), // all messages start collapsed
 		cursor:              0,
-		showKeybinds:        true,
+		showKeybinds:        false,
 		detailExpanded:      make(map[int]bool),
 		detailChildExpanded: make(map[visibleRowKey]bool),
 		md:                  newMdRenderer(hasDarkBg),

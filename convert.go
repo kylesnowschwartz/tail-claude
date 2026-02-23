@@ -53,6 +53,7 @@ func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess)
 				role:      RoleSystem,
 				content:   c.Output,
 				timestamp: formatTime(c.Timestamp),
+				isError:   c.IsError,
 			})
 		case parser.CompactChunk:
 			msgs = append(msgs, message{

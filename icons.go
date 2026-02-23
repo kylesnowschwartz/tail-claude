@@ -28,28 +28,29 @@ func (s StyledIcon) WithColor(c lipgloss.AdaptiveColor) string {
 // Requires a Nerd Font patched terminal font (e.g. JetBrains Mono Nerd Font).
 // Codepoints from Font Awesome (U+F000-U+F2E0) and Material Design (U+F0001+).
 var (
-	IconClaude    = StyledIcon{"󱙺", ColorInfo}               // nf-cod-hubot (bot/robot face)
-	IconUser      = StyledIcon{"\uF007", ColorTextSecondary} // nf-fa-user
-	IconSystem    = StyledIcon{"\uF120", ColorTextMuted}     // nf-fa-terminal
-	IconExpanded  = StyledIcon{"\uF078", ColorTextPrimary}   // nf-fa-chevron_down
-	IconCollapsed = StyledIcon{"\uF054", ColorTextDim}       // nf-fa-chevron_right
-	IconDrillDown = StyledIcon{"\uF061", ColorAccent}        // nf-fa-arrow_right
-	IconThinking  = StyledIcon{"", ColorTextDim}            // nf-fa-lightbulb_o
-	IconOutput    = StyledIcon{"󰆂", ColorAccent}             // nf-fa-file_code_o
-	IconToolOk    = StyledIcon{"󰯠", ColorTextDim}            // nf-md-tools (same glyph as ToolErr, differentiated by color)
-	IconToolErr   = StyledIcon{"󰯠", ColorError}              // nf-md-tools (same glyph as ToolOk, differentiated by color)
-	IconSubagent  = StyledIcon{"󱙺", ColorAccent}             // nf-cod-hubot (same glyph and color as Teammate -- differentiated by context label)
-	IconTeammate  = StyledIcon{"󱙺", ColorAccent}             // nf-cod-hubot (same glyph and color as Subagent -- differentiated by context label)
-	IconSelected  = StyledIcon{"\u2502", ColorAccent}        // box drawing vertical
-	IconToken     = StyledIcon{"", ColorTextDim}            // nf-fae-coins
-	IconClock     = StyledIcon{"\uF017", ColorTextDim}       // nf-fa-clock_o
-	IconDot       = StyledIcon{"\u00B7", ColorTextMuted}     // middle dot
-	IconChat      = StyledIcon{"\uF086", ColorTextDim}       // nf-fa-comments (turn count badge)
-	IconEllipsis  = StyledIcon{"\u2026", ColorTextDim}       // horizontal ellipsis (truncation hints)
+	IconClaude    = StyledIcon{"󱙺", ColorInfo}
+	IconUser      = StyledIcon{"", ColorTextSecondary}
+	IconSystem    = StyledIcon{"", ColorTextMuted}
+	IconExpanded  = StyledIcon{"", ColorTextPrimary}
+	IconCollapsed = StyledIcon{"", ColorTextDim}
+	IconDrillDown = StyledIcon{"", ColorAccent}
+	IconThinking  = StyledIcon{"", ColorTextDim}
+	IconOutput    = StyledIcon{"󰆂", ColorAccent}
+	IconToolOk    = StyledIcon{"󰯠", ColorTextDim}
+	IconToolErr   = StyledIcon{"󰯠", ColorError}
+	IconBashErr   = StyledIcon{"", ColorError}
+	IconSubagent  = StyledIcon{"󱙺", ColorAccent}
+	IconTeammate  = StyledIcon{"󱙺", ColorAccent}
+	IconSelected  = StyledIcon{"\u2502", ColorAccent}
+	IconToken     = StyledIcon{"", ColorTextDim}
+	IconClock     = StyledIcon{"", ColorTextDim}
+	IconDot       = StyledIcon{"\u00B7", ColorTextMuted}
+	IconChat      = StyledIcon{"\uF086", ColorTextDim}
+	IconEllipsis  = StyledIcon{"\u2026", ColorTextDim}
 )
 
 // Plain glyphs -- used as raw strings (never styled via StyledIcon).
 const (
 	GlyphHRule    = "\u2500" // box drawing horizontal (compact separators)
-	GlyphBeadFull = "\u25CF" // black circle (activity indicator bead, bright)
+	GlyphBeadFull = ""      // black circle (activity indicator bead, bright)
 )

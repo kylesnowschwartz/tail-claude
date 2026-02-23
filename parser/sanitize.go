@@ -47,6 +47,9 @@ func SanitizeContent(s string) string {
 		result = pat.ReplaceAllString(result, "")
 	}
 
+	// Strip bash-input tags but keep inner content (the command text).
+	result = reBashInput.ReplaceAllString(result, "$1")
+
 	return strings.TrimSpace(result)
 }
 
@@ -109,4 +112,28 @@ func ExtractCommandOutput(s string) string {
 // IsCommandOutput returns true when content starts with a local-command output tag.
 func IsCommandOutput(s string) bool {
 	return strings.HasPrefix(s, localCommandStdoutTag) || strings.HasPrefix(s, localCommandStderrTag)
+}
+
+// extractBashOutput returns the inner text from <bash-stdout> or <bash-stderr>
+// wrapper tags. Tries stdout first, falls back to stderr. Same pattern as
+// ExtractCommandOutput but for inline !bash mode execution.
+func extractBashOutput(s string) string {
+	if m := reBashStdout.FindStringSubmatch(s); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	if m := reBashStderr.FindStringSubmatch(s); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+// extractTaskNotification pulls the human-readable summary from a
+// <task-notification> XML wrapper. Falls back to stripping all XML tags.
+func extractTaskNotification(s string) string {
+	if m := reTaskNotifySummary.FindStringSubmatch(s); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	// Fallback: strip all XML-like tags and return what's left.
+	stripped := regexp.MustCompile(`<[^>]+>`).ReplaceAllString(s, " ")
+	return strings.TrimSpace(regexp.MustCompile(`\s+`).ReplaceAllString(stripped, " "))
 }

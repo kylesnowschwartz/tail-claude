@@ -67,10 +67,11 @@ func (u Usage) TotalTokens() int {
 	return u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheCreationTokens
 }
 
-// SystemMsg represents command output (slash command results).
+// SystemMsg represents command output (slash command results, bash mode, task notifications).
 type SystemMsg struct {
 	Timestamp time.Time
-	Output    string // extracted from <local-command-stdout>/<local-command-stderr>
+	Output    string // extracted from stdout/stderr/notification tags
+	IsError   bool   // true when stderr is non-empty or task was killed
 }
 
 func (SystemMsg) classifiedMsg() {}
@@ -117,6 +118,9 @@ var systemOutputTags = []string{
 	localCommandStdoutTag,
 	"<local-command-caveat>",
 	"<system-reminder>",
+	bashStdoutTag,
+	bashStderrTag,
+	taskNotificationTag,
 }
 
 var emptyStdout = "<local-command-stdout></local-command-stdout>"
@@ -180,6 +184,32 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 			return SystemMsg{
 				Timestamp: ts,
 				Output:    ExtractCommandOutput(contentStr),
+			}, true
+		}
+
+		// Bash mode output (!bash inline execution).
+		if strings.HasPrefix(trimmed, bashStdoutTag) || strings.HasPrefix(trimmed, bashStderrTag) {
+			stderrContent := ""
+			if m := reBashStderr.FindStringSubmatch(contentStr); m != nil {
+				stderrContent = strings.TrimSpace(m[1])
+			}
+			return SystemMsg{
+				Timestamp: ts,
+				Output:    extractBashOutput(contentStr),
+				IsError:   stderrContent != "",
+			}, true
+		}
+
+		// Background task notifications.
+		if strings.HasPrefix(trimmed, taskNotificationTag) {
+			status := ""
+			if m := reTaskNotifyStatus.FindStringSubmatch(contentStr); m != nil {
+				status = strings.TrimSpace(m[1])
+			}
+			return SystemMsg{
+				Timestamp: ts,
+				Output:    extractTaskNotification(contentStr),
+				IsError:   status == "killed",
 			}, true
 		}
 	}

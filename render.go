@@ -351,7 +351,11 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 	// System messages always show inline -- they're short
 	sel := selectionIndicator(isSelected)
 
-	sysIcon := IconSystem.Render()
+	icon := IconSystem
+	if msg.isError {
+		icon = IconBashErr
+	}
+	sysIcon := icon.Render()
 
 	label := StyleSecondary.Render("System")
 
@@ -359,7 +363,8 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 
 	content := StyleDim.Render(msg.content)
 
-	return sel + sysIcon + " " + label + "  " + IconDot.Glyph + "  " + ts + "  " + content
+	line := sel + sysIcon + " " + label + "  " + IconDot.Glyph + "  " + ts + "  " + content
+	return "\n" + line + "\n"
 }
 
 func renderCompactMessage(msg message, width int) string {

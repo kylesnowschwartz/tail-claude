@@ -671,3 +671,97 @@ func TestClassify_SummaryEmptyContent(t *testing.T) {
 	// Empty content is fine -- the TUI fills in a default
 	_ = cm
 }
+
+// --- Bash mode and task notification tests ---
+
+func TestClassify_BashOutputWithStderr(t *testing.T) {
+	content := json.RawMessage(`"<bash-stdout>fatal: not a git repository\n</bash-stdout><bash-stderr>fatal: not a git repository\n</bash-stderr>"`)
+	e := makeEntry("user", "b1", "2025-01-15T10:00:00Z", content)
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed for bash output")
+	}
+	sys, isSys := msg.(parser.SystemMsg)
+	if !isSys {
+		t.Fatalf("expected SystemMsg, got %T", msg)
+	}
+	if sys.Output != "fatal: not a git repository" {
+		t.Errorf("Output = %q, want %q", sys.Output, "fatal: not a git repository")
+	}
+	if !sys.IsError {
+		t.Error("IsError should be true when bash-stderr is present")
+	}
+}
+
+func TestClassify_BashOutputStdoutOnly(t *testing.T) {
+	content := json.RawMessage(`"<bash-stdout>hello world</bash-stdout>"`)
+	e := makeEntry("user", "b2", "2025-01-15T10:00:00Z", content)
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed for bash stdout")
+	}
+	sys, isSys := msg.(parser.SystemMsg)
+	if !isSys {
+		t.Fatalf("expected SystemMsg, got %T", msg)
+	}
+	if sys.Output != "hello world" {
+		t.Errorf("Output = %q, want %q", sys.Output, "hello world")
+	}
+	if sys.IsError {
+		t.Error("IsError should be false when only stdout is present")
+	}
+}
+
+func TestClassify_TaskNotificationCompleted(t *testing.T) {
+	content := json.RawMessage(`"<task-notification>\n<task-id>abc123</task-id>\n<status>completed</status>\n<summary>Background command \"Run tests\" completed (exit code 0)</summary>\n</task-notification>\nRead the output file..."`)
+	e := makeEntry("user", "t1", "2025-01-15T10:00:00Z", content)
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed for task notification")
+	}
+	sys, isSys := msg.(parser.SystemMsg)
+	if !isSys {
+		t.Fatalf("expected SystemMsg, got %T", msg)
+	}
+	want := `Background command "Run tests" completed (exit code 0)`
+	if sys.Output != want {
+		t.Errorf("Output = %q, want %q", sys.Output, want)
+	}
+	if sys.IsError {
+		t.Error("IsError should be false for completed status")
+	}
+}
+
+func TestClassify_TaskNotificationKilled(t *testing.T) {
+	content := json.RawMessage(`"<task-notification>\n<task-id>abc123</task-id>\n<status>killed</status>\n<summary>Background command \"Run server\" was stopped</summary>\n</task-notification>"`)
+	e := makeEntry("user", "t2", "2025-01-15T10:00:00Z", content)
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed for killed task notification")
+	}
+	sys := msg.(parser.SystemMsg)
+	if !sys.IsError {
+		t.Error("IsError should be true for killed status")
+	}
+}
+
+func TestClassify_BashInputStrippedInUserMsg(t *testing.T) {
+	content := json.RawMessage(`"<bash-input>git push</bash-input>"`)
+	e := makeEntry("user", "bi1", "2025-01-15T10:00:00Z", content)
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed for bash input")
+	}
+	usr, isUsr := msg.(parser.UserMsg)
+	if !isUsr {
+		t.Fatalf("expected UserMsg, got %T", msg)
+	}
+	if usr.Text != "git push" {
+		t.Errorf("Text = %q, want %q (bash-input tags should be stripped)", usr.Text, "git push")
+	}
+}

@@ -11,12 +11,29 @@ const (
 	localCommandStderrTag = "<local-command-stderr>"
 )
 
+// Bash mode tags -- inline command execution via !bash in Claude Code.
+const (
+	bashStdoutTag       = "<bash-stdout>"
+	bashStderrTag       = "<bash-stderr>"
+	bashInputTag        = "<bash-input>"
+	taskNotificationTag = "<task-notification>"
+)
+
 // Command extraction regexes -- used by sanitize.go and session.go.
 var (
 	reCommandName = regexp.MustCompile(`<command-name>/([^<]+)</command-name>`)
 	reCommandArgs = regexp.MustCompile(`<command-args>([^<]*)</command-args>`)
 	reStdout      = regexp.MustCompile(`(?is)<local-command-stdout>(.*?)</local-command-stdout>`)
 	reStderr      = regexp.MustCompile(`(?is)<local-command-stderr>(.*?)</local-command-stderr>`)
+)
+
+// Bash mode regexes -- used by classify.go and sanitize.go.
+var (
+	reBashStdout        = regexp.MustCompile(`(?is)<bash-stdout>(.*?)</bash-stdout>`)
+	reBashStderr        = regexp.MustCompile(`(?is)<bash-stderr>(.*?)</bash-stderr>`)
+	reBashInput         = regexp.MustCompile(`(?is)<bash-input>(.*?)</bash-input>`)
+	reTaskNotifySummary = regexp.MustCompile(`(?is)<summary>(.*?)</summary>`)
+	reTaskNotifyStatus  = regexp.MustCompile(`(?is)<status>(.*?)</status>`)
 )
 
 // Teammate message regexes -- used by classify.go and session.go.
