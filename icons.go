@@ -47,6 +47,7 @@ var (
 	IconDot       = StyledIcon{"\u00B7", ColorTextMuted}
 	IconChat      = StyledIcon{"\uF086", ColorTextDim}
 	IconEllipsis  = StyledIcon{"\u2026", ColorTextDim}
+	IconSession   = StyledIcon{"󰈷", ColorTextDim}
 )
 
 // Plain glyphs -- used as raw strings (never styled via StyledIcon).

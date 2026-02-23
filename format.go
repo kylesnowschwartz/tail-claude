@@ -41,7 +41,6 @@ func modelColor(model string) lipgloss.AdaptiveColor {
 	}
 }
 
-
 // countOutputItems counts text output items in a display items slice.
 func countOutputItems(items []parser.DisplayItem) int {
 	n := 0
@@ -88,6 +87,16 @@ func formatDuration(ms int64) string {
 	}
 }
 
+// formatSessionName formats a session ID for compact picker display.
+// Standard UUIDs (8-4-4-4-12 hex with dashes = 36 chars) show only the first
+// group (8 chars) — enough to distinguish sessions without burning line width.
+// Renamed sessions show up to 20 characters.
+func formatSessionName(id string) string {
+	if len(id) == 36 && id[8] == '-' && id[13] == '-' && id[18] == '-' && id[23] == '-' {
+		return id[:8]
+	}
+	return parser.TruncateWord(id, 20)
+}
 
 // shortPath abbreviates a working directory path for the info bar.
 // Returns the last path component (project name).

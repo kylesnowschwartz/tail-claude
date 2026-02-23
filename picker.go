@@ -540,6 +540,12 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(tokColor).Render(tokStr))
 	}
 
+	if s.SessionID != "" {
+		sessionIcon := IconSession.WithColor(metaColor)
+		nameStr := lipgloss.NewStyle().Foreground(metaColor).Render(formatSessionName(s.SessionID))
+		metaParts = append(metaParts, sessionIcon+" "+nameStr)
+	}
+
 	metaLeft := indent + strings.Join(metaParts, " "+dot+" ")
 	timeStr := fmt.Sprintf("%8s", relativeTime(s.ModTime))
 	timeRendered := lipgloss.NewStyle().Foreground(metaColor).Render(timeStr)
