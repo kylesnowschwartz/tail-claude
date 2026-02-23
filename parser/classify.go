@@ -23,14 +23,15 @@ func (UserMsg) classifiedMsg() {}
 
 // ContentBlock represents a single content block from an assistant or tool result message.
 type ContentBlock struct {
-	Type       string          // "thinking", "text", "tool_use", "tool_result", "teammate"
-	Text       string          // thinking or text content
-	ToolID     string          // tool_use: call ID; tool_result: tool_use_id
-	ToolName   string          // tool_use only
-	ToolInput  json.RawMessage // tool_use only
-	Content    string          // tool_result content (stringified)
-	IsError    bool            // tool_result only
-	TeammateID string          // teammate only
+	Type          string          // "thinking", "text", "tool_use", "tool_result", "teammate"
+	Text          string          // thinking or text content
+	ToolID        string          // tool_use: call ID; tool_result: tool_use_id
+	ToolName      string          // tool_use only
+	ToolInput     json.RawMessage // tool_use only
+	Content       string          // tool_result content (stringified)
+	IsError       bool            // tool_result only
+	TeammateID    string          // teammate only
+	TeammateColor string          // teammate only: team color name
 }
 
 // AIMsg represents assistant responses and internal flow messages (tool results).
@@ -82,6 +83,7 @@ type TeammateMsg struct {
 	Timestamp  time.Time
 	Text       string // sanitized inner content
 	TeammateID string
+	Color      string // team color name (e.g. "blue", "green")
 }
 
 func (TeammateMsg) classifiedMsg() {}
@@ -167,12 +169,23 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 	if e.Type == "user" {
 		trimmed := strings.TrimSpace(contentStr)
 		if teammateMessageRe.MatchString(trimmed) {
+			innerContent := extractTeammateContent(trimmed)
+
+			// Filter protocol messages (idle notifications, shutdown, task
+			// assignments). These are JSON payloads from the team coordination
+			// system, not human-readable agent output.
+			if teammateProtocolRe.MatchString(innerContent) {
+				return nil, false
+			}
+
 			teammateID := extractTeammateID(trimmed)
-			text := SanitizeContent(extractTeammateContent(trimmed))
+			color := extractTeammateColor(trimmed)
+			text := SanitizeContent(innerContent)
 			return TeammateMsg{
 				Timestamp:  ts,
 				Text:       text,
 				TeammateID: teammateID,
+				Color:      color,
 			}, true
 		}
 	}
@@ -277,6 +290,15 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 // extractTeammateID extracts the teammate_id attribute from a teammate-message XML tag.
 func extractTeammateID(s string) string {
 	m := teammateIDRe.FindStringSubmatch(s)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+// extractTeammateColor extracts the color attribute from a teammate-message XML tag.
+func extractTeammateColor(s string) string {
+	m := teammateColorRe.FindStringSubmatch(s)
 	if m == nil {
 		return ""
 	}

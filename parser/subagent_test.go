@@ -650,6 +650,24 @@ func TestTeamLinkingIntegration(t *testing.T) {
 		}
 	}
 
+	// Verify team colors were extracted from raw content.
+	colorByID := make(map[string]string, len(procs))
+	for _, p := range procs {
+		colorByID[p.ID] = p.TeamColor
+	}
+	wantColors := map[string]string{
+		"team-impl-001":      "green",
+		"team-test-002":      "yellow",
+		"team-research-003":  "purple",
+		"team-impl-001-cont": "", // continuation — no color attribute
+	}
+	for id, want := range wantColors {
+		got := colorByID[id]
+		if got != want {
+			t.Errorf("TeamColor[%s] = %q, want %q", id, got, want)
+		}
+	}
+
 	// Step 2: Parse the parent session through the full pipeline.
 	parentChunks, err := parser.ReadSession(parentPath)
 	if err != nil {

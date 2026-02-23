@@ -88,7 +88,9 @@ type displayItem struct {
 	tokenCount      int
 	subagentType    string
 	subagentDesc    string
+	teamMemberName  string // team member name (e.g. "file-counter")
 	teammateID      string
+	teamColor       string                  // team color name (e.g. "blue", "green")
 	subagentProcess *parser.SubagentProcess // linked subagent execution trace
 }
 
@@ -146,11 +148,11 @@ type model struct {
 	md *mdRenderer
 
 	// Live tailing state
-	sessionPath    string
-	watching       bool
-	watcher        *sessionWatcher
-	tailSub        chan tailUpdate
-	tailErrc       chan error
+	sessionPath     string
+	watching        bool
+	watcher         *sessionWatcher
+	tailSub         chan tailUpdate
+	tailErrc        chan error
 	sessionOngoing  bool // whether the watched session is still in progress
 	ongoingGraceSeq int  // sequence counter for grace period timers (stale timers ignored)
 	animFrame       int  // animation frame counter for activity indicator

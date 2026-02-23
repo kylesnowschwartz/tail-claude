@@ -56,17 +56,28 @@ var (
 	ColorOngoing = ac("2", "76")
 
 	// Context usage thresholds
-	ColorContextOk   = ac("2", "114")  // green: <50%
-	ColorContextWarn = ac("3", "208")  // yellow/orange: 50-80%
-	ColorContextCrit = ac("1", "196")  // red: >80%
+	ColorContextOk   = ac("2", "114") // green: <50%
+	ColorContextWarn = ac("3", "208") // yellow/orange: 50-80%
+	ColorContextCrit = ac("1", "196") // red: >80%
 
 	// Permission mode pill backgrounds
-	ColorPillBypass      = ac("1", "196")  // red: bypassPermissions
-	ColorPillAcceptEdits = ac("5", "135")  // purple: acceptEdits
-	ColorPillPlan        = ac("2", "114")  // green: plan
+	ColorPillBypass      = ac("1", "196") // red: bypassPermissions
+	ColorPillAcceptEdits = ac("5", "135") // purple: acceptEdits
+	ColorPillPlan        = ac("2", "114") // green: plan
 
 	// Picker
 	ColorPickerSelectedBg = ac("254", "237")
+
+	// Team member colors (matches claude-devtools teamColors.ts).
+	// 8 named colors assignable to team-spawned agents.
+	ColorTeamBlue   = ac("4", "75")
+	ColorTeamGreen  = ac("2", "114")
+	ColorTeamRed    = ac("1", "204")
+	ColorTeamYellow = ac("3", "220")
+	ColorTeamPurple = ac("5", "177")
+	ColorTeamCyan   = ac("6", "80")
+	ColorTeamOrange = ac("3", "208")
+	ColorTeamPink   = ac("5", "211")
 )
 
 // -- Semantic text styles -----------------------------------------------------

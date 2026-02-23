@@ -524,13 +524,26 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		}
 		name = item.toolName
 	case parser.ItemSubagent:
-		indicator = IconSubagent.Render()
-		name = item.subagentType
+		if item.teamColor != "" {
+			indicator = IconSubagent.WithColor(teamColor(item.teamColor))
+		} else {
+			indicator = IconSubagent.Render()
+		}
+		// Team agents show member name ("file-counter"), others show type ("Explore").
+		if item.teamMemberName != "" {
+			name = item.teamMemberName
+		} else {
+			name = item.subagentType
+		}
 		if name == "" {
 			name = "Subagent"
 		}
 	case parser.ItemTeammateMessage:
-		indicator = IconTeammate.Render()
+		if item.teamColor != "" {
+			indicator = IconTeammate.WithColor(teamColor(item.teamColor))
+		} else {
+			indicator = IconTeammate.Render()
+		}
 		name = item.teammateID
 		if name == "" {
 			name = "Teammate"
@@ -539,7 +552,12 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 
 	// Pad name to 12 chars
 	nameStr := fmt.Sprintf("%-12s", name)
-	nameRendered := StylePrimaryBold.Render(nameStr)
+	var nameRendered string
+	if item.teamColor != "" {
+		nameRendered = lipgloss.NewStyle().Bold(true).Foreground(teamColor(item.teamColor)).Render(nameStr)
+	} else {
+		nameRendered = StylePrimaryBold.Render(nameStr)
+	}
 
 	// Summary
 	var summary string

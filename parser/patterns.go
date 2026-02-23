@@ -38,10 +38,12 @@ var (
 
 // Teammate message regexes -- used by classify.go, session.go, and subagent.go.
 var (
-	teammateMessageRe = regexp.MustCompile(`^<teammate-message\s+teammate_id="[^"]+"`)
-	teammateIDRe      = regexp.MustCompile(`teammate_id="([^"]+)"`)
-	teammateContentRe = regexp.MustCompile(`(?s)<teammate-message[^>]*>(.*)</teammate-message>`)
-	teammateSummaryRe = regexp.MustCompile(`<teammate-message[^>]*\bsummary="([^"]+)"`)
+	teammateMessageRe  = regexp.MustCompile(`^<teammate-message\s+teammate_id="[^"]+"`)
+	teammateIDRe       = regexp.MustCompile(`teammate_id="([^"]+)"`)
+	teammateContentRe  = regexp.MustCompile(`(?s)<teammate-message[^>]*>(.*?)</teammate-message>`)
+	teammateSummaryRe  = regexp.MustCompile(`<teammate-message[^>]*\bsummary="([^"]+)"`)
+	teammateColorRe    = regexp.MustCompile(`<teammate-message[^>]*\bcolor="([^"]+)"`)
+	teammateProtocolRe = regexp.MustCompile(`^\s*\{\s*"type"\s*:\s*"(idle_notification|shutdown_approved|shutdown_request|teammate_terminated|task_assignment)"`)
 )
 
 // contentBlockJSON is the common shape for partially unmarshaling JSONL content blocks.

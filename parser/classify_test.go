@@ -521,6 +521,32 @@ func TestClassify_TeammateMessageProducesTeammateMsg(t *testing.T) {
 	}
 }
 
+func TestClassify_TeammateMessageExtractsColor(t *testing.T) {
+	content := `<teammate-message teammate_id="worker" color="yellow">Task done</teammate-message>`
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("teammate message should not be filtered")
+	}
+
+	tm := msg.(parser.TeammateMsg)
+	if tm.Color != "yellow" {
+		t.Errorf("Color = %q, want yellow", tm.Color)
+	}
+}
+
+func TestClassify_TeammateMessageNoColor(t *testing.T) {
+	content := `<teammate-message teammate_id="worker">No color here</teammate-message>`
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	msg, _ := parser.Classify(e)
+	tm := msg.(parser.TeammateMsg)
+	if tm.Color != "" {
+		t.Errorf("Color = %q, want empty", tm.Color)
+	}
+}
+
 func TestClassify_TeammateMessageExtractsContent(t *testing.T) {
 	content := "<teammate-message teammate_id=\"lead\">You are working on task #1.\nPlease commit when done.</teammate-message>"
 	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
@@ -539,6 +565,65 @@ func TestClassify_TeammateMessageExtractsContent(t *testing.T) {
 	}
 	if tm.Text == "" {
 		t.Error("Text should not be empty")
+	}
+}
+
+// --- Teammate protocol noise tests ---
+
+func TestClassify_TeammateProtocolIdleNotification(t *testing.T) {
+	content := `<teammate-message teammate_id="worker" color="green">{"type":"idle_notification","from":"worker","timestamp":"2026-01-15T10:00:00Z","idleReason":"available"}</teammate-message>`
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	_, ok := parser.Classify(e)
+	if ok {
+		t.Error("idle_notification teammate message should be filtered as noise")
+	}
+}
+
+func TestClassify_TeammateProtocolShutdownApproved(t *testing.T) {
+	content := `<teammate-message teammate_id="worker" color="green">{"type":"shutdown_approved","requestId":"req1","from":"worker"}</teammate-message>`
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	_, ok := parser.Classify(e)
+	if ok {
+		t.Error("shutdown_approved teammate message should be filtered as noise")
+	}
+}
+
+func TestClassify_TeammateProtocolTeammateTerminated(t *testing.T) {
+	content := `<teammate-message teammate_id="system">{"type":"teammate_terminated","message":"worker has shut down."}</teammate-message>`
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	_, ok := parser.Classify(e)
+	if ok {
+		t.Error("teammate_terminated teammate message should be filtered as noise")
+	}
+}
+
+func TestClassify_TeammateProtocolTaskAssignment(t *testing.T) {
+	content := `<teammate-message teammate_id="worker" color="blue">{"type":"task_assignment","taskId":"1","subject":"Do something"}</teammate-message>`
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	_, ok := parser.Classify(e)
+	if ok {
+		t.Error("task_assignment teammate message should be filtered as noise")
+	}
+}
+
+func TestClassify_TeammateRealMessageNotFiltered(t *testing.T) {
+	content := `<teammate-message teammate_id="worker" color="yellow" summary="Task done">Task #1 complete. Found 5 repos.</teammate-message>`
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", jsonStr(content))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("real teammate message should not be filtered")
+	}
+	tm, is := msg.(parser.TeammateMsg)
+	if !is {
+		t.Fatalf("got %T, want TeammateMsg", msg)
+	}
+	if tm.TeammateID != "worker" {
+		t.Errorf("TeammateID = %q, want worker", tm.TeammateID)
 	}
 }
 

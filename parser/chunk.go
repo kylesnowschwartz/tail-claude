@@ -32,11 +32,13 @@ type DisplayItem struct {
 	Timestamp   time.Time
 
 	// Subagent fields (ItemSubagent only)
-	SubagentType string // "Explore", "Plan", "general-purpose", etc.
-	SubagentDesc string // Task description
+	SubagentType   string // "Explore", "Plan", "general-purpose", etc.
+	SubagentDesc   string // Task description
+	TeamMemberName string // team member name from Task input (e.g. "file-counter")
 
 	// Teammate fields (ItemTeammateMessage only)
-	TeammateID string
+	TeammateID    string
+	TeammateColor string // team color name (e.g. "blue", "green")
 }
 
 // ChunkType discriminates the chunk categories.
@@ -116,9 +118,10 @@ func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 				Timestamp: m.Timestamp,
 				IsMeta:    true,
 				Blocks: []ContentBlock{{
-					Type:       "teammate",
-					Text:       m.Text,
-					TeammateID: m.TeammateID,
+					Type:          "teammate",
+					Text:          m.Text,
+					TeammateID:    m.TeammateID,
+					TeammateColor: m.Color,
 				}},
 			})
 		case CompactMsg:
@@ -199,17 +202,18 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 				case "tool_use":
 					inputLen := len(b.ToolInput)
 					if b.ToolName == "Task" {
-						subType, subDesc := extractSubagentInfo(b.ToolInput)
+						info := extractSubagentInfo(b.ToolInput)
 						items = append(items, DisplayItem{
-							Type:         ItemSubagent,
-							ToolName:     b.ToolName,
-							ToolID:       b.ToolID,
-							ToolInput:    b.ToolInput,
-							ToolSummary:  ToolSummary(b.ToolName, b.ToolInput),
-							SubagentType: subType,
-							SubagentDesc: subDesc,
-							Timestamp:    m.Timestamp,
-							TokenCount:   inputLen / 4,
+							Type:           ItemSubagent,
+							ToolName:       b.ToolName,
+							ToolID:         b.ToolID,
+							ToolInput:      b.ToolInput,
+							ToolSummary:    ToolSummary(b.ToolName, b.ToolInput),
+							SubagentType:   info.Type,
+							SubagentDesc:   info.Description,
+							TeamMemberName: info.MemberName,
+							Timestamp:      m.Timestamp,
+							TokenCount:     inputLen / 4,
 						})
 					} else {
 						items = append(items, DisplayItem{
@@ -252,11 +256,12 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 					}
 				case "teammate":
 					items = append(items, DisplayItem{
-						Type:       ItemTeammateMessage,
-						Text:       b.Text,
-						TeammateID: b.TeammateID,
-						Timestamp:  m.Timestamp,
-						TokenCount: len(b.Text) / 4,
+						Type:          ItemTeammateMessage,
+						Text:          b.Text,
+						TeammateID:    b.TeammateID,
+						TeammateColor: b.TeammateColor,
+						Timestamp:     m.Timestamp,
+						TokenCount:    len(b.Text) / 4,
 					})
 				}
 			}
@@ -307,27 +312,41 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 	}
 }
 
-// extractSubagentInfo extracts subagent_type and description from Task tool input JSON.
-func extractSubagentInfo(input json.RawMessage) (subagentType, description string) {
+// subagentInfo holds metadata extracted from a Task tool_use input.
+type subagentInfo struct {
+	Type        string // "Explore", "Plan", "general-purpose", etc.
+	Description string // Task description or truncated prompt
+	MemberName  string // team member name (only for team Task calls)
+}
+
+// extractSubagentInfo extracts metadata from Task tool input JSON.
+func extractSubagentInfo(input json.RawMessage) subagentInfo {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(input, &fields); err != nil {
-		return "", ""
+		return subagentInfo{}
 	}
+
+	var info subagentInfo
+
 	// Inner unmarshal errors are intentionally ignored — these are optional string
 	// fields and "" is the correct default when absent or non-string.
 	if raw, ok := fields["subagent_type"]; ok {
-		json.Unmarshal(raw, &subagentType)
+		json.Unmarshal(raw, &info.Type)
 	}
 	// Try "description" first, then "prompt" as fallback.
 	if raw, ok := fields["description"]; ok {
-		json.Unmarshal(raw, &description)
+		json.Unmarshal(raw, &info.Description)
 	}
-	if description == "" {
+	if info.Description == "" {
 		if raw, ok := fields["prompt"]; ok {
 			var prompt string
 			json.Unmarshal(raw, &prompt)
-			description = Truncate(prompt, 80)
+			info.Description = Truncate(prompt, 80)
 		}
 	}
-	return
+	// Team member name (present when team_name + name are both set).
+	if raw, ok := fields["name"]; ok {
+		json.Unmarshal(raw, &info.MemberName)
+	}
+	return info
 }

@@ -79,18 +79,20 @@ func displayItemFromParser(it parser.DisplayItem) displayItem {
 		}
 	}
 	return displayItem{
-		itemType:     it.Type,
-		text:         it.Text,
-		toolName:     it.ToolName,
-		toolSummary:  it.ToolSummary,
-		toolInput:    input,
-		toolResult:   it.ToolResult,
-		toolError:    it.ToolError,
-		durationMs:   it.DurationMs,
-		tokenCount:   it.TokenCount,
-		subagentType: it.SubagentType,
-		subagentDesc: it.SubagentDesc,
-		teammateID:   it.TeammateID,
+		itemType:       it.Type,
+		text:           it.Text,
+		toolName:       it.ToolName,
+		toolSummary:    it.ToolSummary,
+		toolInput:      input,
+		toolResult:     it.ToolResult,
+		toolError:      it.ToolError,
+		durationMs:     it.DurationMs,
+		tokenCount:     it.TokenCount,
+		subagentType:   it.SubagentType,
+		subagentDesc:   it.SubagentDesc,
+		teamMemberName: it.TeamMemberName,
+		teammateID:     it.TeammateID,
+		teamColor:      it.TeammateColor,
 	}
 }
 
@@ -115,7 +117,12 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 		out[i] = displayItemFromParser(it)
 		// Link subagent process if available.
 		if it.Type == parser.ItemSubagent {
-			out[i].subagentProcess = procByTaskID[it.ToolID]
+			if proc := procByTaskID[it.ToolID]; proc != nil {
+				out[i].subagentProcess = proc
+				if proc.TeamColor != "" {
+					out[i].teamColor = proc.TeamColor
+				}
+			}
 		}
 	}
 	return out

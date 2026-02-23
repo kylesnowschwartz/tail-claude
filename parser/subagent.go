@@ -25,6 +25,7 @@ type SubagentProcess struct {
 	SubagentType string
 	ParentTaskID string // tool_use_id of spawning Task call
 	TeamSummary  string // summary attr from first <teammate-message> (team agents only)
+	TeamColor    string // color attr from first <teammate-message> (team agents only)
 }
 
 // DiscoverSubagents finds and parses subagent files for a session.
@@ -88,7 +89,7 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 		// Subagent entries all have isSidechain=true (they run in the
 		// parent's sidechain context), but within the subagent file
 		// they're the main conversation.
-		chunks, teamSummary, err := readSubagentSession(filePath)
+		chunks, teamSummary, teamColor, err := readSubagentSession(filePath)
 		if err != nil || len(chunks) == 0 {
 			continue
 		}
@@ -105,6 +106,7 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 			DurationMs:  durationMs,
 			Usage:       usage,
 			TeamSummary: teamSummary,
+			TeamColor:   teamColor,
 		})
 	}
 
@@ -185,16 +187,16 @@ func chunkTiming(chunks []Chunk) (start, end time.Time, durationMs int64) {
 }
 
 // readSubagentSession reads a subagent JSONL file and returns chunks plus
-// the team summary (if any). The summary is extracted from the raw entry
+// team metadata (summary and color). Both are extracted from the raw entry
 // content before Classify strips the XML tag attributes.
 //
 // Unlike ReadSession, it ignores the isSidechain flag since all entries
 // in subagent files are marked isSidechain=true but represent the
 // subagent's own main conversation.
-func readSubagentSession(path string) ([]Chunk, string, error) {
+func readSubagentSession(path string) ([]Chunk, string, string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	defer f.Close()
 
@@ -202,7 +204,8 @@ func readSubagentSession(path string) ([]Chunk, string, error) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
 	var msgs []ClassifiedMsg
-	var teamSummary string
+	var teamSummary, teamColor string
+	extractedTeamMeta := false
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -213,14 +216,18 @@ func readSubagentSession(path string) ([]Chunk, string, error) {
 			continue
 		}
 
-		// Extract team summary from the first user entry's <teammate-message>
-		// tag before Classify strips the XML attributes.
-		if teamSummary == "" && entry.Type == "user" {
+		// Extract team summary and color from the first user entry's
+		// <teammate-message> tag before Classify strips the XML attributes.
+		if !extractedTeamMeta && entry.Type == "user" {
 			var contentStr string
 			if json.Unmarshal(entry.Message.Content, &contentStr) == nil {
 				if m := teammateSummaryRe.FindStringSubmatch(contentStr); len(m) > 1 {
 					teamSummary = m[1]
 				}
+				if m := teammateColorRe.FindStringSubmatch(contentStr); len(m) > 1 {
+					teamColor = m[1]
+				}
+				extractedTeamMeta = true
 			}
 		}
 
@@ -233,10 +240,10 @@ func readSubagentSession(path string) ([]Chunk, string, error) {
 		msgs = append(msgs, msg)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
-	return BuildChunks(msgs), teamSummary, nil
+	return BuildChunks(msgs), teamSummary, teamColor, nil
 }
 
 // aggregateUsage returns the last AI chunk's usage snapshot. Each chunk already
@@ -289,8 +296,9 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 		return
 	}
 
-	// Build agentId -> sourceToolUseID map from structured Entry fields.
-	agentToToolID := scanAgentLinks(parentSessionPath)
+	// Build agentId -> sourceToolUseID map and toolUseID -> color map
+	// from structured Entry fields.
+	links := scanAgentLinks(parentSessionPath)
 
 	// Build tool_use_id -> DisplayItem for enrichment.
 	toolIDToTask := make(map[string]*DisplayItem, len(taskItems))
@@ -303,7 +311,7 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 
 	// Phase 1: Result-based matching via structured toolUseResult.agentId.
 	for i := range processes {
-		toolID, ok := agentToToolID[processes[i].ID]
+		toolID, ok := links.agentToToolID[processes[i].ID]
 		if !ok {
 			continue
 		}
@@ -363,6 +371,18 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 	for i := 0; i < len(unmatchedProcs) && i < len(unmatchedTasks); i++ {
 		enrichProcess(unmatchedProcs[i], unmatchedTasks[i])
 	}
+
+	// Populate TeamColor from toolUseResult data for any linked process
+	// that doesn't already have a color. Team agents' own JSONL files
+	// don't carry their color (the first entry is from team-lead), but
+	// the teammate_spawned toolUseResult in the parent session does.
+	for i := range processes {
+		if processes[i].TeamColor == "" && processes[i].ParentTaskID != "" {
+			if color, ok := links.toolIDToColor[processes[i].ParentTaskID]; ok {
+				processes[i].TeamColor = color
+			}
+		}
+	}
 }
 
 // filterTeamTasks returns unmatched Task items whose input contains both
@@ -395,8 +415,15 @@ func IsTeamTask(it *DisplayItem) bool {
 	return hasTeamName && hasName
 }
 
-// scanAgentLinks reads a parent session JSONL file and builds a map from
-// agentId -> toolUseID by extracting structured toolUseResult data.
+// agentLinkData holds the results of scanning a parent session for agent links.
+type agentLinkData struct {
+	agentToToolID map[string]string // agentId -> tool_use_id
+	toolIDToColor map[string]string // tool_use_id -> team color name
+}
+
+// scanAgentLinks reads a parent session JSONL file and builds maps from
+// agentId -> toolUseID (for Phase 1 linking) and toolUseID -> color
+// (for populating TeamColor after any linking phase).
 //
 // Matching strategy (ported from claude-devtools SubagentResolver):
 //
@@ -405,12 +432,18 @@ func IsTeamTask(it *DisplayItem) bool {
 // Fallback when sourceToolUseID is missing: extract the first tool_result
 // block's tool_use_id from the message content (matches devtools:
 // msg.sourceToolUseID ?? msg.toolResults[0]?.toolUseId).
-func scanAgentLinks(sessionPath string) map[string]string {
-	result := make(map[string]string)
+//
+// Color extraction: teammate_spawned toolUseResult entries carry a color
+// field. The tool_use_id links back to the spawning Task call.
+func scanAgentLinks(sessionPath string) agentLinkData {
+	data := agentLinkData{
+		agentToToolID: make(map[string]string),
+		toolIDToColor: make(map[string]string),
+	}
 
 	f, err := os.Open(sessionPath)
 	if err != nil {
-		return result
+		return data
 	}
 	defer f.Close()
 
@@ -452,10 +485,15 @@ func scanAgentLinks(sessionPath string) map[string]string {
 			continue
 		}
 
-		result[agentID] = toolUseID
+		data.agentToToolID[agentID] = toolUseID
+
+		// Extract team color from teammate_spawned results.
+		if color := extractStringField(entry.ToolUseResult, "color"); color != "" {
+			data.toolIDToColor[toolUseID] = color
+		}
 	}
 
-	return result
+	return data
 }
 
 // extractFirstToolResultID returns the tool_use_id from the first tool_result

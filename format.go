@@ -41,6 +41,31 @@ func modelColor(model string) lipgloss.AdaptiveColor {
 	}
 }
 
+// teamColor returns a color for a team member color name from the JSONL data.
+// Falls back to ColorAccent (blue) for unknown or empty names.
+func teamColor(name string) lipgloss.AdaptiveColor {
+	switch strings.ToLower(name) {
+	case "blue":
+		return ColorTeamBlue
+	case "green":
+		return ColorTeamGreen
+	case "red":
+		return ColorTeamRed
+	case "yellow":
+		return ColorTeamYellow
+	case "purple":
+		return ColorTeamPurple
+	case "cyan":
+		return ColorTeamCyan
+	case "orange":
+		return ColorTeamOrange
+	case "pink":
+		return ColorTeamPink
+	default:
+		return ColorAccent
+	}
+}
+
 // countOutputItems counts text output items in a display items slice.
 func countOutputItems(items []parser.DisplayItem) int {
 	n := 0
