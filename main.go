@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -157,6 +156,11 @@ type model struct {
 	// Footer toggle (? key)
 	showKeybinds bool
 
+	// Project directory: Claude projects dir for CWD, used by picker + watcher.
+	// Set once at startup from CurrentProjectDir(). Single source of truth for
+	// "which project's sessions to show" -- avoids deriving from sessionPath.
+	projectDir string
+
 	// Session picker state
 	sessionCache       *parser.SessionCache
 	pickerSessions     []parser.SessionInfo
@@ -183,25 +187,10 @@ type loadResult struct {
 }
 
 // loadSession reads a JSONL session file and converts chunks to display messages.
-// Auto-discovers the latest session when path is empty. Returns the full load
-// result so the caller can hand off classified messages and offset to the watcher.
+// The path must be non-empty — callers resolve auto-discovery before calling.
 func loadSession(path string) (loadResult, error) {
 	if path == "" {
-		// Prefer the CWD project's most recent session so the initial view
-		// matches what the picker will show. Fall back to global discovery
-		// when the CWD has no Claude sessions (e.g. running from /tmp).
-		if projectDir, err := parser.CurrentProjectDir(); err == nil {
-			if sessions, err := parser.DiscoverProjectSessions(projectDir); err == nil && len(sessions) > 0 {
-				path = sessions[0].Path
-			}
-		}
-		if path == "" {
-			discovered, err := parser.DiscoverLatestSession()
-			if err != nil {
-				return loadResult{}, fmt.Errorf("no session found: %w", err)
-			}
-			path = discovered
-		}
+		return loadResult{}, fmt.Errorf("no session path provided")
 	}
 
 	classified, offset, err := parser.ReadSessionIncremental(path, 0)
@@ -305,9 +294,10 @@ func (m model) Init() tea.Cmd {
 		}
 	}
 
-	// When starting in picker view (e.g. stale session), kick off session discovery.
-	if m.view == viewPicker {
-		cmds = append(cmds, loadPickerSessionsCmd(m.sessionPath, m.sessionCache))
+	// When starting in picker view (e.g. stale session or empty project),
+	// kick off session discovery.
+	if m.view == viewPicker && m.projectDir != "" {
+		cmds = append(cmds, loadPickerSessionsCmd(m.projectDir, m.sessionCache))
 	}
 
 	// Poll git dirty state every 3 seconds regardless of JSONL activity.
@@ -422,9 +412,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Start picker directory watcher for live refresh.
-		// Derive project dir from the loaded session path, not the CWD.
-		if m.pickerWatcher == nil && m.sessionPath != "" {
-			pw := newPickerWatcher(filepath.Dir(m.sessionPath), m.sessionCache)
+		if m.pickerWatcher == nil && m.projectDir != "" {
+			pw := newPickerWatcher(m.projectDir, m.sessionCache)
 			go pw.run()
 			m.pickerWatcher = pw
 			cmds = append(cmds, waitForPickerRefresh(pw.sub))
@@ -706,16 +695,56 @@ Flags:
 		}
 	}
 
+	// Capture the directory tail-claude was invoked from for live git queries.
+	invokedFrom, _ := os.Getwd()
+
+	// Resolve the CWD's project directory once — this is the single source of
+	// truth for picker discovery and the picker watcher.
+	projectDir, _ := parser.CurrentProjectDir()
+
+	// When no explicit path was given, find the latest session within the
+	// CWD's project. No global fallback — if this project has no sessions,
+	// we show an empty picker (interactive) or exit (dump mode).
+	if sessionPath == "" && projectDir != "" {
+		if sessions, err := parser.DiscoverProjectSessions(projectDir); err == nil && len(sessions) > 0 {
+			sessionPath = sessions[0].Path
+		}
+	}
+
+	// Empty project, no session to show.
+	if sessionPath == "" {
+		if dumpMode {
+			fmt.Fprintln(os.Stderr, "No sessions found for this project.")
+			os.Exit(1)
+		}
+
+		// Bootstrap an empty picker that live-updates when sessions appear.
+		// Ensure the project directory exists so fsnotify can watch it.
+		if projectDir != "" {
+			os.MkdirAll(projectDir, 0o700)
+		}
+
+		m := initialModel(nil, hasDarkBg)
+		m.projectDir = projectDir
+		m.gitCwd = invokedFrom
+		m.sessionBranch = checkGitBranch(invokedFrom)
+		m.sessionDirty = checkGitDirty(invokedFrom)
+		m.sessionCache = parser.NewSessionCache()
+		m.view = viewPicker
+
+		p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+		if _, err := p.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	result, err := loadSession(sessionPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Capture the directory tail-claude was invoked from for live git queries.
-	// This correctly handles worktrees: if you run tail-claude from a worktree
-	// you see that worktree's branch and dirty state, not the main repo's.
-	invokedFrom, _ := os.Getwd()
 
 	if dumpMode {
 		width := maxContentWidth
@@ -740,7 +769,7 @@ Flags:
 		return
 	}
 
-	// Session metadata cache for the picker -- unchanged files skip rescanning.
+	// Session metadata cache for the picker — unchanged files skip rescanning.
 	sessionCache := parser.NewSessionCache()
 
 	// Start the file watcher for live tailing.
@@ -750,6 +779,7 @@ Flags:
 
 	m := initialModel(result.messages, hasDarkBg)
 	m.sessionPath = result.path
+	m.projectDir = projectDir
 	m.watching = true
 	m.watcher = watcher
 	m.tailSub = watcher.sub

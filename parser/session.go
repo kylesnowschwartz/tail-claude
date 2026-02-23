@@ -182,6 +182,13 @@ func CurrentProjectDir() (string, error) {
 		return "", err
 	}
 
+	// Resolve symlinks so the encoded path matches what Claude Code produces.
+	// On macOS, /tmp -> /private/tmp; without this, we'd look in a different
+	// project directory than where Claude actually stored the session files.
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = resolved
+	}
+
 	// If we're in a git worktree, the CWD differs from the main repo root.
 	// Claude stores sessions under the main repo path, so resolve it.
 	cwd = resolveGitRoot(cwd)

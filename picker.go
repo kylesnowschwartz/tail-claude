@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -44,13 +43,10 @@ func pickerTickCmd() tea.Cmd {
 	})
 }
 
-// loadPickerSessionsCmd discovers sessions for the project that owns the
-// given session file. Derives the project directory from the session path
-// rather than the process CWD, so the picker works from any directory.
+// loadPickerSessionsCmd discovers sessions in the given project directory.
 // When cache is non-nil, unchanged files return cached metadata.
-func loadPickerSessionsCmd(sessionPath string, cache *parser.SessionCache) tea.Cmd {
+func loadPickerSessionsCmd(projectDir string, cache *parser.SessionCache) tea.Cmd {
 	return func() tea.Msg {
-		projectDir := filepath.Dir(sessionPath)
 		var sessions []parser.SessionInfo
 		var err error
 		if cache != nil {
@@ -141,6 +137,10 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.pickerWatcher != nil {
 			m.pickerWatcher.stop()
 			m.pickerWatcher = nil
+		}
+		// No session loaded — nothing to go back to, so quit.
+		if len(m.messages) == 0 {
+			return m, tea.Quit
 		}
 		m.view = viewList
 		return m, nil
