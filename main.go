@@ -131,10 +131,15 @@ type model struct {
 	savedDetail *savedDetailState // parent detail state to restore on drill-back
 
 	// Session metadata (extracted once on load, displayed in info bar)
-	sessionCwd    string
-	sessionBranch string
-	sessionMode   string
-	sessionDirty  bool // true when git working tree has uncommitted changes
+	sessionCwd   string
+	sessionMode  string
+
+	// Live git context — based on where tail-claude is invoked from (os.Getwd),
+	// not the session's cwd. This correctly reflects worktrees and the user's
+	// actual current branch, rather than historical data from the JSONL.
+	gitCwd    string
+	sessionBranch string // current branch at gitCwd
+	sessionDirty  bool   // true when gitCwd working tree has uncommitted changes
 
 	// Footer toggle (? key)
 	showKeybinds bool
@@ -239,9 +244,9 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.sessionPath = result.path
 	m.sessionOngoing = result.ongoing
 	m.sessionCwd = result.meta.Cwd
-	m.sessionBranch = result.meta.GitBranch
+	m.sessionBranch = checkGitBranch(m.gitCwd)
 	m.sessionMode = result.meta.PermissionMode
-	m.sessionDirty = checkGitDirty(result.meta.Cwd)
+	m.sessionDirty = checkGitDirty(m.gitCwd)
 	m.animFrame = 0
 	m.view = viewList
 	m.layoutList()
@@ -322,7 +327,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.permissionMode != "" {
 			m.sessionMode = msg.permissionMode
 		}
-		m.sessionDirty = checkGitDirty(m.sessionCwd)
+		m.sessionDirty = checkGitDirty(m.gitCwd)
 
 		// Clamp cursor if the message list somehow shrank.
 		if m.cursor >= len(m.messages) && len(m.messages) > 0 {
@@ -684,6 +689,11 @@ Flags:
 		os.Exit(1)
 	}
 
+	// Capture the directory tail-claude was invoked from for live git queries.
+	// This correctly handles worktrees: if you run tail-claude from a worktree
+	// you see that worktree's branch and dirty state, not the main repo's.
+	invokedFrom, _ := os.Getwd()
+
 	if dumpMode {
 		width := maxContentWidth
 		if dumpWidth > 0 {
@@ -692,10 +702,11 @@ Flags:
 		m := initialModel(result.messages, hasDarkBg)
 		m.width = width
 		m.height = 1_000_000
+		m.gitCwd = invokedFrom
 		m.sessionCwd = result.meta.Cwd
-		m.sessionBranch = result.meta.GitBranch
+		m.sessionBranch = checkGitBranch(invokedFrom)
 		m.sessionMode = result.meta.PermissionMode
-		m.sessionDirty = checkGitDirty(result.meta.Cwd)
+		m.sessionDirty = checkGitDirty(invokedFrom)
 		if expandAll {
 			for i := range m.messages {
 				m.expanded[i] = true
@@ -718,10 +729,11 @@ Flags:
 	m.tailSub = watcher.sub
 	m.tailErrc = watcher.errc
 	m.sessionOngoing = result.ongoing
+	m.gitCwd = invokedFrom
 	m.sessionCwd = result.meta.Cwd
-	m.sessionBranch = result.meta.GitBranch
+	m.sessionBranch = checkGitBranch(invokedFrom)
 	m.sessionMode = result.meta.PermissionMode
-	m.sessionDirty = checkGitDirty(result.meta.Cwd)
+	m.sessionDirty = checkGitDirty(invokedFrom)
 
 	// When the session was auto-discovered (no explicit path) and it's stale,
 	// start on the picker so the user can choose instead of seeing old output.
