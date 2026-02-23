@@ -468,6 +468,13 @@ func scanSessionMetadata(path string) sessionMetadata {
 		meta.firstMsg = strings.ReplaceAll(meta.firstMsg, "\n", " ")
 	}
 
+	// Default permissionMode when absent. Some Claude Code sessions omit the
+	// field entirely (inconsistent serialization). "default" is the correct
+	// label -- the session ran under the user's default permission mode.
+	if meta.permissionMode == "" {
+		meta.permissionMode = "default"
+	}
+
 	// Finalize ongoing detection.
 	if lastEndingIndex == -1 {
 		meta.isOngoing = hasAnyOngoingActivity
