@@ -4,18 +4,9 @@ A terminal UI for reading Claude Code session JSONL files. Built with Go and [Bu
 
 Reads session logs from `~/.claude/` and renders them as a scrollable conversation with expandable tool calls, token counts, and live tailing.
 
-<table>
-<tr>
-<td><img src="screenshots/picker.png" alt="Session picker" width="360" /></td>
-<td><img src="screenshots/detail.png" alt="Detail view" width="360" /></td>
-<td><img src="screenshots/conversation.png" alt="Conversation view" width="360" /></td>
-</tr>
-<tr>
-<td align="center"><sub>Session picker</sub></td>
-<td align="center"><sub>Detail view</sub></td>
-<td align="center"><sub>Conversation view</sub></td>
-</tr>
-</table>
+<p align="center">
+  <img src="demo.gif" alt="tail-claude demo" width="600" />
+</p>
 
 ## Requirements
 
