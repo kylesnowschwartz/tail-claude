@@ -545,8 +545,10 @@ func TestClassify_TeammateMessageExtractsContent(t *testing.T) {
 // --- CompactMsg classification tests ---
 
 func TestClassify_SummaryProducesCompactMsg(t *testing.T) {
+	// Summary entries carry text in the top-level "summary" field, not message.content.
 	e := makeEntry("summary", "s1", "2025-01-15T10:00:00Z",
-		json.RawMessage(`"conversation summary text"`))
+		json.RawMessage(`""`),
+		func(e *parser.Entry) { e.Summary = "conversation summary text" })
 
 	msg, ok := parser.Classify(e)
 	if !ok {

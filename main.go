@@ -205,9 +205,7 @@ func loadSession(path string) (loadResult, error) {
 
 	// Discover and link subagent execution traces.
 	subagents, _ := parser.DiscoverSubagents(path)
-	teamSessions, _ := parser.DiscoverTeamSessions(path, chunks)
-	allSubagents := append(subagents, teamSessions...)
-	parser.LinkSubagents(allSubagents, chunks, path)
+	parser.LinkSubagents(subagents, chunks, path)
 
 	ongoing := parser.IsOngoing(chunks)
 	if ongoing {
@@ -219,12 +217,12 @@ func loadSession(path string) (loadResult, error) {
 	}
 
 	return loadResult{
-		messages:     chunksToMessages(chunks, allSubagents),
+		messages:     chunksToMessages(chunks, subagents),
 		path:         path,
 		classified:   classified,
 		offset:       offset,
 		ongoing:      ongoing,
-		hasTeamTasks: len(teamSessions) > 0 || hasTeamTaskItems(chunks),
+		hasTeamTasks: hasTeamTaskItems(chunks),
 		meta:         parser.ExtractSessionMeta(path),
 	}, nil
 }

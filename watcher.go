@@ -197,16 +197,14 @@ func (w *sessionWatcher) readAndRebuild() {
 	chunks := parser.BuildChunks(w.allClassified)
 
 	subagents, _ := parser.DiscoverSubagents(w.path)
-	teamSessions, _ := parser.DiscoverTeamSessions(w.path, chunks)
-	allSubagents := append(subagents, teamSessions...)
-	parser.LinkSubagents(allSubagents, chunks, w.path)
+	parser.LinkSubagents(subagents, chunks, w.path)
 
 	// Track whether we have team tasks so directory watches know
 	// whether to trigger rebuilds for new .jsonl files.
-	w.hasTeamTasks = len(teamSessions) > 0 || hasTeamTaskItems(chunks)
+	w.hasTeamTasks = hasTeamTaskItems(chunks)
 
 	update := tailUpdate{
-		messages:       chunksToMessages(chunks, allSubagents),
+		messages:       chunksToMessages(chunks, subagents),
 		ongoing:        parser.IsOngoing(chunks),
 		permissionMode: permissionMode,
 	}
@@ -223,7 +221,6 @@ func (w *sessionWatcher) readAndRebuild() {
 		w.sub <- update
 	}
 }
-
 
 // waitForTailUpdate blocks on the subscription channel and wraps the result
 // in a tailUpdateMsg for the Bubble Tea runtime. Returns nil when the

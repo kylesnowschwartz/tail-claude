@@ -243,16 +243,16 @@ func makeTeamTaskChunk(toolID, subagentType, desc, teamName, memberName string) 
 	}
 }
 
-// makeTeamSubagent builds a SubagentProcess with AgentName and TeamName
-// set for team matching. Simulates a team member session file.
-func makeTeamSubagent(id string, startTime time.Time, agentName, teamName string) parser.SubagentProcess {
+// makeTeamSubagentWithSummary builds a SubagentProcess whose first UserChunk
+// contains a <teammate-message summary="..."> tag, matching real JSONL format.
+// Phase 2 matches by comparing this summary to the Task call's SubagentDesc.
+func makeTeamSubagentWithSummary(id string, startTime time.Time, summary string) parser.SubagentProcess {
+	userText := fmt.Sprintf(`<teammate-message teammate_id="leader" summary="%s" color="#ff0000">Do the thing</teammate-message>`, summary)
 	return parser.SubagentProcess{
 		ID:        id,
 		StartTime: startTime,
-		AgentName: agentName,
-		TeamName:  teamName,
 		Chunks: []parser.Chunk{
-			{Type: parser.UserChunk, Timestamp: startTime, UserText: `<teammate-message teammate_id="leader" color="#ff0000">Do the thing</teammate-message>`},
+			{Type: parser.UserChunk, Timestamp: startTime, UserText: userText},
 			{Type: parser.AIChunk, Timestamp: startTime.Add(time.Second), Model: "claude-haiku-4-5"},
 		},
 	}
@@ -432,9 +432,9 @@ func TestLinkSubagents_MixedMatching(t *testing.T) {
 // --- Phase 2: Team member linking tests ---
 
 func TestLinkSubagents_TeamMatching(t *testing.T) {
-	// Team subagent matched by AgentName+TeamName to the Task call's name+team_name.
+	// Team subagent matched by <teammate-message summary="..."> to Task call's description.
 	procs := []parser.SubagentProcess{
-		makeTeamSubagent("team-agent-1", time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), "implementer", "my-project"),
+		makeTeamSubagentWithSummary("team-agent-1", time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), "Implement feature"),
 	}
 	chunks := []parser.Chunk{
 		makeTeamTaskChunk("tool-t1", "general-purpose", "Implement feature", "my-project", "implementer"),
@@ -458,11 +458,11 @@ func TestLinkSubagents_TeamMatching(t *testing.T) {
 }
 
 func TestLinkSubagents_TeamMatchingMultiple(t *testing.T) {
-	// Two team subagents, each with different agentName. Must match to the
-	// correct Task call by agentName+teamName, not by position.
+	// Two team subagents with different summaries. Must match to the
+	// correct Task call by summary content, not by position.
 	procs := []parser.SubagentProcess{
-		makeTeamSubagent("agent-b", time.Date(2025, 6, 15, 10, 1, 0, 0, time.UTC), "tester", "proj"),
-		makeTeamSubagent("agent-a", time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), "fixer", "proj"),
+		makeTeamSubagentWithSummary("agent-b", time.Date(2025, 6, 15, 10, 1, 0, 0, time.UTC), "Write tests"),
+		makeTeamSubagentWithSummary("agent-a", time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), "Fix the bug"),
 	}
 	chunks := []parser.Chunk{
 		makeTeamTaskChunk("tool-fix", "general-purpose", "Fix the bug", "proj", "fixer"),
@@ -475,18 +475,18 @@ func TestLinkSubagents_TeamMatchingMultiple(t *testing.T) {
 
 	parser.LinkSubagents(procs, chunks, parentPath)
 
-	// agent-a (agentName "fixer") -> tool-fix
+	// agent-a (summary "Fix the bug") -> tool-fix
 	if procs[1].ParentTaskID != "tool-fix" {
 		t.Errorf("agent-a.ParentTaskID = %q, want %q", procs[1].ParentTaskID, "tool-fix")
 	}
-	// agent-b (agentName "tester") -> tool-test
+	// agent-b (summary "Write tests") -> tool-test
 	if procs[0].ParentTaskID != "tool-test" {
 		t.Errorf("agent-b.ParentTaskID = %q, want %q", procs[0].ParentTaskID, "tool-test")
 	}
 }
 
-func TestLinkSubagents_TeamNoNameFallsThrough(t *testing.T) {
-	// Subagent without AgentName/TeamName won't match via Phase 2.
+func TestLinkSubagents_TeamNoSummaryFallsThrough(t *testing.T) {
+	// Subagent without <teammate-message> won't match via Phase 2.
 	// Since the only Task call is a team task, it won't match positionally either
 	// (Phase 3 excludes team tasks).
 	procs := []parser.SubagentProcess{
@@ -516,11 +516,11 @@ func TestLinkSubagents_TeamNoNameFallsThrough(t *testing.T) {
 
 func TestLinkSubagents_AllThreePhases(t *testing.T) {
 	// Phase 1: regular subagent matched by agentId.
-	// Phase 2: team subagent matched by agentName+teamName.
+	// Phase 2: team subagent matched by summary -> description.
 	// Phase 3: positional fallback for remaining non-team task.
 	procs := []parser.SubagentProcess{
 		{ID: "regular-1", StartTime: time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)},
-		makeTeamSubagent("team-1", time.Date(2025, 6, 15, 10, 1, 0, 0, time.UTC), "researcher", "proj"),
+		makeTeamSubagentWithSummary("team-1", time.Date(2025, 6, 15, 10, 1, 0, 0, time.UTC), "Research topic"),
 		{ID: "orphan-1", StartTime: time.Date(2025, 6, 15, 10, 2, 0, 0, time.UTC)},
 	}
 
@@ -541,7 +541,7 @@ func TestLinkSubagents_AllThreePhases(t *testing.T) {
 	if procs[0].ParentTaskID != "tool-regular" {
 		t.Errorf("regular-1.ParentTaskID = %q, want %q", procs[0].ParentTaskID, "tool-regular")
 	}
-	// Phase 2: team-1 -> tool-team (matched by agentName+teamName)
+	// Phase 2: team-1 -> tool-team (matched by summary)
 	if procs[1].ParentTaskID != "tool-team" {
 		t.Errorf("team-1.ParentTaskID = %q, want %q", procs[1].ParentTaskID, "tool-team")
 	}
@@ -552,10 +552,10 @@ func TestLinkSubagents_AllThreePhases(t *testing.T) {
 }
 
 func TestLinkSubagents_TeamEarliestWins(t *testing.T) {
-	// Two subagents with the same agentName+teamName. Earliest by StartTime wins.
+	// Two subagents with the same summary. Earliest by StartTime wins.
 	procs := []parser.SubagentProcess{
-		makeTeamSubagent("late", time.Date(2025, 6, 15, 10, 5, 0, 0, time.UTC), "worker", "proj"),
-		makeTeamSubagent("early", time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), "worker", "proj"),
+		makeTeamSubagentWithSummary("late", time.Date(2025, 6, 15, 10, 5, 0, 0, time.UTC), "Do work"),
+		makeTeamSubagentWithSummary("early", time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), "Do work"),
 	}
 	chunks := []parser.Chunk{
 		makeTeamTaskChunk("tool-1", "general-purpose", "Do work", "proj", "worker"),
@@ -576,119 +576,112 @@ func TestLinkSubagents_TeamEarliestWins(t *testing.T) {
 	}
 }
 
-// --- DiscoverTeamSessions tests ---
+// --- extractTeamMessageSummary tests ---
 
-// writeTeamSession creates a JSONL file with agentName and teamName on entries.
-func writeTeamSession(t *testing.T, dir, filename, agentName, teamName string) string {
-	t.Helper()
-	path := filepath.Join(dir, filename)
-	// Two entries: user + assistant, both with agentName/teamName.
-	lines := []string{
-		fmt.Sprintf(`{"uuid":"u1","type":"user","timestamp":"2025-06-15T10:00:00Z","agentName":%q,"teamName":%q,"message":{"role":"user","content":"hello"}}`, agentName, teamName),
-		fmt.Sprintf(`{"uuid":"a1","type":"assistant","timestamp":"2025-06-15T10:00:05Z","agentName":%q,"teamName":%q,"message":{"role":"assistant","model":"claude-haiku-4-5","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":10,"output_tokens":5}}}`, agentName, teamName),
-	}
-	content := strings.Join(lines, "\n") + "\n"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-func TestDiscoverTeamSessions_FindsMembers(t *testing.T) {
-	dir := t.TempDir()
-
-	// Parent session file.
-	parentPath := filepath.Join(dir, "parent-session.jsonl")
-	if err := os.WriteFile(parentPath, []byte(`{"uuid":"p1","type":"user","timestamp":"2025-06-15T09:00:00Z","message":{"role":"user","content":"start"}}`+"\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Team member session files.
-	writeTeamSession(t, dir, "team-member-1.jsonl", "researcher", "my-team")
-	writeTeamSession(t, dir, "team-member-2.jsonl", "implementer", "my-team")
-
-	// Unrelated session (no agentName/teamName) — should be skipped.
-	unrelated := filepath.Join(dir, "unrelated.jsonl")
-	if err := os.WriteFile(unrelated, []byte(`{"uuid":"x","type":"user","timestamp":"2025-06-15T09:00:00Z","message":{"role":"user","content":"hi"}}`+"\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Parent chunks with team Task calls.
-	chunks := []parser.Chunk{
-		makeTeamTaskChunk("tool-r", "Explore", "Research stuff", "my-team", "researcher"),
-		makeTeamTaskChunk("tool-i", "general-purpose", "Implement feature", "my-team", "implementer"),
-	}
-
-	procs, err := parser.DiscoverTeamSessions(parentPath, chunks)
-	if err != nil {
-		t.Fatalf("DiscoverTeamSessions error: %v", err)
+func TestExtractTeamMessageSummary(t *testing.T) {
+	tests := []struct {
+		name   string
+		chunks []parser.Chunk
+		want   string
+	}{
+		{
+			name: "extracts summary from teammate-message tag",
+			chunks: []parser.Chunk{
+				{Type: parser.UserChunk, UserText: `<teammate-message teammate_id="leader" summary="Implement feature" color="#ff0000">Do stuff</teammate-message>`},
+			},
+			want: "Implement feature",
+		},
+		{
+			name: "no teammate-message tag",
+			chunks: []parser.Chunk{
+				{Type: parser.UserChunk, UserText: "Just a regular user message"},
+			},
+			want: "",
+		},
+		{
+			name: "teammate-message without summary attribute",
+			chunks: []parser.Chunk{
+				{Type: parser.UserChunk, UserText: `<teammate-message teammate_id="leader" color="#ff0000">Do stuff</teammate-message>`},
+			},
+			want: "",
+		},
+		{
+			name:   "empty chunks",
+			chunks: nil,
+			want:   "",
+		},
+		{
+			name: "only AI chunks, no user chunk",
+			chunks: []parser.Chunk{
+				{Type: parser.AIChunk, Model: "claude-haiku-4-5"},
+			},
+			want: "",
+		},
 	}
 
-	if len(procs) != 2 {
-		t.Fatalf("got %d team sessions, want 2", len(procs))
-	}
-
-	// Both should have AgentName and TeamName set.
-	for _, p := range procs {
-		if p.AgentName == "" || p.TeamName == "" {
-			t.Errorf("proc %s: AgentName=%q, TeamName=%q — both should be set", p.ID, p.AgentName, p.TeamName)
-		}
-		if p.TeamName != "my-team" {
-			t.Errorf("proc %s: TeamName=%q, want %q", p.ID, p.TeamName, "my-team")
-		}
-		if len(p.Chunks) == 0 {
-			t.Errorf("proc %s: has 0 chunks", p.ID)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parser.ExtractTeamMessageSummary(tt.chunks)
+			if got != tt.want {
+				t.Errorf("ExtractTeamMessageSummary() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestDiscoverTeamSessions_SkipsParentAndAgentFiles(t *testing.T) {
-	dir := t.TempDir()
-
-	// Parent session.
-	parentPath := filepath.Join(dir, "parent.jsonl")
-	if err := os.WriteFile(parentPath, []byte(`{"uuid":"p1","type":"user","timestamp":"2025-06-15T09:00:00Z","agentName":"","teamName":"my-team","message":{"role":"user","content":"start"}}`+"\n"), 0644); err != nil {
-		t.Fatal(err)
+func TestLinkSubagents_TeamContinuationFile(t *testing.T) {
+	// Continuation files have <teammate-message> but no summary attribute.
+	// They should NOT false-match to a team Task call.
+	procs := []parser.SubagentProcess{
+		{
+			ID:        "continuation-1",
+			StartTime: time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC),
+			Chunks: []parser.Chunk{
+				{Type: parser.UserChunk, UserText: `<teammate-message teammate_id="leader" color="#ff0000">Continue working</teammate-message>`},
+				{Type: parser.AIChunk, Model: "claude-haiku-4-5"},
+			},
+		},
 	}
-
-	// An agent-* file (regular subagent) — should be skipped.
-	agentPath := filepath.Join(dir, "agent-abc123.jsonl")
-	if err := os.WriteFile(agentPath, []byte(`{"uuid":"a1","type":"user","timestamp":"2025-06-15T10:00:00Z","agentName":"worker","teamName":"my-team","message":{"role":"user","content":"hi"}}`+"\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
 	chunks := []parser.Chunk{
-		makeTeamTaskChunk("tool-1", "general-purpose", "Do work", "my-team", "worker"),
+		makeTeamTaskChunk("tool-t1", "general-purpose", "Do work", "proj", "worker"),
 	}
 
-	procs, err := parser.DiscoverTeamSessions(parentPath, chunks)
-	if err != nil {
-		t.Fatalf("DiscoverTeamSessions error: %v", err)
-	}
+	parentPath := writeParentSession(t, []string{
+		`{"uuid":"x","type":"user","timestamp":"2025-01-01T00:00:00Z","message":{"role":"user","content":"hi"}}`,
+	})
 
-	// Should find nothing — parent is skipped, agent-* is skipped.
-	if len(procs) != 0 {
-		t.Errorf("got %d team sessions, want 0", len(procs))
+	parser.LinkSubagents(procs, chunks, parentPath)
+
+	// Should remain unmatched -- no summary to compare.
+	if procs[0].ParentTaskID != "" {
+		t.Errorf("continuation.ParentTaskID = %q, want empty", procs[0].ParentTaskID)
 	}
 }
 
-func TestDiscoverTeamSessions_NoTeamTasks(t *testing.T) {
-	dir := t.TempDir()
-	parentPath := filepath.Join(dir, "parent.jsonl")
-	if err := os.WriteFile(parentPath, []byte(`{"uuid":"p1","type":"user","timestamp":"2025-06-15T09:00:00Z","message":{"role":"user","content":"start"}}`+"\n"), 0644); err != nil {
-		t.Fatal(err)
+func TestLinkSubagents_TeamAndRegularMixed(t *testing.T) {
+	// One regular subagent (Phase 1) + one team agent (Phase 2) in same session.
+	procs := []parser.SubagentProcess{
+		{ID: "regular-1", StartTime: time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)},
+		makeTeamSubagentWithSummary("team-1", time.Date(2025, 6, 15, 10, 1, 0, 0, time.UTC), "Research docs"),
 	}
 
-	// No team task chunks — should return nil immediately.
 	chunks := []parser.Chunk{
-		makeTaskChunk("tool-1", "Explore", "Search code"),
+		makeTaskChunk("tool-regular", "Explore", "Search code"),
+		makeTeamTaskChunk("tool-team", "general-purpose", "Research docs", "proj", "researcher"),
 	}
 
-	procs, err := parser.DiscoverTeamSessions(parentPath, chunks)
-	if err != nil {
-		t.Fatalf("DiscoverTeamSessions error: %v", err)
+	parentPath := writeParentSession(t, []string{
+		`{"uuid":"r1","type":"user","timestamp":"2025-06-15T10:00:05Z","isMeta":true,"sourceToolUseID":"tool-regular","toolUseResult":{"agentId":"regular-1","status":"completed"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-regular","content":"Done."}]}}`,
+	})
+
+	parser.LinkSubagents(procs, chunks, parentPath)
+
+	// Phase 1: regular subagent linked by agentId.
+	if procs[0].ParentTaskID != "tool-regular" {
+		t.Errorf("regular-1.ParentTaskID = %q, want %q", procs[0].ParentTaskID, "tool-regular")
 	}
-	if len(procs) != 0 {
-		t.Errorf("got %d team sessions, want 0", len(procs))
+	// Phase 2: team subagent linked by summary match.
+	if procs[1].ParentTaskID != "tool-team" {
+		t.Errorf("team-1.ParentTaskID = %q, want %q", procs[1].ParentTaskID, "tool-team")
 	}
 }
