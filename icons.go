@@ -28,26 +28,26 @@ func (s StyledIcon) WithColor(c lipgloss.AdaptiveColor) string {
 // Requires a Nerd Font patched terminal font (e.g. JetBrains Mono Nerd Font).
 // Codepoints from Font Awesome (U+F000-U+F2E0) and Material Design (U+F0001+).
 var (
-	IconClaude    = StyledIcon{"󱙺", ColorInfo}
-	IconUser      = StyledIcon{"", ColorTextSecondary}
-	IconSystem    = StyledIcon{"", ColorTextMuted}
-	IconExpanded  = StyledIcon{"", ColorTextPrimary}
-	IconCollapsed = StyledIcon{"", ColorTextDim}
-	IconDrillDown = StyledIcon{"", ColorAccent}
-	IconThinking  = StyledIcon{"", ColorTextDim}
-	IconOutput    = StyledIcon{"󰆂", ColorAccent}
-	IconToolOk    = StyledIcon{"󰯠", ColorTextDim}
-	IconToolErr   = StyledIcon{"󰯠", ColorError}
-	IconBashErr   = StyledIcon{"", ColorError}
-	IconSubagent  = StyledIcon{"󱙺", ColorAccent}
-	IconTeammate  = StyledIcon{"󱙺", ColorAccent}
-	IconSelected  = StyledIcon{"\u2502", ColorAccent}
-	IconToken     = StyledIcon{"", ColorTextDim}
-	IconClock     = StyledIcon{"", ColorTextDim}
-	IconDot       = StyledIcon{"\u00B7", ColorTextMuted}
 	IconChat      = StyledIcon{"\uF086", ColorTextDim}
+	IconClaude    = StyledIcon{"󱙺", ColorInfo}
+	IconClock     = StyledIcon{"", ColorTextDim}
+	IconCollapsed = StyledIcon{"", ColorTextDim}
+	IconDot       = StyledIcon{"\u00B7", ColorTextMuted}
+	IconDrillDown = StyledIcon{"", ColorAccent}
 	IconEllipsis  = StyledIcon{"\u2026", ColorTextDim}
+	IconExpanded  = StyledIcon{"", ColorTextPrimary}
+	IconOutput    = StyledIcon{"󰆂", ColorAccent}
+	IconSelected  = StyledIcon{"\u2502", ColorAccent}
 	IconSession   = StyledIcon{"󰈷", ColorTextDim}
+	IconSubagent  = StyledIcon{"󱙺", ColorAccent}
+	IconSystem    = StyledIcon{"", ColorTextMuted}
+	IconSystemErr = StyledIcon{"", ColorError}
+	IconTeammate  = StyledIcon{"󱙺", ColorAccent}
+	IconThinking  = StyledIcon{"", ColorTextDim}
+	IconToken     = StyledIcon{"", ColorTextDim}
+	IconToolErr   = StyledIcon{"󰯠", ColorError}
+	IconToolOk    = StyledIcon{"󰯠", ColorTextDim}
+	IconUser      = StyledIcon{"", ColorTextSecondary}
 )
 
 // Plain glyphs -- used as raw strings (never styled via StyledIcon).

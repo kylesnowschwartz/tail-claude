@@ -353,7 +353,7 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 
 	icon := IconSystem
 	if msg.isError {
-		icon = IconBashErr
+		icon = IconSystemErr
 	}
 	sysIcon := icon.Render()
 
