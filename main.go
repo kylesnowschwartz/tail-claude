@@ -499,10 +499,16 @@ func (m model) viewList() string {
 		lines = lines[m.scroll:]
 	}
 
-	// Truncate to viewport height
+	// Truncate to viewport height; pad to (viewport+1) so the total output
+	// fills exactly m.height lines and the footer anchors to the screen bottom.
+	// The +1 offsets the -1 built into listViewHeight.
 	viewHeight := m.listViewHeight()
+	padTarget := viewHeight + 1
 	if len(lines) > viewHeight {
 		lines = lines[:viewHeight]
+	}
+	for len(lines) < padTarget {
+		lines = append(lines, "")
 	}
 
 	output := strings.Join(lines, "\n")
@@ -562,6 +568,11 @@ func (m model) viewDetail() string {
 	}
 	if len(lines) > viewHeight {
 		lines = lines[:viewHeight]
+	}
+	// Pad so total output fills m.height: detailViewHeight has no -1, so
+	// padding to exactly viewHeight leaves footer flush with the screen bottom.
+	for len(lines) < viewHeight {
+		lines = append(lines, "")
 	}
 
 	output := strings.Join(lines, "\n")

@@ -35,8 +35,17 @@ const maxCollapsedLines = 12
 // (rounded border: top + content + bottom = 3 lines).
 const keybindBarHeight = 3
 
-// infoBarHeight is the rendered line count of the session info bar (1 line).
-const infoBarHeight = 1
+// infoBarLines returns the rendered line count of the session info bar.
+// Colored modes (bypassPermissions, acceptEdits, plan) render a 3-line
+// RoundedBorder chip; default mode renders a plain 1-line bar.
+func (m model) infoBarLines() int {
+	switch m.sessionMode {
+	case "bypassPermissions", "acceptEdits", "plan":
+		return 3
+	default:
+		return 1
+	}
+}
 
 // detailItemTokWidth is the fixed column width for token counts in the detail
 // item row right side. Fits "~9.9k tok" (9 chars); right-aligns smaller values.
@@ -789,7 +798,7 @@ func (m model) activityIndicatorHeight() int {
 // footerHeight returns the total footer line count: info bar (always) +
 // keybind hints (when showKeybinds is true).
 func (m model) footerHeight() int {
-	h := infoBarHeight
+	h := m.infoBarLines()
 	if m.showKeybinds {
 		h += keybindBarHeight
 	}
@@ -866,62 +875,56 @@ func (m model) renderActivityIndicator(width int) string {
 
 // -- Info bar -----------------------------------------------------------------
 
-// renderModePill renders the permission mode as a single-line rounded pill using
-// Nerd Font powerline half-circle glyphs as caps.
+// renderModeBadge renders the permission mode as a 3-line RoundedBorder chip.
+// Returns an empty string for default/unknown modes (caller falls back to plain text).
 //
-//	GlyphPillLeft + [bg-colored " label "] + GlyphPillRight
-//
-// The cap glyphs share the pill foreground color; the center fill carries the
-// background. Together they create a seamless rounded pill on one line.
-// bypassPermissions -> red, acceptEdits -> purple, plan -> green, default -> plain muted text.
-func renderModePill(mode string) string {
+//	╭──────────╮
+//	│ auto-edit │
+//	╰──────────╯
+func renderModeBadge(mode string) string {
 	label := shortMode(mode)
-	var bg lipgloss.AdaptiveColor
+	var color lipgloss.AdaptiveColor
 	switch mode {
 	case "bypassPermissions":
-		bg = ColorPillBypass
+		color = ColorPillBypass
 	case "acceptEdits":
-		bg = ColorPillAcceptEdits
+		color = ColorPillAcceptEdits
 	case "plan":
-		bg = ColorPillPlan
+		color = ColorPillPlan
 	default:
-		return StyleMuted.Render(label)
+		return ""
 	}
-	fg := lipgloss.AdaptiveColor{Light: "15", Dark: "15"} // white pill text
-	capStyle := lipgloss.NewStyle().Foreground(bg)
-	midStyle := lipgloss.NewStyle().Background(bg).Foreground(fg)
-	return capStyle.Render(GlyphPillLeft) +
-		midStyle.Render(" "+label+" ") +
-		capStyle.Render(GlyphPillRight)
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(color).
+		Foreground(color).
+		Padding(0, 1).
+		Render(label)
 }
 
-// renderInfoBar renders a single-line session metadata bar.
-// Layout: " project  branch  mode              42% ctx"
+// renderInfoBar renders the session metadata bar.
+//
+// When a colored mode badge is active the bar is 3 lines: a RoundedBorder chip
+// on the left, with project/branch/context% vertically centered on the middle
+// row beside it. Otherwise it collapses to a single line.
 func (m model) renderInfoBar() string {
 	sep := " " + IconDot.Render() + " "
-	var left []string
 
-	// Project name from cwd
+	// Build left metadata parts (path, branch).
+	var leftParts []string
 	if proj := shortPath(m.sessionCwd); proj != "" {
-		left = append(left, StyleSecondary.Render(proj))
+		leftParts = append(leftParts, StyleSecondary.Render(proj))
 	}
-
-	// Git branch with optional dirty indicator
 	if m.sessionBranch != "" {
 		branch := StyleDim.Render(m.sessionBranch)
 		if m.sessionDirty {
 			branch += lipgloss.NewStyle().Foreground(ColorContextWarn).Render("*")
 		}
-		left = append(left, branch)
+		leftParts = append(leftParts, branch)
 	}
 
-	// Permission mode pill
-	if m.sessionMode != "" {
-		left = append(left, renderModePill(m.sessionMode))
-	}
-
-	// Context usage (right-aligned)
-	var right string
+	// Context usage percentage (right-aligned).
+	var rightStr string
 	if pct := contextPercent(m.messages); pct >= 0 {
 		var color lipgloss.AdaptiveColor
 		switch {
@@ -932,14 +935,37 @@ func (m model) renderInfoBar() string {
 		default:
 			color = ColorContextOk
 		}
-		right = lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%d%% ctx", pct))
+		rightStr = lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%d%% ctx", pct))
 	}
 
-	leftStr := strings.Join(left, sep)
-	if right != "" {
-		return spaceBetween(" "+leftStr, right+" ", m.width)
+	badge := renderModeBadge(m.sessionMode)
+
+	if badge == "" {
+		// No badge: single-line layout with mode as plain muted text.
+		if m.sessionMode != "" {
+			leftParts = append(leftParts, StyleMuted.Render(shortMode(m.sessionMode)))
+		}
+		leftStr := strings.Join(leftParts, sep)
+		if rightStr != "" {
+			return spaceBetween(" "+leftStr, rightStr+" ", m.width)
+		}
+		return " " + leftStr
 	}
-	return " " + leftStr
+
+	// Badge active: 3-line layout.
+	// Badge occupies the left column; metadata is a single line placed beside
+	// it using JoinHorizontal(Center), which vertically centers the 1-line
+	// string at the middle row of the 3-line badge.
+	leftStr := strings.Join(leftParts, sep)
+	badgeWidth := lipgloss.Width(badge)
+	remainingWidth := m.width - badgeWidth
+	var metaLine string
+	if rightStr != "" {
+		metaLine = spaceBetween(" "+leftStr, rightStr+" ", remainingWidth)
+	} else {
+		metaLine = " " + leftStr
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Center, badge, metaLine)
 }
 
 // renderFooter builds the complete footer: info bar + optional keybind hints.
