@@ -47,10 +47,17 @@ func pickerTickCmd() tea.Cmd {
 // loadPickerSessionsCmd discovers sessions for the project that owns the
 // given session file. Derives the project directory from the session path
 // rather than the process CWD, so the picker works from any directory.
-func loadPickerSessionsCmd(sessionPath string) tea.Cmd {
+// When cache is non-nil, unchanged files return cached metadata.
+func loadPickerSessionsCmd(sessionPath string, cache *parser.SessionCache) tea.Cmd {
 	return func() tea.Msg {
 		projectDir := filepath.Dir(sessionPath)
-		sessions, err := parser.DiscoverProjectSessions(projectDir)
+		var sessions []parser.SessionInfo
+		var err error
+		if cache != nil {
+			sessions, err = cache.DiscoverProjectSessions(projectDir)
+		} else {
+			sessions, err = parser.DiscoverProjectSessions(projectDir)
+		}
 		return pickerSessionsMsg{sessions: sessions, err: err}
 	}
 }
@@ -324,13 +331,9 @@ func (m model) pickerItemHeight(index int) int {
 }
 
 // pickerIsFirstHeader returns true if index is the first header in the items list.
+// rebuildPickerItems always starts with a header, so this reduces to index == 0.
 func (m model) pickerIsFirstHeader(index int) bool {
-	for i := 0; i < index; i++ {
-		if m.pickerItems[i].typ == pickerItemHeader {
-			return false
-		}
-	}
-	return true
+	return index == 0
 }
 
 // pickerTotalLines returns the total line count of all picker items.
@@ -483,7 +486,6 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	if isSelected {
 		previewColor = ColorTextSecondary
 	}
-
 
 	previewMaxWidth := innerWidth
 	if s.IsOngoing {

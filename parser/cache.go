@@ -1,0 +1,109 @@
+package parser
+
+import (
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+// SessionCache avoids rescanning unchanged session files on every picker
+// refresh. The cache key is (path, modTime) — when a file's modification
+// time changes, we rescan it. Files that haven't been touched since the
+// last check return cached metadata immediately.
+type SessionCache struct {
+	mu      sync.Mutex
+	entries map[string]cachedSession
+}
+
+type cachedSession struct {
+	modTime time.Time
+	meta    sessionMetadata
+}
+
+// NewSessionCache returns an empty cache ready for use.
+func NewSessionCache() *SessionCache {
+	return &SessionCache{
+		entries: make(map[string]cachedSession),
+	}
+}
+
+// getOrScan returns cached metadata when the file hasn't changed (same modTime),
+// otherwise rescans and updates the cache.
+func (c *SessionCache) getOrScan(path string, modTime time.Time) sessionMetadata {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if cached, ok := c.entries[path]; ok && cached.modTime.Equal(modTime) {
+		return cached.meta
+	}
+
+	meta := scanSessionMetadata(path)
+	c.entries[path] = cachedSession{modTime: modTime, meta: meta}
+	return meta
+}
+
+// DiscoverProjectSessions finds all session .jsonl files in a project directory,
+// using cached metadata for unchanged files. Same logic as the standalone
+// DiscoverProjectSessions but avoids redundant file scans across refreshes.
+func (c *SessionCache) DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []SessionInfo
+	for _, de := range entries {
+		if de.IsDir() {
+			continue
+		}
+		name := de.Name()
+		if !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		if strings.HasPrefix(name, "agent_") {
+			continue
+		}
+
+		info, err := de.Info()
+		if err != nil {
+			continue
+		}
+
+		path := filepath.Join(projectDir, name)
+		meta := c.getOrScan(path, info.ModTime())
+
+		// Skip ghost sessions (e.g. only file-history-snapshot entries).
+		if meta.turnCount == 0 {
+			continue
+		}
+
+		isOngoing := meta.isOngoing
+		if isOngoing && time.Since(info.ModTime()) > OngoingStalenessThreshold {
+			isOngoing = false
+		}
+
+		sessions = append(sessions, SessionInfo{
+			Path:           path,
+			SessionID:      strings.TrimSuffix(name, ".jsonl"),
+			ModTime:        info.ModTime(),
+			FirstMessage:   meta.firstMsg,
+			TurnCount:      meta.turnCount,
+			IsOngoing:      isOngoing,
+			TotalTokens:    meta.totalTokens,
+			DurationMs:     meta.durationMs,
+			Model:          meta.model,
+			Cwd:            meta.cwd,
+			GitBranch:      meta.gitBranch,
+			PermissionMode: meta.permissionMode,
+		})
+	}
+
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].ModTime.After(sessions[j].ModTime)
+	})
+
+	return sessions, nil
+}

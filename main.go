@@ -158,6 +158,7 @@ type model struct {
 	showKeybinds bool
 
 	// Session picker state
+	sessionCache       *parser.SessionCache
 	pickerSessions     []parser.SessionInfo
 	pickerItems        []pickerItem
 	pickerCursor       int
@@ -306,7 +307,7 @@ func (m model) Init() tea.Cmd {
 
 	// When starting in picker view (e.g. stale session), kick off session discovery.
 	if m.view == viewPicker {
-		cmds = append(cmds, loadPickerSessionsCmd(m.sessionPath))
+		cmds = append(cmds, loadPickerSessionsCmd(m.sessionPath, m.sessionCache))
 	}
 
 	// Poll git dirty state every 3 seconds regardless of JSONL activity.
@@ -423,7 +424,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Start picker directory watcher for live refresh.
 		// Derive project dir from the loaded session path, not the CWD.
 		if m.pickerWatcher == nil && m.sessionPath != "" {
-			pw := newPickerWatcher(filepath.Dir(m.sessionPath))
+			pw := newPickerWatcher(filepath.Dir(m.sessionPath), m.sessionCache)
 			go pw.run()
 			m.pickerWatcher = pw
 			cmds = append(cmds, waitForPickerRefresh(pw.sub))
@@ -739,6 +740,9 @@ Flags:
 		return
 	}
 
+	// Session metadata cache for the picker -- unchanged files skip rescanning.
+	sessionCache := parser.NewSessionCache()
+
 	// Start the file watcher for live tailing.
 	watcher := newSessionWatcher(result.path, result.classified, result.offset)
 	watcher.hasTeamTasks = result.hasTeamTasks
@@ -756,6 +760,7 @@ Flags:
 	m.sessionBranch = checkGitBranch(invokedFrom)
 	m.sessionMode = result.meta.PermissionMode
 	m.sessionDirty = checkGitDirty(invokedFrom)
+	m.sessionCache = sessionCache
 
 	// When the session was auto-discovered (no explicit path) and it's stale,
 	// start on the picker so the user can choose instead of seeing old output.

@@ -20,13 +20,15 @@ type pickerRefreshMsg struct {
 // pushes refreshed session lists through a channel.
 type pickerWatcher struct {
 	projectDir string
+	cache      *parser.SessionCache
 	sub        chan []parser.SessionInfo
 	done       chan struct{}
 }
 
-func newPickerWatcher(projectDir string) *pickerWatcher {
+func newPickerWatcher(projectDir string, cache *parser.SessionCache) *pickerWatcher {
 	return &pickerWatcher{
 		projectDir: projectDir,
+		cache:      cache,
 		sub:        make(chan []parser.SessionInfo, 1),
 		done:       make(chan struct{}),
 	}
@@ -73,7 +75,13 @@ func (pw *pickerWatcher) run() {
 				debounce.Stop()
 			}
 			debounce = time.AfterFunc(500*time.Millisecond, func() {
-				sessions, err := parser.DiscoverProjectSessions(pw.projectDir)
+				var sessions []parser.SessionInfo
+				var err error
+				if pw.cache != nil {
+					sessions, err = pw.cache.DiscoverProjectSessions(pw.projectDir)
+				} else {
+					sessions, err = parser.DiscoverProjectSessions(pw.projectDir)
+				}
 				if err != nil {
 					return
 				}
