@@ -46,6 +46,22 @@ func tickCmd() tea.Cmd {
 	})
 }
 
+// ongoingGracePeriod is how long the ongoing indicator stays visible after
+// the content says "not ongoing." Bridges gaps between API round-trips where
+// Claude is thinking but hasn't written new content yet.
+const ongoingGracePeriod = 5 * time.Second
+
+// ongoingGraceExpiredMsg fires when the grace period elapses without new
+// file activity. The seq field matches model.ongoingGraceSeq so stale
+// timers (superseded by newer writes) are silently ignored.
+type ongoingGraceExpiredMsg struct{ seq int }
+
+func ongoingGraceCmd(seq int) tea.Cmd {
+	return tea.Tick(ongoingGracePeriod, func(time.Time) tea.Msg {
+		return ongoingGraceExpiredMsg{seq: seq}
+	})
+}
+
 // gitDirtyTickMsg triggers a periodic check of the git working-tree state.
 type gitDirtyTickMsg struct{}
 
@@ -135,8 +151,9 @@ type model struct {
 	watcher        *sessionWatcher
 	tailSub        chan tailUpdate
 	tailErrc       chan error
-	sessionOngoing bool // whether the watched session is still in progress
-	animFrame      int  // animation frame counter for activity indicator
+	sessionOngoing  bool // whether the watched session is still in progress
+	ongoingGraceSeq int  // sequence counter for grace period timers (stale timers ignored)
+	animFrame       int  // animation frame counter for activity indicator
 
 	// Subagent trace drill-down state
 	traceMsg    *message          // non-nil when viewing a subagent's execution trace
@@ -325,6 +342,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ongoingGraceExpiredMsg:
+		// Grace period elapsed. If no newer timer was started (seq matches),
+		// the session is genuinely idle — turn off the indicator.
+		if msg.seq == m.ongoingGraceSeq {
+			m.sessionOngoing = false
+		}
+		return m, nil
+
 	case gitDirtyTickMsg:
 		m.sessionDirty = checkGitDirty(m.gitCwd)
 		return m, gitDirtyTickCmd()
@@ -362,12 +387,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.computeDetailMaxScroll()
 		}
 
-		// Start or stop the animation tick based on ongoing state.
-		wasOngoing := m.sessionOngoing
-		m.sessionOngoing = msg.ongoing
+		// Ongoing indicator with grace period.
+		// Rising edge (false->true): immediate. Falling edge (true->false):
+		// delayed by ongoingGracePeriod so the indicator stays steady between
+		// API round-trips.
 		cmds := []tea.Cmd{waitForTailUpdate(m.tailSub)}
-		if m.sessionOngoing && !wasOngoing {
-			cmds = append(cmds, tickCmd())
+		if msg.ongoing {
+			if !m.sessionOngoing {
+				cmds = append(cmds, tickCmd())
+			}
+			m.sessionOngoing = true
+			m.ongoingGraceSeq++ // cancel any pending grace timer
+		} else if m.sessionOngoing {
+			// Content says done, but indicator is showing. Start grace timer.
+			m.ongoingGraceSeq++
+			cmds = append(cmds, ongoingGraceCmd(m.ongoingGraceSeq))
 		}
 		return m, tea.Batch(cmds...)
 

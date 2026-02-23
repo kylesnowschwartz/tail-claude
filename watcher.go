@@ -11,6 +11,11 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+// watcherDebounce is the delay after the last file-write event before
+// triggering a rebuild. 500ms coalesces rapid writes (e.g. tool call
+// round-trips) into a single re-read, reducing visual churn.
+const watcherDebounce = 500 * time.Millisecond
+
 // tailUpdateMsg carries the full rebuilt message list after an incremental read.
 // We send the complete list (not a diff) because BuildChunks merges consecutive
 // AI messages -- the last chunk can grow as new tool calls or text arrive.
@@ -140,7 +145,7 @@ func (w *sessionWatcher) run() {
 				if w.debounce != nil {
 					w.debounce.Stop()
 				}
-				w.debounce = time.AfterFunc(100*time.Millisecond, w.sendSignal)
+				w.debounce = time.AfterFunc(watcherDebounce, w.sendSignal)
 				w.mu.Unlock()
 			} else if event.Has(fsnotify.Create) && w.hasTeamTasks {
 				// New file in project directory while we have team tasks.
