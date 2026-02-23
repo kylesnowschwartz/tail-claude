@@ -705,6 +705,7 @@ Flags:
 	// When no explicit path was given, find the latest session within the
 	// CWD's project. No global fallback — if this project has no sessions,
 	// we show an empty picker (interactive) or exit (dump mode).
+	autoDiscovered := sessionPath == ""
 	if sessionPath == "" && projectDir != "" {
 		if sessions, err := parser.DiscoverProjectSessions(projectDir); err == nil && len(sessions) > 0 {
 			sessionPath = sessions[0].Path
@@ -794,7 +795,7 @@ Flags:
 
 	// When the session was auto-discovered (no explicit path) and it's stale,
 	// start on the picker so the user can choose instead of seeing old output.
-	if sessionPath == "" && !result.ongoing {
+	if autoDiscovered && !result.ongoing {
 		if info, err := os.Stat(result.path); err == nil {
 			if time.Since(info.ModTime()) > staleSessionThreshold {
 				m.view = viewPicker

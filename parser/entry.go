@@ -34,6 +34,11 @@ type Entry struct {
 	// tool_use block.
 	ToolUseResult   map[string]json.RawMessage `json:"toolUseResult"`
 	SourceToolUseID string                     `json:"sourceToolUseID"`
+
+	// Summary entries (type=summary) use leafUuid instead of uuid and carry
+	// the compression title in Summary rather than message.content.
+	LeafUUID string `json:"leafUuid"`
+	Summary  string `json:"summary"`
 }
 
 // ParseEntry parses a single JSONL line into an Entry.
@@ -43,7 +48,8 @@ func ParseEntry(line []byte) (Entry, bool) {
 	if err := json.Unmarshal(line, &e); err != nil {
 		return Entry{}, false
 	}
-	if e.UUID == "" {
+	// Summary entries use leafUuid instead of uuid.
+	if e.UUID == "" && e.LeafUUID == "" {
 		return Entry{}, false
 	}
 	return e, true

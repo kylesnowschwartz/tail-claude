@@ -608,6 +608,18 @@ func scanOngoingUser(e *metadataScanEntry, activityIndex *int,
 	// Check for user-rejected tool use at the entry level.
 	isRejection := isToolUseRejection(e.ToolResult)
 
+	// String-content user entries (e.g. "[Request interrupted by user...]") fail
+	// array unmarshal. Check them before attempting block parsing.
+	var text string
+	if err := json.Unmarshal(e.Message.Content, &text); err == nil {
+		if strings.HasPrefix(text, "[Request interrupted by user") {
+			*lastEndingIndex = *activityIndex
+			*hasAfter = false
+			*activityIndex++
+		}
+		return
+	}
+
 	var blocks []ongoingUserBlock
 	if err := json.Unmarshal(e.Message.Content, &blocks); err != nil {
 		return

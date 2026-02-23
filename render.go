@@ -373,7 +373,7 @@ func renderCompactMessage(msg message, width int) string {
 	if text == "" {
 		text = "Context compressed"
 	}
-	textWidth := lipgloss.Width(text) + 4 // " text " with spacing
+	textWidth := lipgloss.Width(text) + 2 // " text " with spacing
 	leftPad := (width - textWidth) / 2
 	if leftPad < 0 {
 		leftPad = 0

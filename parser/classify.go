@@ -142,11 +142,11 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 	}
 
 	// Summary entries become CompactMsg (context compression boundary).
+	// The title lives in e.Summary, not message.content.
 	if e.Type == "summary" {
-		text := SanitizeContent(ExtractText(e.Message.Content))
 		return CompactMsg{
 			Timestamp: ts,
-			Text:      text,
+			Text:      e.Summary,
 		}, true
 	}
 
