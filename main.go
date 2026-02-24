@@ -62,6 +62,16 @@ func ongoingGraceCmd(seq int) tea.Cmd {
 	})
 }
 
+// pickerOngoingGraceExpiredMsg fires when the picker's ongoing grace period
+// elapses. Stops the spinner only if no newer ongoing session has appeared.
+type pickerOngoingGraceExpiredMsg struct{ seq int }
+
+func pickerOngoingGraceCmd(seq int) tea.Cmd {
+	return tea.Tick(ongoingGracePeriod, func(time.Time) tea.Msg {
+		return pickerOngoingGraceExpiredMsg{seq: seq}
+	})
+}
+
 // gitDirtyTickMsg triggers a periodic check of the git working-tree state.
 type gitDirtyTickMsg struct{}
 
@@ -183,17 +193,18 @@ type model struct {
 	projectDirs []string // all related dirs (main + worktrees)
 
 	// Session picker state
-	sessionCache       *parser.SessionCache
-	pickerSessions     []parser.SessionInfo
-	pickerItems        []pickerItem
-	pickerCursor       int
-	pickerScroll       int
-	pickerWatcher      *pickerWatcher
-	pickerAnimFrame    int          // spinner frame counter, incremented each tick
-	pickerHasOngoing   bool         // true when any session is still in progress
-	pickerTickActive   bool         // true while the picker tick loop is running
-	pickerExpanded     map[int]bool // tab-expanded previews in picker
-	pickerUniformModel bool         // all sessions share the same model family
+	sessionCache          *parser.SessionCache
+	pickerSessions        []parser.SessionInfo
+	pickerItems           []pickerItem
+	pickerCursor          int
+	pickerScroll          int
+	pickerWatcher         *pickerWatcher
+	pickerAnimFrame       int          // spinner frame counter, incremented each tick
+	pickerHasOngoing      bool         // true when any session is still in progress
+	pickerTickActive      bool         // true while the picker tick loop is running
+	pickerOngoingGraceSeq int          // sequence counter for picker grace timers (stale timers ignored)
+	pickerExpanded        map[int]bool // tab-expanded previews in picker
+	pickerUniformModel    bool         // all sessions share the same model family
 }
 
 // loadResult holds everything needed to bootstrap the TUI and watcher.
@@ -417,11 +428,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForWatcherErr(m.tailErrc)
 
 	case pickerTickMsg:
-		if m.view == viewPicker && m.pickerHasOngoing {
+		// Keep spinning as long as the tick is active (covers both genuine
+		// ongoing and the grace period). Grace expiry turns off pickerTickActive.
+		if m.view == viewPicker && m.pickerTickActive {
 			m.pickerAnimFrame++
 			return m, pickerTickCmd()
 		}
 		m.pickerTickActive = false
+		return m, nil
+
+	case pickerOngoingGraceExpiredMsg:
+		// Grace period elapsed. Stop spinner only if no newer ongoing session
+		// appeared (seq mismatch means a rising edge already cancelled this timer).
+		if msg.seq == m.pickerOngoingGraceSeq {
+			m.pickerTickActive = false
+		}
 		return m, nil
 
 	case pickerSessionsMsg:

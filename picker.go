@@ -245,8 +245,11 @@ func (m *model) ensurePickerVisible() {
 }
 
 // updatePickerSessionState sets derived state: ongoing flag, uniform model, tick.
-// Called when sessions arrive or refresh.
+// Called when sessions arrive or refresh. Uses the same rising/falling-edge
+// grace period as the main session watcher to avoid spinner churn when a
+// session briefly appears not-ongoing between API round-trips.
 func (m *model) updatePickerSessionState() tea.Cmd {
+	hadOngoing := m.pickerHasOngoing
 	m.pickerHasOngoing = false
 	for _, s := range m.pickerSessions {
 		if s.IsOngoing {
@@ -271,9 +274,18 @@ func (m *model) updatePickerSessionState() tea.Cmd {
 		}
 	}
 
-	if m.pickerHasOngoing && !m.pickerTickActive {
-		m.pickerTickActive = true
-		return pickerTickCmd()
+	if m.pickerHasOngoing {
+		// Rising edge: cancel any pending grace timer, start tick if not running.
+		m.pickerOngoingGraceSeq++
+		if !m.pickerTickActive {
+			m.pickerTickActive = true
+			return pickerTickCmd()
+		}
+	} else if hadOngoing && m.pickerTickActive {
+		// Falling edge: don't stop immediately — start grace period so the
+		// spinner stays visible across short gaps between tool-call round-trips.
+		m.pickerOngoingGraceSeq++
+		return pickerOngoingGraceCmd(m.pickerOngoingGraceSeq)
 	}
 	return nil
 }
