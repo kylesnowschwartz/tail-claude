@@ -13,16 +13,16 @@ import (
 // Discovery fills ID, FilePath, Chunks, timing, and usage.
 // Linking (Phase 5B) fills Description, SubagentType, and ParentTaskID.
 type SubagentProcess struct {
-	ID           string    // agentId from filename (agent-{id}.jsonl)
-	FilePath     string    // full path to subagent JSONL file
-	Chunks       []Chunk   // parsed via ReadSession pipeline
-	StartTime    time.Time // first message timestamp
-	EndTime      time.Time // last message timestamp
-	DurationMs   int64
-	Usage        Usage // aggregated from all AI chunks
-	Description  string
-	SubagentType string
-	ParentTaskID string // tool_use_id of spawning Task call
+	ID            string    // agentId from filename (agent-{id}.jsonl)
+	FilePath      string    // full path to subagent JSONL file
+	Chunks        []Chunk   // parsed via ReadSession pipeline
+	StartTime     time.Time // first message timestamp
+	EndTime       time.Time // last message timestamp
+	DurationMs    int64
+	Usage         Usage // aggregated from all AI chunks
+	Description   string
+	SubagentType  string
+	ParentTaskID  string // tool_use_id of spawning Task call
 	TeamSummary   string // summary attr from first <teammate-message> (team agents only)
 	TeammateColor string // color attr from first <teammate-message> (team agents only)
 }
@@ -97,13 +97,13 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 		usage := aggregateUsage(chunks)
 
 		procs = append(procs, SubagentProcess{
-			ID:          agentID,
-			FilePath:    filePath,
-			Chunks:      chunks,
-			StartTime:   startTime,
-			EndTime:     endTime,
-			DurationMs:  durationMs,
-			Usage:       usage,
+			ID:            agentID,
+			FilePath:      filePath,
+			Chunks:        chunks,
+			StartTime:     startTime,
+			EndTime:       endTime,
+			DurationMs:    durationMs,
+			Usage:         usage,
 			TeamSummary:   teamSummary,
 			TeammateColor: teamColor,
 		})

@@ -26,9 +26,9 @@ type DisplayItem struct {
 	ToolInput   json.RawMessage
 	ToolSummary string // "main.go" for Read, "go test" for Bash
 	ToolResult  string
-	ToolError  bool
-	DurationMs int64 // tool_use -> tool_result timestamp delta
-	TokenCount int   // estimated tokens: len(text)/4
+	ToolError   bool
+	DurationMs  int64 // tool_use -> tool_result timestamp delta
+	TokenCount  int   // estimated tokens: len(text)/4
 
 	// Subagent fields (ItemSubagent only)
 	SubagentType   string // "Explore", "Plan", "general-purpose", etc.
