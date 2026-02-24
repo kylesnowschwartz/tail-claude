@@ -85,6 +85,30 @@ Metadata for the session picker: `Path`, `SessionID`, `ModTime`, `FirstMessage` 
 - **Tool result matching.** `mergeAIBuffer` tracks pending `tool_use` blocks by `ToolID`. When a `tool_result` block arrives in a meta message, it fills in `ToolResult`, `ToolError`, and `DurationMs` on the matching `DisplayItem`.
 - **Classify is destructive.** `Classify` and `SanitizeContent` strip XML tags, attributes, and structural markers from raw entry content. Data that any downstream consumer needs (subagent metadata, session metadata, team summaries) must be extracted at the Entry layer -- either in `ParseEntry`, `ReadSession`/`ReadSessionIncremental`, or `readSubagentSession` -- before `Classify` runs. Never write a function that regexes chunk text for data that `Classify` strips. The `teammateSummaryRe` regex is applied in `readSubagentSession` on raw entry content, not on chunks, for exactly this reason.
 
+## Subagent Discovery and Linking (`subagent.go`)
+
+Two discovery paths find subagent sessions:
+
+- **`DiscoverSubagents(sessionPath)`** -- scans `{session}/subagents/agent-*.jsonl`. Sets `ID` from the filename (hex UUID like `ab2c50e2c9d4dbf49`). Filters warmup, compact, and empty agents.
+- **`DiscoverTeamSessions(sessionPath, parentChunks)`** -- scans the project directory for `.jsonl` files whose first entry has `teamName`/`agentName` fields matching team Task calls in the parent. Sets `ID = "agentName@teamName"` (e.g. `"planner@analysis"`) to match the `agent_id` format in the parent's `toolUseResult`.
+
+Both return `[]SubagentProcess`. Callers merge them before linking:
+
+```go
+allProcs := append(subagents, teamProcs...)
+colorMap := LinkSubagents(allProcs, chunks, path)
+```
+
+**`LinkSubagents`** connects processes to parent Task tool calls in three phases:
+1. **Result-based** (Phase 1): `scanAgentLinks` maps `agentId` → `tool_use_id` from parent JSONL. Works for both hex UUIDs and `name@team` format IDs.
+2. **Team summary** (Phase 2): matches `TeamSummary` attribute from `<teammate-message summary="...">` to `SubagentDesc`. For older team files in `subagents/`.
+3. **Positional fallback** (Phase 3): remaining non-team processes matched to remaining non-team Task calls by order.
+
+**`ReadTeamSessionMeta(path)`** -- cheap first-line-only read returning `(teamName, agentName)`. Used by `DiscoverTeamSessions` to identify team sessions without full parsing.
+
+Key types:
+- **SubagentProcess** -- parsed subagent with `ID`, `FilePath`, `Chunks`, timing, usage, and link metadata (`ParentTaskID`, `Description`, `SubagentType`, `TeamSummary`, `TeammateColor`).
+
 ## Tool Summary Coverage (`summary.go`)
 
 `ToolSummary(name, input)` generates one-line summaries. Covered tools:
@@ -104,6 +128,7 @@ Unknown tools fall back to common parameter names (`name`, `path`, `file`, `quer
 | `sanitize.go` | XML tag stripping, command display formatting, text extraction |
 | `chunk.go` | `[]ClassifiedMsg` -> `[]Chunk` with `DisplayItem` building |
 | `session.go` | File IO, session discovery, preview scanning |
+| `subagent.go` | Subagent/team session discovery and linking (see below) |
 | `summary.go` | Per-tool one-line summaries, `Truncate` helper |
 | `last_output.go` | Last visible output detection for collapsed view |
 
@@ -112,4 +137,6 @@ Unknown tools fall back to common parameter names (`name`, `path`, `file`, `quer
 Test files live alongside source (`*_test.go`). Fixtures in `parser/testdata/`:
 - `minimal.jsonl` -- basic session for integration tests
 - `noise.jsonl` -- noise filtering edge cases
-- `team-parent.jsonl` + `team-parent/subagents/` -- full-pipeline integration test for team agent discovery and linking (exercises `DiscoverSubagents` -> `ReadSession` -> `LinkSubagents`)
+- `team-parent.jsonl` + `team-parent/subagents/` -- integration test for subagents/-based team agents (Phase 2 summary matching via `DiscoverSubagents` -> `ReadSession` -> `LinkSubagents`)
+- `team-project/` -- integration test for project-dir team sessions (Phase 1 name@team matching via `DiscoverTeamSessions` -> `LinkSubagents`). Contains a parent session + two team session files + one unrelated session that must be skipped
+- `test-session.jsonl` + `test-session/subagents/` -- regular subagent discovery (filtering warmup, compact, empty agents)

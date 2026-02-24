@@ -759,3 +759,285 @@ func TestLinkSubagents_TeamAndRegularMixed(t *testing.T) {
 		t.Errorf("team-1.ParentTaskID = %q, want %q", procs[1].ParentTaskID, "tool-team")
 	}
 }
+
+// --- readTeamSessionMeta tests ---
+
+func TestReadTeamSessionMeta_TeamSession(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "team.jsonl")
+	os.WriteFile(path, []byte(`{"uuid":"1","type":"user","teamName":"my-team","agentName":"planner","message":{"role":"user","content":"hi"}}`+"\n"), 0644)
+
+	teamName, agentName := parser.ReadTeamSessionMeta(path)
+	if teamName != "my-team" {
+		t.Errorf("teamName = %q, want %q", teamName, "my-team")
+	}
+	if agentName != "planner" {
+		t.Errorf("agentName = %q, want %q", agentName, "planner")
+	}
+}
+
+func TestReadTeamSessionMeta_RegularSession(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "regular.jsonl")
+	os.WriteFile(path, []byte(`{"uuid":"1","type":"user","message":{"role":"user","content":"hi"}}`+"\n"), 0644)
+
+	teamName, agentName := parser.ReadTeamSessionMeta(path)
+	if teamName != "" {
+		t.Errorf("teamName = %q, want empty", teamName)
+	}
+	if agentName != "" {
+		t.Errorf("agentName = %q, want empty", agentName)
+	}
+}
+
+func TestReadTeamSessionMeta_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.jsonl")
+	os.WriteFile(path, []byte(""), 0644)
+
+	teamName, agentName := parser.ReadTeamSessionMeta(path)
+	if teamName != "" || agentName != "" {
+		t.Errorf("expected empty for empty file, got %q, %q", teamName, agentName)
+	}
+}
+
+func TestReadTeamSessionMeta_MissingFile(t *testing.T) {
+	teamName, agentName := parser.ReadTeamSessionMeta("/nonexistent/path.jsonl")
+	if teamName != "" || agentName != "" {
+		t.Errorf("expected empty for missing file, got %q, %q", teamName, agentName)
+	}
+}
+
+// --- DiscoverTeamSessions tests ---
+
+func TestDiscoverTeamSessions_FindsTeamFiles(t *testing.T) {
+	parentPath := filepath.Join("testdata", "team-project", "parent-session.jsonl")
+
+	// Build parent chunks to extract team specs.
+	classified, _, err := parser.ReadSessionIncremental(parentPath, 0)
+	if err != nil {
+		t.Fatalf("ReadSessionIncremental: %v", err)
+	}
+	chunks := parser.BuildChunks(classified)
+
+	procs, err := parser.DiscoverTeamSessions(parentPath, chunks)
+	if err != nil {
+		t.Fatalf("DiscoverTeamSessions: %v", err)
+	}
+
+	if len(procs) != 2 {
+		t.Fatalf("got %d team sessions, want 2", len(procs))
+	}
+
+	// Verify IDs are in name@team format.
+	ids := make(map[string]bool)
+	for _, p := range procs {
+		ids[p.ID] = true
+	}
+	if !ids["planner@analysis"] {
+		t.Error("missing planner@analysis")
+	}
+	if !ids["dead-code@analysis"] {
+		t.Error("missing dead-code@analysis")
+	}
+}
+
+func TestDiscoverTeamSessions_SkipsUnrelatedFiles(t *testing.T) {
+	parentPath := filepath.Join("testdata", "team-project", "parent-session.jsonl")
+
+	classified, _, err := parser.ReadSessionIncremental(parentPath, 0)
+	if err != nil {
+		t.Fatalf("ReadSessionIncremental: %v", err)
+	}
+	chunks := parser.BuildChunks(classified)
+
+	procs, err := parser.DiscoverTeamSessions(parentPath, chunks)
+	if err != nil {
+		t.Fatalf("DiscoverTeamSessions: %v", err)
+	}
+
+	for _, p := range procs {
+		if p.ID == "" || !strings.Contains(p.ID, "@") {
+			t.Errorf("unexpected non-team ID: %q", p.ID)
+		}
+	}
+}
+
+func TestDiscoverTeamSessions_NoTeamTasks(t *testing.T) {
+	// A parent with no team Task calls should return nil.
+	parentPath := filepath.Join("testdata", "minimal.jsonl")
+
+	classified, _, err := parser.ReadSessionIncremental(parentPath, 0)
+	if err != nil {
+		t.Fatalf("ReadSessionIncremental: %v", err)
+	}
+	chunks := parser.BuildChunks(classified)
+
+	procs, err := parser.DiscoverTeamSessions(parentPath, chunks)
+	if err != nil {
+		t.Fatalf("DiscoverTeamSessions: %v", err)
+	}
+	if len(procs) != 0 {
+		t.Errorf("expected 0 team sessions, got %d", len(procs))
+	}
+}
+
+func TestDiscoverTeamSessions_ParsesChunksAndTiming(t *testing.T) {
+	parentPath := filepath.Join("testdata", "team-project", "parent-session.jsonl")
+
+	classified, _, err := parser.ReadSessionIncremental(parentPath, 0)
+	if err != nil {
+		t.Fatalf("ReadSessionIncremental: %v", err)
+	}
+	chunks := parser.BuildChunks(classified)
+
+	procs, err := parser.DiscoverTeamSessions(parentPath, chunks)
+	if err != nil {
+		t.Fatalf("DiscoverTeamSessions: %v", err)
+	}
+
+	for _, p := range procs {
+		if len(p.Chunks) == 0 {
+			t.Errorf("%s: has 0 chunks", p.ID)
+		}
+		if p.StartTime.IsZero() {
+			t.Errorf("%s: StartTime is zero", p.ID)
+		}
+		if p.FilePath == "" {
+			t.Errorf("%s: FilePath is empty", p.ID)
+		}
+		if p.Usage.TotalTokens() == 0 {
+			t.Errorf("%s: expected non-zero usage", p.ID)
+		}
+	}
+}
+
+// --- Integration: Phase 1 links team sessions by name@team ID ---
+
+func TestLinkSubagents_TeamSessionPhase1(t *testing.T) {
+	// Team sessions discovered by DiscoverTeamSessions get ID = "name@team".
+	// The parent's toolUseResult has agent_id = "name@team".
+	// Phase 1 should link them automatically via scanAgentLinks.
+	procs := []parser.SubagentProcess{
+		{
+			ID:        "planner@analysis",
+			StartTime: time.Date(2025, 6, 15, 10, 0, 5, 0, time.UTC),
+			Chunks:    []parser.Chunk{{Type: parser.AIChunk, Model: "claude-sonnet-4-20250514"}},
+		},
+		{
+			ID:        "dead-code@analysis",
+			StartTime: time.Date(2025, 6, 15, 10, 0, 6, 0, time.UTC),
+			Chunks:    []parser.Chunk{{Type: parser.AIChunk, Model: "claude-sonnet-4-20250514"}},
+		},
+	}
+
+	chunks := []parser.Chunk{
+		makeTeamTaskChunk("toolu_01", "sc-refactor:sc-refactor-planner", "Find refactoring opportunities", "analysis", "planner"),
+		makeTeamTaskChunk("toolu_02", "sc-refactor:sc-dead-code-detector", "Find dead code", "analysis", "dead-code"),
+	}
+
+	parentPath := writeParentSession(t, []string{
+		`{"uuid":"r1","type":"user","timestamp":"2025-06-15T10:00:02Z","isMeta":true,"toolUseResult":{"status":"teammate_spawned","agent_id":"planner@analysis","color":"blue","name":"planner","team_name":"analysis"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":[{"type":"text","text":"Spawned successfully."}]}]}}`,
+		`{"uuid":"r2","type":"user","timestamp":"2025-06-15T10:00:04Z","isMeta":true,"toolUseResult":{"status":"teammate_spawned","agent_id":"dead-code@analysis","color":"green","name":"dead-code","team_name":"analysis"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_02","content":[{"type":"text","text":"Spawned successfully."}]}]}}`,
+	})
+
+	colorMap := parser.LinkSubagents(procs, chunks, parentPath)
+
+	// Phase 1 should match planner@analysis -> toolu_01
+	if procs[0].ParentTaskID != "toolu_01" {
+		t.Errorf("planner.ParentTaskID = %q, want %q", procs[0].ParentTaskID, "toolu_01")
+	}
+	if procs[0].SubagentType != "sc-refactor:sc-refactor-planner" {
+		t.Errorf("planner.SubagentType = %q, want %q", procs[0].SubagentType, "sc-refactor:sc-refactor-planner")
+	}
+
+	// Phase 1 should match dead-code@analysis -> toolu_02
+	if procs[1].ParentTaskID != "toolu_02" {
+		t.Errorf("dead-code.ParentTaskID = %q, want %q", procs[1].ParentTaskID, "toolu_02")
+	}
+
+	// Color map should have the team colors.
+	if colorMap["toolu_01"] != "blue" {
+		t.Errorf("colorMap[toolu_01] = %q, want %q", colorMap["toolu_01"], "blue")
+	}
+	if colorMap["toolu_02"] != "green" {
+		t.Errorf("colorMap[toolu_02] = %q, want %q", colorMap["toolu_02"], "green")
+	}
+
+	// TeammateColor should be populated from toolUseResult.
+	if procs[0].TeammateColor != "blue" {
+		t.Errorf("planner.TeammateColor = %q, want %q", procs[0].TeammateColor, "blue")
+	}
+	if procs[1].TeammateColor != "green" {
+		t.Errorf("dead-code.TeammateColor = %q, want %q", procs[1].TeammateColor, "green")
+	}
+}
+
+// --- Full integration: DiscoverTeamSessions + LinkSubagents ---
+
+func TestTeamSessionDiscoveryAndLinking(t *testing.T) {
+	parentPath := filepath.Join("testdata", "team-project", "parent-session.jsonl")
+
+	// Full pipeline: read parent, discover team sessions, link.
+	classified, _, err := parser.ReadSessionIncremental(parentPath, 0)
+	if err != nil {
+		t.Fatalf("ReadSessionIncremental: %v", err)
+	}
+	chunks := parser.BuildChunks(classified)
+
+	subagents, _ := parser.DiscoverSubagents(parentPath)
+	teamProcs, err := parser.DiscoverTeamSessions(parentPath, chunks)
+	if err != nil {
+		t.Fatalf("DiscoverTeamSessions: %v", err)
+	}
+
+	allProcs := append(subagents, teamProcs...)
+	colorMap := parser.LinkSubagents(allProcs, chunks, parentPath)
+
+	// Team sessions should be linked via Phase 1 (name@team -> tool_use_id).
+	procByID := make(map[string]parser.SubagentProcess)
+	for _, p := range allProcs {
+		procByID[p.ID] = p
+	}
+
+	planner := procByID["planner@analysis"]
+	if planner.ParentTaskID != "toolu_01" {
+		t.Errorf("planner.ParentTaskID = %q, want %q", planner.ParentTaskID, "toolu_01")
+	}
+	if planner.Description != "Find refactoring opportunities" {
+		t.Errorf("planner.Description = %q, want %q", planner.Description, "Find refactoring opportunities")
+	}
+
+	deadCode := procByID["dead-code@analysis"]
+	if deadCode.ParentTaskID != "toolu_02" {
+		t.Errorf("dead-code.ParentTaskID = %q, want %q", deadCode.ParentTaskID, "toolu_02")
+	}
+
+	// Colors from toolUseResult should propagate.
+	if colorMap["toolu_01"] != "blue" {
+		t.Errorf("colorMap[toolu_01] = %q, want %q", colorMap["toolu_01"], "blue")
+	}
+	if colorMap["toolu_02"] != "green" {
+		t.Errorf("colorMap[toolu_02] = %q, want %q", colorMap["toolu_02"], "green")
+	}
+
+	// Chunks must be non-empty — buildSubagentMessage reads them to produce
+	// the execution trace view. Empty chunks means no trace renders.
+	for _, p := range allProcs {
+		if len(p.Chunks) == 0 {
+			t.Errorf("%s: Chunks is empty — execution trace won't render", p.ID)
+		}
+		// At least one AI chunk with a model — the trace view extracts the model
+		// name from the first AI chunk to show in the header.
+		hasAI := false
+		for _, c := range p.Chunks {
+			if c.Type == parser.AIChunk && c.Model != "" {
+				hasAI = true
+				break
+			}
+		}
+		if !hasAI {
+			t.Errorf("%s: no AI chunk with model — trace header will show blank model", p.ID)
+		}
+	}
+}

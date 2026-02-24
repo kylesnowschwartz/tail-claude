@@ -20,7 +20,7 @@ Pure data transformation -- no side effects except file IO in `ReadSession` / `R
 - **chunk.go** -- `[]ClassifiedMsg` to `[]Chunk`. Merges consecutive AI messages into single display units. `Chunk.Usage` is the last assistant message's context-window snapshot, not the sum.
 - **session.go** -- File IO: `ReadSession` (full), `ReadSessionIncremental` (from offset), session discovery
 - **last_output.go** -- `FindLastOutput`: extracts the final text or tool result from a chunk for collapsed preview
-- **subagent.go** -- Subagent/teammate process discovery and linking across chunks
+- **subagent.go** -- Subagent/teammate process discovery and linking across chunks (two discovery paths: `DiscoverSubagents` for `subagents/` files, `DiscoverTeamSessions` for project-dir team files)
 - **summary.go** -- Summary entry handling, `Ellipsis` and `Truncate` helpers
 - **ongoing.go** -- Heuristics for whether a session is still in progress
 - **dategroup.go** -- Date-based session grouping (Today, Yesterday, This Week, etc.)
@@ -129,6 +129,30 @@ Not all entries are conversation messages. Files may contain:
 - `type=file-history-snapshot` -- internal bookkeeping, no conversation content ("ghost sessions")
 - Teammate messages: `type=user` with `<teammate-message>` XML wrapper in content
 - Meta entries: `isMeta=true` on user entries marks tool results, classified as `AIMsg`
+
+### Subagent session discovery
+
+Subagent sessions appear in two locations depending on how they were spawned:
+
+**Regular subagents** (Task without `team_name`): files in `{session}/subagents/agent-{agentId}.jsonl`. First entry has `isSidechain=true`, `agentId` matches filename. Parent links via `toolUseResult.agentId` (hex UUID).
+
+**Team agents** (Task with `team_name` + `name`): standalone `.jsonl` files in the project directory. First entry has top-level `teamName` and `agentName` fields, `isSidechain=false`. Parent links via `toolUseResult.agent_id` in `"name@team"` format (e.g. `"planner@analysis"`).
+
+Discovery and linking pipeline:
+
+```
+loadSession / readAndRebuild
+  ├─ DiscoverSubagents(path)       → scans {session}/subagents/agent-*.jsonl
+  ├─ DiscoverTeamSessions(path, chunks) → scans project dir for teamName/agentName matches
+  │   └─ Sets ID = "agentName@teamName" to match parent's agent_id format
+  ├─ allProcs = append(subagents, teamProcs...)
+  └─ LinkSubagents(allProcs, chunks, path)
+       ├─ Phase 1: agentId → tool_use_id (handles BOTH hex UUIDs AND name@team)
+       ├─ Phase 2: TeamSummary == SubagentDesc (subagents/ team files only)
+       └─ Phase 3: positional fallback (non-team only)
+```
+
+The render path checks `displayItem.subagentProcess != nil` to decide between showing an execution trace (drill-down with nested items) vs raw Task input/result text.
 
 ### Preview extraction rule
 

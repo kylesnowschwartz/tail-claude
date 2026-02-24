@@ -523,3 +523,156 @@ func enrichProcess(proc *SubagentProcess, item *DisplayItem) {
 	proc.Description = item.SubagentDesc
 	proc.SubagentType = item.SubagentType
 }
+
+// ReadTeamSessionMeta reads just the first line of a JSONL file and returns
+// the teamName and agentName top-level fields. Returns ("", "") for
+// non-team sessions or on any error. Cheap: no full parse.
+func ReadTeamSessionMeta(path string) (teamName, agentName string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", ""
+	}
+	defer f.Close()
+
+	scanner := newJSONLScanner(f)
+	if !scanner.Scan() {
+		return "", ""
+	}
+	line := scanner.Bytes()
+	if len(line) == 0 {
+		return "", ""
+	}
+
+	var meta struct {
+		TeamName  string `json:"teamName"`
+		AgentName string `json:"agentName"`
+	}
+	if err := json.Unmarshal(line, &meta); err != nil {
+		return "", ""
+	}
+	return meta.TeamName, meta.AgentName
+}
+
+// teamSpec identifies a team agent spawn from the parent session.
+type teamSpec struct {
+	teamName  string
+	agentName string
+}
+
+// extractTeamSpecs collects {teamName, agentName} pairs from Task items
+// in the parent chunks where IsTeamTask returns true.
+func extractTeamSpecs(chunks []Chunk) []teamSpec {
+	var specs []teamSpec
+	for i := range chunks {
+		if chunks[i].Type != AIChunk {
+			continue
+		}
+		for j := range chunks[i].Items {
+			it := &chunks[i].Items[j]
+			if it.Type != ItemSubagent || !IsTeamTask(it) {
+				continue
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(it.ToolInput, &fields); err != nil {
+				continue
+			}
+			tn := getString(fields, "team_name")
+			an := getString(fields, "name")
+			if tn != "" && an != "" {
+				specs = append(specs, teamSpec{teamName: tn, agentName: an})
+			}
+		}
+	}
+	return specs
+}
+
+// DiscoverTeamSessions finds team agent session files that live as top-level
+// .jsonl files in the project directory (not in subagents/). These are created
+// when Task is called with team_name + name parameters.
+//
+// Discovery: scan the project directory for .jsonl files whose first entry has
+// teamName + agentName matching a team Task call in the parent chunks.
+// Each match is parsed via readSubagentSession and returned with
+// ID = "agentName@teamName" so Phase 1 of LinkSubagents can match it
+// against the parent's toolUseResult agent_id field.
+func DiscoverTeamSessions(sessionPath string, parentChunks []Chunk) ([]SubagentProcess, error) {
+	specs := extractTeamSpecs(parentChunks)
+	if len(specs) == 0 {
+		return nil, nil
+	}
+
+	// Build a lookup set for quick matching.
+	type specKey struct{ team, agent string }
+	wanted := make(map[specKey]bool, len(specs))
+	for _, s := range specs {
+		wanted[specKey{s.teamName, s.agentName}] = true
+	}
+
+	projectDir := filepath.Dir(sessionPath)
+	parentBase := filepath.Base(sessionPath)
+
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var procs []SubagentProcess
+	for _, de := range entries {
+		if de.IsDir() {
+			continue
+		}
+		name := de.Name()
+		if !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		// Skip the parent session itself.
+		if name == parentBase {
+			continue
+		}
+		// Skip agent-*.jsonl files (handled by DiscoverSubagents).
+		if strings.HasPrefix(name, "agent-") {
+			continue
+		}
+
+		filePath := filepath.Join(projectDir, name)
+
+		// Skip empty files.
+		info, err := de.Info()
+		if err != nil || info.Size() == 0 {
+			continue
+		}
+
+		teamName, agentName := ReadTeamSessionMeta(filePath)
+		if teamName == "" || agentName == "" {
+			continue
+		}
+		if !wanted[specKey{teamName, agentName}] {
+			continue
+		}
+
+		chunks, _, teamColor, err := readSubagentSession(filePath)
+		if err != nil || len(chunks) == 0 {
+			continue
+		}
+
+		startTime, endTime, durationMs := chunkTiming(chunks)
+		usage := aggregateUsage(chunks)
+
+		procs = append(procs, SubagentProcess{
+			ID:            agentName + "@" + teamName,
+			FilePath:      filePath,
+			Chunks:        chunks,
+			StartTime:     startTime,
+			EndTime:       endTime,
+			DurationMs:    durationMs,
+			Usage:         usage,
+			TeammateColor: teamColor,
+		})
+	}
+
+	sort.Slice(procs, func(i, j int) bool {
+		return procs[i].StartTime.Before(procs[j].StartTime)
+	})
+
+	return procs, nil
+}

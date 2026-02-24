@@ -223,6 +223,73 @@ func TestConvertDisplayItems(t *testing.T) {
 	})
 }
 
+func TestConvertDisplayItems_TeamSessionLinksProcess(t *testing.T) {
+	// Regression test: team sessions discovered by DiscoverTeamSessions get
+	// ID = "name@team" and are linked by LinkSubagents Phase 1 which sets
+	// ParentTaskID. convertDisplayItems must then link the process to the
+	// display item so the render path shows an execution trace, not raw text.
+	toolID := "toolu_01"
+	proc := parser.SubagentProcess{
+		ID:            "planner@analysis",
+		ParentTaskID:  toolID,
+		TeammateColor: "blue",
+		Chunks: []parser.Chunk{
+			{Type: parser.AIChunk, Model: "claude-sonnet-4-20250514"},
+		},
+	}
+	input := []byte(`{"subagent_type":"sc-refactor:sc-refactor-planner","description":"Find opportunities","team_name":"analysis","name":"planner"}`)
+	items := []parser.DisplayItem{
+		{
+			Type:         parser.ItemSubagent,
+			ToolID:       toolID,
+			ToolName:     "Task",
+			ToolInput:    input,
+			SubagentType: "sc-refactor:sc-refactor-planner",
+			SubagentDesc: "Find opportunities",
+		},
+	}
+
+	got := convertDisplayItems(items, []parser.SubagentProcess{proc}, nil)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	if got[0].subagentProcess == nil {
+		t.Fatal("team session process should be linked to display item, got nil — execution trace won't render")
+	}
+	if got[0].subagentProcess.ID != "planner@analysis" {
+		t.Errorf("linked process ID = %q, want %q", got[0].subagentProcess.ID, "planner@analysis")
+	}
+	if got[0].teamColor != "blue" {
+		t.Errorf("teamColor = %q, want %q (from process TeammateColor)", got[0].teamColor, "blue")
+	}
+}
+
+func TestConvertDisplayItems_TeamColorFallback(t *testing.T) {
+	// When no process is linked (team session not yet discovered), the
+	// colorByToolID map provides fallback team color from toolUseResult data.
+	toolID := "toolu_02"
+	input := []byte(`{"subagent_type":"general-purpose","description":"Do work","team_name":"proj","name":"worker"}`)
+	items := []parser.DisplayItem{
+		{
+			Type:         parser.ItemSubagent,
+			ToolID:       toolID,
+			ToolName:     "Task",
+			ToolInput:    input,
+			SubagentType: "general-purpose",
+			SubagentDesc: "Do work",
+		},
+	}
+	colorMap := map[string]string{toolID: "green"}
+
+	got := convertDisplayItems(items, nil, colorMap)
+	if got[0].subagentProcess != nil {
+		t.Errorf("should have nil process (no procs provided), got %v", got[0].subagentProcess)
+	}
+	if got[0].teamColor != "green" {
+		t.Errorf("teamColor = %q, want %q (fallback from colorByToolID)", got[0].teamColor, "green")
+	}
+}
+
 func TestBuildSubagentMessage(t *testing.T) {
 	ts := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 
