@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -24,8 +23,8 @@ type SubagentProcess struct {
 	Description  string
 	SubagentType string
 	ParentTaskID string // tool_use_id of spawning Task call
-	TeamSummary  string // summary attr from first <teammate-message> (team agents only)
-	TeamColor    string // color attr from first <teammate-message> (team agents only)
+	TeamSummary   string // summary attr from first <teammate-message> (team agents only)
+	TeammateColor string // color attr from first <teammate-message> (team agents only)
 }
 
 // DiscoverSubagents finds and parses subagent files for a session.
@@ -105,8 +104,8 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 			EndTime:     endTime,
 			DurationMs:  durationMs,
 			Usage:       usage,
-			TeamSummary: teamSummary,
-			TeamColor:   teamColor,
+			TeamSummary:   teamSummary,
+			TeammateColor: teamColor,
 		})
 	}
 
@@ -130,8 +129,7 @@ func isWarmupAgent(path string) bool {
 	// Read just enough to find the first user entry. Subagent files are
 	// small-ish and the first entry is almost always the user message,
 	// so scanning a few lines is fine.
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	scanner := newJSONLScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -200,8 +198,7 @@ func readSubagentSession(path string) ([]Chunk, string, string, error) {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	scanner := newJSONLScanner(f)
 
 	var msgs []ClassifiedMsg
 	var teamSummary, teamColor string
@@ -377,9 +374,9 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 	// don't carry their color (the first entry is from team-lead), but
 	// the teammate_spawned toolUseResult in the parent session does.
 	for i := range processes {
-		if processes[i].TeamColor == "" && processes[i].ParentTaskID != "" {
+		if processes[i].TeammateColor == "" && processes[i].ParentTaskID != "" {
 			if color, ok := links.toolIDToColor[processes[i].ParentTaskID]; ok {
-				processes[i].TeamColor = color
+				processes[i].TeammateColor = color
 			}
 		}
 	}
@@ -447,8 +444,7 @@ func scanAgentLinks(sessionPath string) agentLinkData {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	scanner := newJSONLScanner(f)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -465,9 +461,9 @@ func scanAgentLinks(sessionPath string) agentLinkData {
 
 		// Check both camelCase and snake_case field names, matching
 		// claude-devtools: result.agentId ?? result.agent_id
-		agentID := extractStringField(entry.ToolUseResult, "agentId")
+		agentID := getString(entry.ToolUseResult, "agentId")
 		if agentID == "" {
-			agentID = extractStringField(entry.ToolUseResult, "agent_id")
+			agentID = getString(entry.ToolUseResult, "agent_id")
 		}
 		if agentID == "" {
 			continue
@@ -488,7 +484,7 @@ func scanAgentLinks(sessionPath string) agentLinkData {
 		data.agentToToolID[agentID] = toolUseID
 
 		// Extract team color from teammate_spawned results.
-		if color := extractStringField(entry.ToolUseResult, "color"); color != "" {
+		if color := getString(entry.ToolUseResult, "color"); color != "" {
 			data.toolIDToColor[toolUseID] = color
 		}
 	}
@@ -512,19 +508,6 @@ func extractFirstToolResultID(entry Entry) string {
 		}
 	}
 	return ""
-}
-
-// extractStringField extracts a string value from a map of json.RawMessage.
-func extractStringField(m map[string]json.RawMessage, key string) string {
-	raw, ok := m[key]
-	if !ok {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
-		return ""
-	}
-	return s
 }
 
 // enrichProcess fills a SubagentProcess with metadata from its parent Task call.

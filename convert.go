@@ -120,8 +120,8 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 			if proc := procByTaskID[it.ToolID]; proc != nil {
 				out[i].subagentProcess = proc
 				out[i].subagentOngoing = parser.IsOngoing(proc.Chunks)
-				if proc.TeamColor != "" {
-					out[i].teamColor = proc.TeamColor
+				if proc.TeammateColor != "" {
+					out[i].teamColor = proc.TeammateColor
 				}
 			}
 		}
@@ -146,30 +146,19 @@ func (m model) currentDetailMsg() message {
 // trace. The message contains all items (Input, Output, Tool calls) from the
 // subagent's chunks, suitable for rendering in the detail view.
 func buildSubagentMessage(proc *parser.SubagentProcess, subagentType string) message {
-	var items []displayItem
-	var toolCount, thinkCount, msgCount int
+	// Build a temporary parent displayItem to reuse buildTraceItems.
+	parent := displayItem{subagentProcess: proc}
+	items := buildTraceItems(parent)
 
-	for _, c := range proc.Chunks {
-		switch c.Type {
-		case parser.UserChunk:
-			items = append(items, displayItem{
-				itemType: parser.ItemOutput,
-				toolName: "Input",
-				text:     c.UserText,
-			})
+	var toolCount, thinkCount, msgCount int
+	for _, it := range items {
+		switch it.itemType {
+		case parser.ItemThinking:
+			thinkCount++
+		case parser.ItemToolCall, parser.ItemSubagent:
+			toolCount++
+		case parser.ItemOutput:
 			msgCount++
-		case parser.AIChunk:
-			for _, it := range c.Items {
-				items = append(items, displayItemFromParser(it))
-				switch it.Type {
-				case parser.ItemThinking:
-					thinkCount++
-				case parser.ItemToolCall, parser.ItemSubagent:
-					toolCount++
-				case parser.ItemOutput:
-					msgCount++
-				}
-			}
 		}
 	}
 

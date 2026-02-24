@@ -399,17 +399,17 @@ func extractAssistantDetails(raw json.RawMessage) (int, []ToolCall, []ContentBlo
 
 	thinking := 0
 	var calls []ToolCall
-	var cblocks []ContentBlock
+	var contentBlocks []ContentBlock
 	for _, b := range blocks {
 		switch b.Type {
 		case "thinking":
 			thinking++
-			cblocks = append(cblocks, ContentBlock{
+			contentBlocks = append(contentBlocks, ContentBlock{
 				Type: "thinking",
 				Text: b.Thinking,
 			})
 		case "text":
-			cblocks = append(cblocks, ContentBlock{
+			contentBlocks = append(contentBlocks, ContentBlock{
 				Type: "text",
 				Text: b.Text,
 			})
@@ -417,7 +417,7 @@ func extractAssistantDetails(raw json.RawMessage) (int, []ToolCall, []ContentBlo
 			if b.ID != "" && b.Name != "" {
 				calls = append(calls, ToolCall{ID: b.ID, Name: b.Name})
 			}
-			cblocks = append(cblocks, ContentBlock{
+			contentBlocks = append(contentBlocks, ContentBlock{
 				Type:      "tool_use",
 				ToolID:    b.ID,
 				ToolName:  b.Name,
@@ -425,13 +425,13 @@ func extractAssistantDetails(raw json.RawMessage) (int, []ToolCall, []ContentBlo
 			})
 		default:
 			// Preserve unknown block types as-is.
-			cblocks = append(cblocks, ContentBlock{
+			contentBlocks = append(contentBlocks, ContentBlock{
 				Type: b.Type,
 				Text: b.Text,
 			})
 		}
 	}
-	return thinking, calls, cblocks
+	return thinking, calls, contentBlocks
 }
 
 // extractMetaBlocks parses isMeta user content (tool results) into ContentBlocks.
@@ -455,20 +455,20 @@ func extractMetaBlocks(raw json.RawMessage, textFallback string) []ContentBlock 
 		return []ContentBlock{{Type: "text", Text: textFallback}}
 	}
 
-	var cblocks []ContentBlock
+	var contentBlocks []ContentBlock
 	for _, b := range blocks {
 		if b.Type != "tool_result" {
 			continue
 		}
 		content := stringifyContent(b.Content)
-		cblocks = append(cblocks, ContentBlock{
+		contentBlocks = append(contentBlocks, ContentBlock{
 			Type:    "tool_result",
 			ToolID:  b.ToolUseID,
 			Content: content,
 			IsError: b.IsError,
 		})
 	}
-	return cblocks
+	return contentBlocks
 }
 
 // stringifyContent converts tool_result content (string or array of text blocks) to a string.

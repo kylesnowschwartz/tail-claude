@@ -15,7 +15,6 @@ const (
 const (
 	bashStdoutTag       = "<bash-stdout>"
 	bashStderrTag       = "<bash-stderr>"
-	bashInputTag        = "<bash-input>"
 	taskNotificationTag = "<task-notification>"
 )
 

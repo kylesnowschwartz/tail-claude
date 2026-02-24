@@ -35,10 +35,10 @@ const maxCollapsedLines = 12
 // (rounded border: top + content + bottom = 3 lines).
 const keybindBarHeight = 3
 
-// infoBarLines returns the rendered line count of the session info bar.
+// infoBarHeight returns the rendered line count of the session info bar.
 // Colored modes (bypassPermissions, acceptEdits, plan) render a 3-line
 // RoundedBorder chip; default mode renders a plain 1-line bar.
-func (m model) infoBarLines() int {
+func (m model) infoBarHeight() int {
 	switch m.sessionMode {
 	case "bypassPermissions", "acceptEdits", "plan":
 		return 3
@@ -196,13 +196,7 @@ func (m model) renderClaudeMessage(msg message, containerWidth int, isSelected, 
 	card := cardStyle.Render(body)
 
 	// Indent card to align with header content
-	cardLines := strings.Split(card, "\n")
-	var indented []string
-	for _, line := range cardLines {
-		indented = append(indented, sel+"  "+line)
-	}
-
-	return headerLine + "\n" + strings.Join(indented, "\n")
+	return headerLine + "\n" + indentBlock(card, sel+"  ")
 }
 
 // claudeMessageBody renders the inner card content for a Claude message.
@@ -338,13 +332,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 	alignedBubble := lipgloss.PlaceHorizontal(bubbleAlignWidth, lipgloss.Right, bubble)
 
 	// Prepend selection indicator to each bubble line
-	bubbleLines := strings.Split(alignedBubble, "\n")
-	var indented []string
-	for _, line := range bubbleLines {
-		indented = append(indented, sel+line)
-	}
-
-	return header + "\n" + strings.Join(indented, "\n")
+	return header + "\n" + indentBlock(alignedBubble, sel)
 }
 
 func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) string {
@@ -706,21 +694,10 @@ func (m model) renderToolExpanded(item displayItem, wrapWidth int, indent string
 // matching the claude-devtools layout: a header line with counts, followed
 // by a flat list of all items across the subagent's chunks.
 func (m model) renderSubagentTrace(item displayItem, wrapWidth int, indent string) string {
-	dimStyle := StyleDim
-
-	// Reuse the same trace-building logic used by the tree cursor navigation,
-	// so both codepaths produce identical display items.
 	traceItems := buildTraceItems(item)
-	toolCount, msgCount := traceItemStats(traceItems)
-
-	// Header: >_ Execution Trace · N tool calls, N messages
-	traceIcon := IconSystem.WithColor(ColorTextDim) // terminal icon for execution context
-	traceLabel := StylePrimaryBold.Render("Execution Trace")
-	dot := dimStyle.Render(" " + IconDot.Glyph + " ")
-	countStr := dimStyle.Render(fmt.Sprintf("%d tool calls, %d messages", toolCount, msgCount))
 
 	var lines []string
-	lines = append(lines, indent+traceIcon+"  "+traceLabel+dot+countStr)
+	lines = append(lines, indent+renderTraceHeader(item))
 
 	// All trace items as compact rows (no cursor, no cap).
 	nestedWidth := wrapWidth - 4
@@ -837,7 +814,7 @@ func (m model) activityIndicatorHeight() int {
 // footerHeight returns the total footer line count: info bar (always) +
 // keybind hints (when showKeybinds is true).
 func (m model) footerHeight() int {
-	h := m.infoBarLines()
+	h := m.infoBarHeight()
 	if m.showKeybinds {
 		h += keybindBarHeight
 	}

@@ -21,14 +21,8 @@ type pickerSessionsMsg struct {
 // loadSessionMsg delivers a parsed session ready for the list view,
 // including classified messages and offset for watcher handoff.
 type loadSessionMsg struct {
-	messages     []message
-	path         string
-	classified   []parser.ClassifiedMsg
-	offset       int64
-	ongoing      bool
-	hasTeamTasks bool
-	meta         parser.SessionMeta
-	err          error
+	loadResult
+	err error
 }
 
 // pickerTickMsg drives the ongoing spinner animation (100ms interval).
@@ -64,17 +58,9 @@ func loadSessionCmd(path string) tea.Cmd {
 	return func() tea.Msg {
 		result, err := loadSession(path)
 		if err != nil {
-			return loadSessionMsg{err: err, path: path}
+			return loadSessionMsg{err: err}
 		}
-		return loadSessionMsg{
-			messages:     result.messages,
-			path:         result.path,
-			classified:   result.classified,
-			offset:       result.offset,
-			ongoing:      result.ongoing,
-			hasTeamTasks: result.hasTeamTasks,
-			meta:         result.meta,
-		}
+		return loadSessionMsg{loadResult: result}
 	}
 }
 

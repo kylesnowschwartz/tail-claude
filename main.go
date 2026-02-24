@@ -152,7 +152,7 @@ type model struct {
 	sessionPath     string
 	watching        bool
 	watcher         *sessionWatcher
-	tailSub         chan tailUpdate
+	tailSub         chan tailUpdateMsg
 	tailErrc        chan error
 	sessionOngoing  bool // whether the watched session is still in progress
 	ongoingGraceSeq int  // sequence counter for grace period timers (stale timers ignored)
@@ -257,11 +257,9 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 
 	m.messages = result.messages
 	m.expanded = make(map[int]bool)
-	m.detailExpanded = make(map[int]bool)
-	m.detailChildExpanded = make(map[visibleRowKey]bool)
+	m.resetDetailState()
 	m.cursor = 0
 	m.scroll = 0
-	m.detailCursor = 0
 	m.sessionPath = result.path
 	m.sessionOngoing = result.ongoing
 	m.sessionCwd = result.meta.Cwd
@@ -493,15 +491,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil || len(msg.messages) == 0 {
 			return m, nil
 		}
-		return m.switchSession(loadResult{
-			messages:     msg.messages,
-			path:         msg.path,
-			classified:   msg.classified,
-			offset:       msg.offset,
-			ongoing:      msg.ongoing,
-			hasTeamTasks: msg.hasTeamTasks,
-			meta:         msg.meta,
-		})
+		return m.switchSession(msg.loadResult)
 
 	case tea.KeyMsg:
 		switch m.view {

@@ -653,7 +653,7 @@ func TestTeamLinkingIntegration(t *testing.T) {
 	// Verify team colors were extracted from raw content.
 	colorByID := make(map[string]string, len(procs))
 	for _, p := range procs {
-		colorByID[p.ID] = p.TeamColor
+		colorByID[p.ID] = p.TeammateColor
 	}
 	wantColors := map[string]string{
 		"team-impl-001":      "green",
@@ -664,7 +664,7 @@ func TestTeamLinkingIntegration(t *testing.T) {
 	for id, want := range wantColors {
 		got := colorByID[id]
 		if got != want {
-			t.Errorf("TeamColor[%s] = %q, want %q", id, got, want)
+			t.Errorf("TeammateColor[%s] = %q, want %q", id, got, want)
 		}
 	}
 

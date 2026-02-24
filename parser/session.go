@@ -10,6 +10,22 @@ import (
 	"time"
 )
 
+// jsonlScannerInitialBuf is the initial buffer capacity for JSONL line scanning.
+const jsonlScannerInitialBuf = 64 * 1024
+
+// jsonlScannerMaxBuf is the maximum buffer size for a single JSONL line.
+// 4 MiB accommodates the largest Claude API responses (tool results with
+// full file contents, base64-encoded images, etc).
+const jsonlScannerMaxBuf = 4 * 1024 * 1024
+
+// newJSONLScanner creates a bufio.Scanner configured for reading JSONL session
+// files. Sets a 64 KiB initial buffer that can grow to 4 MiB per line.
+func newJSONLScanner(f *os.File) *bufio.Scanner {
+	s := bufio.NewScanner(f)
+	s.Buffer(make([]byte, 0, jsonlScannerInitialBuf), jsonlScannerMaxBuf)
+	return s
+}
+
 // SessionInfo holds metadata about a discovered session file for the picker.
 type SessionInfo struct {
 	Path           string
@@ -70,8 +86,7 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 		return nil, offset, err
 	}
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	scanner := newJSONLScanner(f)
 
 	var msgs []ClassifiedMsg
 	bytesRead := offset
@@ -100,68 +115,6 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 	}
 
 	return msgs, bytesRead, nil
-}
-
-// DiscoverLatestSession finds the most recently modified .jsonl file under
-// ~/.claude/projects/. Subagent files inside session UUID subdirectories
-// are excluded.
-func DiscoverLatestSession() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-
-	root := filepath.Join(home, ".claude", "projects")
-
-	var bestPath string
-	var bestTime int64
-
-	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			// Skip directories we can't read.
-			return nil
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(info.Name(), ".jsonl") {
-			return nil
-		}
-
-		// Exclude subagent files: they live inside a subdirectory named after
-		// the parent session UUID (e.g. {session_uuid}/agent_{id}.jsonl) or
-		// at project root with an agent_ prefix (legacy structure).
-		// We want top-level session files: {project}/{session_uuid}.jsonl.
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return nil
-		}
-		parts := strings.Split(rel, string(filepath.Separator))
-		// Expected: project-name/session.jsonl (2 parts).
-		// Subagent new structure: project-name/session-uuid/agent_xxx.jsonl (3+ parts).
-		if len(parts) > 2 {
-			return nil
-		}
-		// Legacy subagent: project-name/agent_xxx.jsonl.
-		if strings.HasPrefix(info.Name(), "agent_") {
-			return nil
-		}
-
-		modTime := info.ModTime().UnixNano()
-		if modTime > bestTime {
-			bestTime = modTime
-			bestPath = path
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-
-	if bestPath == "" {
-		return "", os.ErrNotExist
-	}
-	return bestPath, nil
 }
 
 // CurrentProjectDir returns the Claude CLI projects directory for the current
@@ -252,6 +205,18 @@ func resolveGitRoot(dir string) string {
 // scans each for metadata, and returns them sorted by modification time (newest first).
 // Subagent files (agent_*) are excluded.
 func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
+	return discoverSessions(projectDir, func(path string, _ time.Time) sessionMetadata {
+		return scanSessionMetadata(path)
+	})
+}
+
+// scanFn returns session metadata for a given file path and modTime.
+type scanFn func(path string, modTime time.Time) sessionMetadata
+
+// discoverSessions is the shared directory-walk logic for DiscoverProjectSessions
+// and its cached variant. The scan function determines how metadata is obtained
+// (direct scan vs cache lookup).
+func discoverSessions(projectDir string, scan scanFn) ([]SessionInfo, error) {
 	entries, err := os.ReadDir(projectDir)
 	if err != nil {
 		return nil, err
@@ -276,7 +241,7 @@ func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 		}
 
 		path := filepath.Join(projectDir, name)
-		meta := scanSessionMetadata(path)
+		meta := scan(path, info.ModTime())
 
 		// Skip ghost sessions (e.g. only file-history-snapshot entries).
 		if meta.turnCount == 0 {
@@ -338,8 +303,7 @@ func scanSessionMetadata(path string) sessionMetadata {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	scanner := newJSONLScanner(f)
 
 	var meta sessionMetadata
 	var commandFallback string

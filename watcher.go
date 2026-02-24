@@ -30,13 +30,6 @@ type watcherErrMsg struct {
 	err error
 }
 
-// tailUpdate bundles the rebuilt message list with session state metadata.
-type tailUpdate struct {
-	messages       []message
-	ongoing        bool
-	permissionMode string // last-seen permissionMode from new entries; empty if unchanged
-}
-
 // sessionWatcher monitors a JSONL session file for appended lines and pushes
 // rebuilt message lists through a channel. Also watches the project directory
 // for new .jsonl files so team member sessions are discovered promptly.
@@ -48,7 +41,7 @@ type sessionWatcher struct {
 	path          string
 	offset        int64
 	allClassified []parser.ClassifiedMsg
-	sub           chan tailUpdate
+	sub           chan tailUpdateMsg
 	errc          chan error
 	done          chan struct{}
 	signals       chan struct{} // debounced rebuild trigger; capacity 1
@@ -66,7 +59,7 @@ func newSessionWatcher(path string, initialClassified []parser.ClassifiedMsg, in
 		path:          path,
 		offset:        initialOffset,
 		allClassified: initialClassified,
-		sub:           make(chan tailUpdate, 1),
+		sub:           make(chan tailUpdateMsg, 1),
 		errc:          make(chan error, 1),
 		done:          make(chan struct{}),
 		signals:       make(chan struct{}, 1),
@@ -208,7 +201,7 @@ func (w *sessionWatcher) readAndRebuild() {
 	// whether to trigger rebuilds for new .jsonl files.
 	w.hasTeamTasks = hasTeamTaskItems(chunks)
 
-	update := tailUpdate{
+	update := tailUpdateMsg{
 		messages:       chunksToMessages(chunks, subagents),
 		ongoing:        parser.IsOngoing(chunks),
 		permissionMode: permissionMode,
@@ -230,13 +223,13 @@ func (w *sessionWatcher) readAndRebuild() {
 // waitForTailUpdate blocks on the subscription channel and wraps the result
 // in a tailUpdateMsg for the Bubble Tea runtime. Returns nil when the
 // channel is closed (watcher stopped), unblocking the goroutine.
-func waitForTailUpdate(sub chan tailUpdate) tea.Cmd {
+func waitForTailUpdate(sub chan tailUpdateMsg) tea.Cmd {
 	return func() tea.Msg {
 		u, ok := <-sub
 		if !ok {
 			return nil
 		}
-		return tailUpdateMsg(u)
+		return u
 	}
 }
 

@@ -2,6 +2,14 @@ package main
 
 import tea "github.com/charmbracelet/bubbletea"
 
+// resetDetailState zeroes the detail view cursor, scroll, and expansion maps.
+func (m *model) resetDetailState() {
+	m.detailCursor = 0
+	m.detailScroll = 0
+	m.detailExpanded = make(map[int]bool)
+	m.detailChildExpanded = make(map[visibleRowKey]bool)
+}
+
 // updateList handles key events in the message list view.
 func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -53,10 +61,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Enter detail view for current message
 		if len(m.messages) > 0 {
 			m.view = viewDetail
-			m.detailScroll = 0
-			m.detailCursor = 0
-			m.detailExpanded = make(map[int]bool)
-			m.detailChildExpanded = make(map[visibleRowKey]bool)
+			m.resetDetailState()
 			m.traceMsg = nil
 			m.savedDetail = nil
 			m.computeDetailMaxScroll()
@@ -158,9 +163,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.computeDetailMaxScroll()
 		} else {
 			m.view = viewList
-			m.detailCursor = 0
-			m.detailExpanded = make(map[int]bool)
-			m.detailChildExpanded = make(map[visibleRowKey]bool)
+			m.resetDetailState()
 		}
 	case "tab":
 		if hasItems {
@@ -197,10 +200,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						label:         parentLabel,
 					}
 					m.traceMsg = &synth
-					m.detailCursor = 0
-					m.detailScroll = 0
-					m.detailExpanded = make(map[int]bool)
-					m.detailChildExpanded = make(map[visibleRowKey]bool)
+					m.resetDetailState()
 					m.computeDetailMaxScroll()
 				} else {
 					// All other rows: toggle expansion (same as tab).
@@ -209,9 +209,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.view = viewList
-			m.detailCursor = 0
-			m.detailExpanded = make(map[int]bool)
-			m.detailChildExpanded = make(map[visibleRowKey]bool)
+			m.resetDetailState()
 		}
 	case "j":
 		if hasItems {

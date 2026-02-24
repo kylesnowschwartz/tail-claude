@@ -26,10 +26,9 @@ type DisplayItem struct {
 	ToolInput   json.RawMessage
 	ToolSummary string // "main.go" for Read, "go test" for Bash
 	ToolResult  string
-	ToolError   bool
-	DurationMs  int64 // tool_use -> tool_result timestamp delta
-	TokenCount  int   // estimated tokens: len(text)/4
-	Timestamp   time.Time
+	ToolError  bool
+	DurationMs int64 // tool_use -> tool_result timestamp delta
+	TokenCount int   // estimated tokens: len(text)/4
 
 	// Subagent fields (ItemSubagent only)
 	SubagentType   string // "Explore", "Plan", "general-purpose", etc.
@@ -189,14 +188,12 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 					items = append(items, DisplayItem{
 						Type:       ItemThinking,
 						Text:       b.Text,
-						Timestamp:  m.Timestamp,
 						TokenCount: len(b.Text) / 4,
 					})
 				case "text":
 					items = append(items, DisplayItem{
 						Type:       ItemOutput,
 						Text:       b.Text,
-						Timestamp:  m.Timestamp,
 						TokenCount: len(b.Text) / 4,
 					})
 				case "tool_use":
@@ -212,7 +209,6 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 							SubagentType:   info.Type,
 							SubagentDesc:   info.Description,
 							TeamMemberName: info.MemberName,
-							Timestamp:      m.Timestamp,
 							TokenCount:     inputLen / 4,
 						})
 					} else {
@@ -222,7 +218,6 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 							ToolID:      b.ToolID,
 							ToolInput:   b.ToolInput,
 							ToolSummary: ToolSummary(b.ToolName, b.ToolInput),
-							Timestamp:   m.Timestamp,
 							TokenCount:  inputLen / 4,
 						})
 					}
@@ -250,7 +245,6 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 						items = append(items, DisplayItem{
 							Type:       ItemOutput,
 							Text:       b.Content,
-							Timestamp:  m.Timestamp,
 							TokenCount: len(b.Content) / 4,
 						})
 					}
@@ -260,7 +254,6 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 						Text:          b.Text,
 						TeammateID:    b.TeammateID,
 						TeammateColor: b.TeammateColor,
-						Timestamp:     m.Timestamp,
 						TokenCount:    len(b.Text) / 4,
 					})
 				}

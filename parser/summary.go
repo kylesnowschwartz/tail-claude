@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// Ellipsis is the Unicode horizontal ellipsis used for text truncation.
-const Ellipsis = "\u2026"
+// ellipsis is the Unicode horizontal ellipsis used for text truncation.
+const ellipsis = "\u2026"
 
 // ToolSummary generates a human-readable summary for a tool call.
 // Returns the tool name as fallback when input is nil or unparseable.
@@ -346,7 +346,7 @@ func Truncate(s string, maxLen int) string {
 	if len(runes) <= maxLen {
 		return s
 	}
-	return string(runes[:maxLen-1]) + Ellipsis
+	return string(runes[:maxLen-1]) + ellipsis
 }
 
 // TruncateWord shortens a string to maxLen runes, breaking at the nearest
@@ -364,8 +364,8 @@ func TruncateWord(s string, maxLen int) string {
 	}
 	for i := cutoff; i >= searchStart; i-- {
 		if runes[i] == ' ' {
-			return string(runes[:i]) + "\u2026"
+			return string(runes[:i]) + ellipsis
 		}
 	}
-	return string(runes[:cutoff]) + "\u2026"
+	return string(runes[:cutoff]) + ellipsis
 }

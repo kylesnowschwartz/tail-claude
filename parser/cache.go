@@ -1,10 +1,6 @@
 package parser
 
 import (
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 )
@@ -49,61 +45,5 @@ func (c *SessionCache) getOrScan(path string, modTime time.Time) sessionMetadata
 // using cached metadata for unchanged files. Same logic as the standalone
 // DiscoverProjectSessions but avoids redundant file scans across refreshes.
 func (c *SessionCache) DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
-	entries, err := os.ReadDir(projectDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var sessions []SessionInfo
-	for _, de := range entries {
-		if de.IsDir() {
-			continue
-		}
-		name := de.Name()
-		if !strings.HasSuffix(name, ".jsonl") {
-			continue
-		}
-		if strings.HasPrefix(name, "agent_") {
-			continue
-		}
-
-		info, err := de.Info()
-		if err != nil {
-			continue
-		}
-
-		path := filepath.Join(projectDir, name)
-		meta := c.getOrScan(path, info.ModTime())
-
-		// Skip ghost sessions (e.g. only file-history-snapshot entries).
-		if meta.turnCount == 0 {
-			continue
-		}
-
-		isOngoing := meta.isOngoing
-		if isOngoing && time.Since(info.ModTime()) > OngoingStalenessThreshold {
-			isOngoing = false
-		}
-
-		sessions = append(sessions, SessionInfo{
-			Path:           path,
-			SessionID:      strings.TrimSuffix(name, ".jsonl"),
-			ModTime:        info.ModTime(),
-			FirstMessage:   meta.firstMsg,
-			TurnCount:      meta.turnCount,
-			IsOngoing:      isOngoing,
-			TotalTokens:    meta.totalTokens,
-			DurationMs:     meta.durationMs,
-			Model:          meta.model,
-			Cwd:            meta.cwd,
-			GitBranch:      meta.gitBranch,
-			PermissionMode: meta.permissionMode,
-		})
-	}
-
-	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].ModTime.After(sessions[j].ModTime)
-	})
-
-	return sessions, nil
+	return discoverSessions(projectDir, c.getOrScan)
 }
