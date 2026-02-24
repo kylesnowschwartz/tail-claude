@@ -200,44 +200,36 @@ func TestDetailHeaderStats(t *testing.T) {
 		}
 	})
 
-	t.Run("1 tool call uses singular label", func(t *testing.T) {
-		msg := message{toolCallCount: 1}
-		got := detailHeaderStats(msg)
-		if !strings.Contains(got, "1 tool call") {
-			t.Errorf("detailHeaderStats should contain %q, got %q", "1 tool call", got)
-		}
-		if strings.Contains(got, "tool calls") {
-			t.Errorf("singular tool call should not say 'tool calls', got %q", got)
-		}
-	})
-
-	t.Run("2+ tool calls use plural label", func(t *testing.T) {
+	t.Run("tool calls show icon and count", func(t *testing.T) {
 		msg := message{toolCallCount: 3}
 		got := detailHeaderStats(msg)
-		if !strings.Contains(got, "3 tool calls") {
-			t.Errorf("detailHeaderStats should contain %q, got %q", "3 tool calls", got)
+		if !strings.Contains(got, IconToolOk.Glyph) {
+			t.Errorf("should contain tool icon %q, got %q", IconToolOk.Glyph, got)
+		}
+		if !strings.Contains(got, "3") {
+			t.Errorf("should contain count '3', got %q", got)
 		}
 	})
 
-	t.Run("thinking count included", func(t *testing.T) {
+	t.Run("thinking shows icon and count", func(t *testing.T) {
 		msg := message{thinkingCount: 2, toolCallCount: 3}
 		got := detailHeaderStats(msg)
-		if !strings.Contains(got, "2 thinking") {
-			t.Errorf("should contain '2 thinking', got %q", got)
+		if !strings.Contains(got, IconThinking.Glyph) {
+			t.Errorf("should contain thinking icon %q, got %q", IconThinking.Glyph, got)
 		}
-		if !strings.Contains(got, "3 tool calls") {
-			t.Errorf("should contain '3 tool calls', got %q", got)
+		if !strings.Contains(got, "2") {
+			t.Errorf("should contain count '2', got %q", got)
 		}
 	})
 
-	t.Run("1 message uses singular label", func(t *testing.T) {
+	t.Run("messages show icon and count", func(t *testing.T) {
 		msg := message{outputCount: 1}
 		got := detailHeaderStats(msg)
-		if !strings.Contains(got, "1 message") {
-			t.Errorf("should contain '1 message', got %q", got)
+		if !strings.Contains(got, IconOutput.Glyph) {
+			t.Errorf("should contain output icon %q, got %q", IconOutput.Glyph, got)
 		}
-		if strings.Contains(got, "1 messages") {
-			t.Errorf("singular should not say 'messages', got %q", got)
+		if !strings.Contains(got, "1") {
+			t.Errorf("should contain count '1', got %q", got)
 		}
 	})
 }

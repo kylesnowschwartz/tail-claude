@@ -809,54 +809,54 @@ func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) 
 		breadcrumb = StyleDim.Render(m.savedDetail.label) + sep
 	}
 
-	left := breadcrumb + icon + " " + modelName + " " + modelVer + detailHeaderStats(msg)
+	left := breadcrumb + icon + " " + modelName + " " + modelVer + detailHeaderStats(msg) + subagentIcons(msg.items)
 	for _, s := range leftSuffix {
-		left += " " + s
+		left += "  " + s
 	}
 
 	return newRendered(spaceBetween(left, detailHeaderMeta(msg), width))
 }
 
-// detailHeaderStats formats the stats summary (thinking, tool calls, messages, etc.).
+// detailHeaderStats formats the stats summary using icons for compactness:
+// 🧠2  󰯠9  💬4  instead of "2 thinking, 9 tool calls, 4 messages".
 func detailHeaderStats(msg message) string {
 	var parts []string
 	if msg.thinkingCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d thinking", msg.thinkingCount))
+		parts = append(parts, IconThinking.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.thinkingCount)))
 	}
 	if msg.toolCallCount > 0 {
-		tcLabel := "tool calls"
-		if msg.toolCallCount == 1 {
-			tcLabel = "tool call"
-		}
-		parts = append(parts, fmt.Sprintf("%d %s", msg.toolCallCount, tcLabel))
+		parts = append(parts, IconToolOk.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.toolCallCount)))
 	}
 	if msg.outputCount > 0 {
-		label := "messages"
-		if msg.outputCount == 1 {
-			label = "message"
-		}
-		parts = append(parts, fmt.Sprintf("%d %s", msg.outputCount, label))
+		parts = append(parts, IconOutput.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.outputCount)))
 	}
 	if msg.teammateSpawns > 0 {
-		label := "teammates"
-		if msg.teammateSpawns == 1 {
-			label = "teammate"
-		}
-		parts = append(parts, fmt.Sprintf("%d %s", msg.teammateSpawns, label))
+		parts = append(parts, IconTeammate.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.teammateSpawns)))
 	}
 	if msg.teammateMessages > 0 {
-		label := "teammate messages"
-		if msg.teammateMessages == 1 {
-			label = "teammate message"
-		}
-		parts = append(parts, fmt.Sprintf("%d %s", msg.teammateMessages, label))
+		parts = append(parts, IconChat.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.teammateMessages)))
 	}
 
 	if len(parts) == 0 {
 		return ""
 	}
 	dot := " " + IconDot.Render() + " "
-	return dot + StyleSecondary.Render(strings.Join(parts, ", "))
+	return dot + strings.Join(parts, "  ")
+}
+
+// subagentIcons returns a colored bot icon for each subagent spawned in this
+// message. Provides an at-a-glance count and identity of spawned agents.
+func subagentIcons(items []displayItem) string {
+	var icons []string
+	for _, it := range items {
+		if it.itemType == parser.ItemSubagent {
+			icons = append(icons, IconSubagent.WithColor(teamColor(it.teamColor)))
+		}
+	}
+	if len(icons) == 0 {
+		return ""
+	}
+	return " " + strings.Join(icons, " ")
 }
 
 // detailHeaderMeta formats the right-side metadata (tokens, duration, timestamp).
