@@ -559,6 +559,13 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		nameRendered = StylePrimaryBold.Render(nameStr)
 	}
 
+	// Ongoing spinner for subagent items: 1 glyph + 1 space, or 2 spaces for alignment.
+	spinnerSlot := "  "
+	if item.itemType == parser.ItemSubagent && item.subagentOngoing {
+		frame := SpinnerFrames[m.animFrame%len(SpinnerFrames)]
+		spinnerSlot = lipgloss.NewStyle().Foreground(ColorOngoing).Render(frame) + " "
+	}
+
 	// Summary
 	var summary string
 	switch item.itemType {
@@ -618,9 +625,9 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 
 	var left string
 	if summary != "" {
-		left = cursor + indicator + " " + nameRendered + StyleDim.Render(" - ") + summaryRendered
+		left = cursor + indicator + " " + nameRendered + spinnerSlot + StyleDim.Render("- ") + summaryRendered
 	} else {
-		left = cursor + indicator + " " + nameRendered
+		left = cursor + indicator + " " + nameRendered + spinnerSlot
 	}
 	return spaceBetween(left, rightSide, width)
 }

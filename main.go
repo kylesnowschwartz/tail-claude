@@ -92,6 +92,7 @@ type displayItem struct {
 	teammateID      string
 	teamColor       string                  // team color name (e.g. "blue", "green")
 	subagentProcess *parser.SubagentProcess // linked subagent execution trace
+	subagentOngoing bool                    // linked subagent session is still in progress
 }
 
 type message struct {

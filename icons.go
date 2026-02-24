@@ -55,3 +55,6 @@ const (
 	GlyphHRule    = "\u2500" // box drawing horizontal (compact separators)
 	GlyphBeadFull = ""      // black circle (activity indicator bead, bright)
 )
+
+// SpinnerFrames is a 10-frame braille spinner used for ongoing indicators.
+var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}

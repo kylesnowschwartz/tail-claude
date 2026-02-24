@@ -34,8 +34,8 @@ type loadSessionMsg struct {
 // pickerTickMsg drives the ongoing spinner animation (100ms interval).
 type pickerTickMsg time.Time
 
-// pickerSpinnerFrames is a 10-frame braille spinner for ongoing sessions.
-var pickerSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+// pickerSpinnerFrames aliases the shared braille spinner for ongoing sessions.
+var pickerSpinnerFrames = SpinnerFrames
 
 func pickerTickCmd() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {

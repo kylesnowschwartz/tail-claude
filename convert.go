@@ -119,6 +119,7 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 		if it.Type == parser.ItemSubagent {
 			if proc := procByTaskID[it.ToolID]; proc != nil {
 				out[i].subagentProcess = proc
+				out[i].subagentOngoing = parser.IsOngoing(proc.Chunks)
 				if proc.TeamColor != "" {
 					out[i].teamColor = proc.TeamColor
 				}
