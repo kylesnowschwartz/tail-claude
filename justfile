@@ -91,9 +91,12 @@ release:
         exit 1
     fi
 
-    # Commit, tag, push
+    # Commit, tag, push, release
     git commit -m "chore: Bump version to $v"
     git tag "$v"
     git push && git push --tags
+
+    # Create GitHub Release with auto-generated notes from commits
+    gh release create "$v" --title "$v" --generate-notes --latest
 
     echo "Released $v"
