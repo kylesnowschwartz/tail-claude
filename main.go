@@ -525,6 +525,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.switchSession(msg.loadResult)
 
 	case tea.KeyMsg:
+		// Suspend on ctrl+z before dispatching to per-view handlers.
+		if msg.String() == "ctrl+z" {
+			return m, tea.Suspend
+		}
 		switch m.view {
 		case viewDetail:
 			return m.updateDetail(msg)
@@ -533,6 +537,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			return m.updateList(msg)
 		}
+
+	case tea.ResumeMsg:
+		// Returned from suspend (fg). Re-layout for potentially changed terminal size.
+		m.layoutList()
+		if m.view == viewDetail {
+			m.computeDetailMaxScroll()
+		}
+		return m, nil
 
 	case tea.MouseMsg:
 		if m.view == viewDetail {
