@@ -34,7 +34,7 @@ func TestChunksToMessages(t *testing.T) {
 		},
 	}
 
-	msgs := chunksToMessages(chunks, nil)
+	msgs := chunksToMessages(chunks, nil, nil)
 	if len(msgs) != 3 {
 		t.Fatalf("len(msgs) = %d, want 3", len(msgs))
 	}
@@ -87,7 +87,7 @@ func TestChunksToMessages_EmptyToolCalls(t *testing.T) {
 			// ToolCalls deliberately nil
 		},
 	}
-	msgs := chunksToMessages(chunks, nil)
+	msgs := chunksToMessages(chunks, nil, nil)
 	if len(msgs) != 1 {
 		t.Fatalf("len(msgs) = %d, want 1", len(msgs))
 	}
@@ -105,7 +105,7 @@ func TestChunksToMessages_CompactChunk(t *testing.T) {
 			Output:    "Context compressed here",
 		},
 	}
-	msgs := chunksToMessages(chunks, nil)
+	msgs := chunksToMessages(chunks, nil, nil)
 	if len(msgs) != 1 {
 		t.Fatalf("len(msgs) = %d, want 1", len(msgs))
 	}
@@ -173,9 +173,9 @@ func TestDisplayItemFromParser(t *testing.T) {
 
 func TestConvertDisplayItems(t *testing.T) {
 	t.Run("empty slice returns nil", func(t *testing.T) {
-		got := convertDisplayItems(nil, nil)
+		got := convertDisplayItems(nil, nil, nil)
 		if got != nil {
-			t.Errorf("convertDisplayItems(nil, nil) = %v, want nil", got)
+			t.Errorf("convertDisplayItems(nil, nil, nil) = %v, want nil", got)
 		}
 	})
 
@@ -188,7 +188,7 @@ func TestConvertDisplayItems(t *testing.T) {
 		items := []parser.DisplayItem{
 			{Type: parser.ItemSubagent, ToolID: toolID, ToolName: "Task"},
 		}
-		got := convertDisplayItems(items, []parser.SubagentProcess{proc})
+		got := convertDisplayItems(items, []parser.SubagentProcess{proc}, nil)
 		if len(got) != 1 {
 			t.Fatalf("len = %d, want 1", len(got))
 		}
@@ -205,7 +205,7 @@ func TestConvertDisplayItems(t *testing.T) {
 			{Type: parser.ItemSubagent, ToolID: "no-match", ToolName: "Task"},
 		}
 		proc := parser.SubagentProcess{ParentTaskID: "other-id"}
-		got := convertDisplayItems(items, []parser.SubagentProcess{proc})
+		got := convertDisplayItems(items, []parser.SubagentProcess{proc}, nil)
 		if got[0].subagentProcess != nil {
 			t.Errorf("unmatched subagent should have nil process, got %v", got[0].subagentProcess)
 		}
@@ -216,7 +216,7 @@ func TestConvertDisplayItems(t *testing.T) {
 		items := []parser.DisplayItem{
 			{Type: parser.ItemToolCall, ToolID: "tool-1"},
 		}
-		got := convertDisplayItems(items, []parser.SubagentProcess{proc})
+		got := convertDisplayItems(items, []parser.SubagentProcess{proc}, nil)
 		if got[0].subagentProcess != nil {
 			t.Errorf("non-subagent item should have nil process, got %v", got[0].subagentProcess)
 		}
@@ -227,9 +227,9 @@ func TestBuildSubagentMessage(t *testing.T) {
 	ts := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 
 	proc := &parser.SubagentProcess{
-		ID:        "agent-1",
-		StartTime: ts,
-		Usage:     parser.Usage{InputTokens: 200, OutputTokens: 100},
+		ID:         "agent-1",
+		StartTime:  ts,
+		Usage:      parser.Usage{InputTokens: 200, OutputTokens: 100},
 		DurationMs: 5000,
 		Chunks: []parser.Chunk{
 			{

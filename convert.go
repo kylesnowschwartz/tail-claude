@@ -10,7 +10,8 @@ import (
 // chunksToMessages maps parser output into the TUI's message type.
 // Discovered subagent processes are linked to their corresponding
 // ItemSubagent display items by matching ParentTaskID to ToolID.
-func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess) []message {
+// colorByToolID provides fallback team colors for items without a linked process.
+func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess, colorByToolID map[string]string) []message {
 	msgs := make([]message, 0, len(chunks))
 	for _, c := range chunks {
 		switch c.Type {
@@ -43,7 +44,7 @@ func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess)
 				contextTokens:    c.Usage.InputTokens + c.Usage.CacheReadTokens + c.Usage.CacheCreationTokens,
 				durationMs:       c.DurationMs,
 				timestamp:        formatTime(c.Timestamp),
-				items:            convertDisplayItems(c.Items, subagents),
+				items:            convertDisplayItems(c.Items, subagents, colorByToolID),
 				lastOutput:       parser.FindLastOutput(c.Items),
 				teammateSpawns:   teamSpawns,
 				teammateMessages: len(teammateIDs),
@@ -98,8 +99,10 @@ func displayItemFromParser(it parser.DisplayItem) displayItem {
 
 // convertDisplayItems maps parser.DisplayItem to the TUI's displayItem type.
 // Links ItemSubagent items to their discovered SubagentProcess by matching
-// ToolID to ParentTaskID.
-func convertDisplayItems(items []parser.DisplayItem, subagents []parser.SubagentProcess) []displayItem {
+// ToolID to ParentTaskID. colorByToolID provides fallback team colors for
+// items without a linked process (e.g. team agents whose sessions live
+// outside the subagents/ directory).
+func convertDisplayItems(items []parser.DisplayItem, subagents []parser.SubagentProcess, colorByToolID map[string]string) []displayItem {
 	if len(items) == 0 {
 		return nil
 	}
@@ -122,6 +125,13 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 				out[i].subagentOngoing = parser.IsOngoing(proc.Chunks)
 				if proc.TeammateColor != "" {
 					out[i].teamColor = proc.TeammateColor
+				}
+			}
+			// Fallback: apply team color from toolUseResult data when no
+			// linked process exists (team agents run as separate sessions).
+			if out[i].teamColor == "" {
+				if color, ok := colorByToolID[it.ToolID]; ok {
+					out[i].teamColor = color
 				}
 			}
 		}

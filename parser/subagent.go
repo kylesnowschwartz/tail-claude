@@ -258,6 +258,11 @@ func aggregateUsage(chunks []Chunk) Usage {
 // LinkSubagents connects discovered subagent processes to their parent Task
 // tool calls in the parent session. Mutates processes in place.
 //
+// Returns toolIDToColor: a map from tool_use_id to team color name, extracted
+// from toolUseResult entries in the parent session. Callers use this as a
+// fallback color source for Task items that have no linked SubagentProcess
+// (e.g. team agents whose JSONL lives outside the subagents/ directory).
+//
 // Matching strategy (ported from claude-devtools SubagentResolver):
 //  1. Result-based: scan parent session entries for toolUseResult containing
 //     agentId. Map agentId -> sourceToolUseID -> Task tool call.
@@ -268,9 +273,13 @@ func aggregateUsage(chunks []Chunk) Usage {
 //     with remaining unmatched non-team Task calls by time order (no wrap-around).
 //
 // Also populates Description and SubagentType from the parent Task call.
-func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSessionPath string) {
+func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSessionPath string) map[string]string {
+	// Always scan for colors, even without processes — team agents don't
+	// create subagent files but their toolUseResult entries carry color data.
+	links := scanAgentLinks(parentSessionPath)
+
 	if len(processes) == 0 {
-		return
+		return links.toolIDToColor
 	}
 
 	// Collect all Task tool DisplayItems from parent chunks.
@@ -290,12 +299,8 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 	}
 
 	if len(taskItems) == 0 {
-		return
+		return links.toolIDToColor
 	}
-
-	// Build agentId -> sourceToolUseID map and toolUseID -> color map
-	// from structured Entry fields.
-	links := scanAgentLinks(parentSessionPath)
 
 	// Build tool_use_id -> DisplayItem for enrichment.
 	toolIDToTask := make(map[string]*DisplayItem, len(taskItems))
@@ -380,6 +385,8 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 			}
 		}
 	}
+
+	return links.toolIDToColor
 }
 
 // filterTeamTasks returns unmatched Task items whose input contains both

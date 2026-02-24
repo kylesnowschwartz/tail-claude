@@ -195,14 +195,14 @@ func (w *sessionWatcher) readAndRebuild() {
 	chunks := parser.BuildChunks(w.allClassified)
 
 	subagents, _ := parser.DiscoverSubagents(w.path)
-	parser.LinkSubagents(subagents, chunks, w.path)
+	colorMap := parser.LinkSubagents(subagents, chunks, w.path)
 
 	// Track whether we have team tasks so directory watches know
 	// whether to trigger rebuilds for new .jsonl files.
 	w.hasTeamTasks = hasTeamTaskItems(chunks)
 
 	update := tailUpdateMsg{
-		messages:       chunksToMessages(chunks, subagents),
+		messages:       chunksToMessages(chunks, subagents, colorMap),
 		ongoing:        parser.IsOngoing(chunks),
 		permissionMode: permissionMode,
 	}

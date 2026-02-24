@@ -204,6 +204,7 @@ type loadResult struct {
 	offset       int64
 	ongoing      bool
 	hasTeamTasks bool
+	teamColorMap map[string]string  // tool_use_id -> team color name (fallback for unlinked items)
 	meta         parser.SessionMeta // cwd, branch, permission mode
 }
 
@@ -226,7 +227,7 @@ func loadSession(path string) (loadResult, error) {
 
 	// Discover and link subagent execution traces.
 	subagents, _ := parser.DiscoverSubagents(path)
-	parser.LinkSubagents(subagents, chunks, path)
+	colorMap := parser.LinkSubagents(subagents, chunks, path)
 
 	ongoing := parser.IsOngoing(chunks)
 	if ongoing {
@@ -238,12 +239,13 @@ func loadSession(path string) (loadResult, error) {
 	}
 
 	return loadResult{
-		messages:     chunksToMessages(chunks, subagents),
+		messages:     chunksToMessages(chunks, subagents, colorMap),
 		path:         path,
 		classified:   classified,
 		offset:       offset,
 		ongoing:      ongoing,
 		hasTeamTasks: hasTeamTaskItems(chunks),
+		teamColorMap: colorMap,
 		meta:         parser.ExtractSessionMeta(path),
 	}, nil
 }

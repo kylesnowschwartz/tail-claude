@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -640,7 +641,7 @@ func (m model) renderDetailItemExpanded(item displayItem, width int) rendered {
 		if item.subagentProcess != nil {
 			content = m.renderSubagentTrace(item, wrapWidth, indent)
 		} else {
-			content = m.renderToolExpanded(item, wrapWidth, indent)
+			content = m.renderTaskInput(item, wrapWidth, indent)
 		}
 
 	case parser.ItemToolCall:
@@ -688,6 +689,72 @@ func (m model) renderToolExpanded(item displayItem, wrapWidth int, indent string
 		return ""
 	}
 	return strings.Join(sections, "\n")
+}
+
+// renderTaskInput renders structured metadata for a Task item without a linked
+// subagent process. Extracts key fields from the JSON input and truncates the
+// prompt field (which can be thousands of characters) instead of dumping raw JSON.
+// Falls back to renderToolExpanded if JSON parsing fails.
+func (m model) renderTaskInput(item displayItem, wrapWidth int, indent string) string {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(item.toolInput), &fields); err != nil {
+		return m.renderToolExpanded(item, wrapWidth, indent)
+	}
+
+	labelStyle := StyleSecondaryBold
+	valueStyle := StyleDim
+
+	var lines []string
+
+	// Extract and render key metadata fields.
+	for _, key := range []string{"description", "subagent_type", "team_name", "name", "model"} {
+		raw, ok := fields[key]
+		if !ok {
+			continue
+		}
+		var val string
+		if json.Unmarshal(raw, &val) != nil || val == "" {
+			continue
+		}
+		lines = append(lines, indent+labelStyle.Render(key+":")+
+			" "+valueStyle.Render(val))
+	}
+
+	// Prompt: truncate to avoid wall-of-text.
+	if raw, ok := fields["prompt"]; ok {
+		var prompt string
+		if json.Unmarshal(raw, &prompt) == nil && prompt != "" {
+			const maxPrompt = 500
+			if len(prompt) > maxPrompt {
+				prompt = prompt[:maxPrompt] + IconEllipsis.Glyph
+			}
+			// Collapse newlines for a compact preview.
+			prompt = strings.ReplaceAll(prompt, "\n", " ")
+			promptRendered := valueStyle.Width(wrapWidth).Render(prompt)
+			lines = append(lines, indent+labelStyle.Render("prompt:")+
+				" "+promptRendered)
+		}
+	}
+
+	// Show the result if present (tool completed).
+	if item.toolResult != "" || item.toolError {
+		if len(lines) > 0 {
+			sepStyle := StyleMuted
+			lines = append(lines, indent+sepStyle.Render(strings.Repeat("-", wrapWidth)))
+		}
+		if item.toolError {
+			lines = append(lines, indent+StyleErrorBold.Render("Error:"))
+		} else {
+			lines = append(lines, indent+labelStyle.Render("Result:"))
+		}
+		resultStyle := valueStyle.Width(wrapWidth)
+		lines = append(lines, indentBlock(resultStyle.Render(item.toolResult), indent))
+	}
+
+	if len(lines) == 0 {
+		return m.renderToolExpanded(item, wrapWidth, indent)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderSubagentTrace renders an execution trace for a linked subagent,
