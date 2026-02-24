@@ -21,7 +21,7 @@ Pure data transformation -- no side effects except file IO in `ReadSession` / `R
 - **session.go** -- File IO: `ReadSession` (full), `ReadSessionIncremental` (from offset), session discovery
 - **last_output.go** -- `FindLastOutput`: extracts the final text or tool result from a chunk for collapsed preview
 - **subagent.go** -- Subagent/teammate process discovery and linking across chunks (two discovery paths: `DiscoverSubagents` for `subagents/` files, `DiscoverTeamSessions` for project-dir team files)
-- **summary.go** -- Summary entry handling, `Ellipsis` and `Truncate` helpers
+- **summary.go** -- `Truncate` helper and per-tool one-line summary generation
 - **ongoing.go** -- Heuristics for whether a session is still in progress
 - **dategroup.go** -- Date-based session grouping (Today, Yesterday, This Week, etc.)
 - **patterns.go** -- Shared regex patterns for content classification
@@ -44,61 +44,12 @@ Bubble Tea model with three view states: list, detail, picker.
 - **theme.go** -- AdaptiveColor definitions for dark/light terminal support
 - **icons.go** -- Nerd Font icon constants
 
-### Rendering (`render.go`, `markdown.go`, `theme.go`, `icons.go`)
+### Rendering gotchas
 
-`render.go` contains all rendering functions. The dispatch flow:
-
-```
-View() -> viewList/viewDetail/viewPicker
-  viewList:   renderMessage -> renderClaudeMessage | renderUserMessage | renderSystemMessage | renderCompactMessage
-  viewDetail: renderDetailContent -> renderDetailHeader + renderDetailItemsContent | markdown body
-```
-
-**List view rendering:**
-- `renderMessage` dispatches by role to type-specific renderers.
-- `renderClaudeMessage` renders a header (model, stats, tokens, duration, timestamp) + card body. Collapsed view uses `FindLastOutput` -- shows `LastOutputText` as markdown or `LastOutputToolResult` as a one-line summary. Expanded view with items shows structured `renderDetailItemRow` rows + truncated last output text at the bottom.
-- `renderUserMessage` renders a right-aligned bubble with markdown content.
-- `renderSystemMessage` renders a single inline line (icon + label + timestamp + content).
-- `renderCompactMessage` renders a centered horizontal divider with text.
-
-**Detail view rendering:**
-- `renderDetailContent` is the single source of truth for detail content (used by both `viewDetail` and `computeDetailMaxScroll`).
-- AI messages with items get `renderDetailItemsContent`: header + item rows with optional expanded content.
-- `renderDetailItemRow` format: `{cursor} {indicator} {name:<12} {summary}  {tokens} {duration}`.
-- `renderDetailItemExpanded` renders indented content -- markdown for thinking/output/teammate, input+separator+result for tool calls/subagents.
-
-**Scroll computation:**
-- `layoutList` renders every message once, caching both rendered content (`listParts`) and line-offset metadata. `viewList` assembles from the cache -- one render pass, one source of truth.
-- `computeDetailMaxScroll` renders the detail content once to calculate total lines.
-- `ensureDetailCursorVisible` counts header lines + item rows + expanded content to find the cursor's line position.
-
-**Markdown renderer (`markdown.go`):**
-- `mdRenderer` wraps glamour. Caches the renderer at a specific width; recreates when width changes.
-- Terminal background (dark/light) detected once in `main()` before Bubble Tea alt-screen activation, passed to `newMdRenderer`.
-- Document.Color is nilled so body text inherits terminal default foreground (avoids invisible text on light backgrounds).
-
-**Layout constants (`render.go`):**
-- `maxContentWidth = 160` -- content rendering width cap.
-- `maxCollapsedLines = 12` -- collapsed message line limit before truncation.
-- `keybindBarHeight = 3` -- rounded border: top + content + bottom.
-- `infoBarHeight = 1` -- session metadata bar (always visible).
-- `footerHeight()` -- dynamic: `infoBarHeight` + `keybindBarHeight` when `showKeybinds` is true.
-
-**Info bar (`render.go`):**
-- `renderInfoBar()` renders a single-line bar: project name, git branch, permission mode (left), context % (right).
-- Session metadata (`cwd`, `gitBranch`, `permissionMode`) extracted from JSONL via `parser.ExtractSessionMeta`.
-- Context % computed from last AI message's input tokens / 200k context window.
-- `?` key toggles keybind hints in all three views.
-
-**Theme (`theme.go`):**
-- All colors are `lipgloss.AdaptiveColor` with Light/Dark values.
-- Text hierarchy: Primary, Secondary, Dim, Muted.
-- Model family colors: Opus (red/coral), Sonnet (blue), Haiku (green).
-- Accent colors: Accent (blue), Success (green), Warning (yellow), Error (red), Info (blue).
-
-**Icons (`icons.go`):**
-- Nerd Font codepoints. Requires a patched terminal font.
-- Icon set: Claude, User, System, Expanded/Collapsed, Cursor, DrillDown, Thinking, Output, ToolOk/ToolErr, Subagent, Teammate, Selected, Token, Clock, Dot, Chat, Live, Ellipsis.
+- Terminal background (dark/light) must be detected in `main()` **before** Bubble Tea activates alt-screen -- detection inside alt-screen returns wrong results. Pass it to `newMdRenderer`.
+- `mdRenderer` nils `Document.Color` so body text inherits the terminal's default foreground. Removing this makes text invisible on light backgrounds.
+- `renderDetailContent` is the single source of truth for detail rendering -- both `viewDetail` and `computeDetailMaxScroll` call it. If you add a new render path, wire it through here or scroll math breaks.
+- `layoutList` does one render pass and caches results (`listParts` + line offsets). Scroll math reads the cache. Don't render twice.
 
 ## Functional Thinking
 
