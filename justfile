@@ -99,4 +99,7 @@ release:
     # Create GitHub Release with auto-generated notes from commits
     gh release create "$v" --title "$v" --generate-notes --latest
 
+    # Prime the Go module proxy cache so `go install ...@latest` resolves immediately
+    GOPROXY=https://proxy.golang.org go list -m "github.com/kylesnowschwartz/tail-claude@$v"
+
     echo "Released $v"
