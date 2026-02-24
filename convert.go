@@ -7,6 +7,13 @@ import (
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
+// teamColorPool is the ordered set of color names matching the teamColor()
+// switch in format.go. Used to assign synthetic colors to subagents that
+// don't carry color metadata from the JSONL data.
+var teamColorPool = []string{
+	"blue", "green", "red", "yellow", "purple", "cyan", "orange", "pink",
+}
+
 // chunksToMessages maps parser output into the TUI's message type.
 // Discovered subagent processes are linked to their corresponding
 // ItemSubagent display items by matching ParentTaskID to ToolID.
@@ -136,6 +143,31 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 			}
 		}
 	}
+
+	// Assign pool colors to subagents without a team color.
+	// Collect claimed colors, then cycle through unclaimed palette entries.
+	claimed := make(map[string]bool)
+	for _, di := range out {
+		if di.teamColor != "" {
+			claimed[di.teamColor] = true
+		}
+	}
+	var poolColors []string
+	for _, name := range teamColorPool {
+		if !claimed[name] {
+			poolColors = append(poolColors, name)
+		}
+	}
+	if len(poolColors) > 0 {
+		poolIdx := 0
+		for i := range out {
+			if out[i].itemType == parser.ItemSubagent && out[i].teamColor == "" {
+				out[i].teamColor = poolColors[poolIdx%len(poolColors)]
+				poolIdx++
+			}
+		}
+	}
+
 	return out
 }
 

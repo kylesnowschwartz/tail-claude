@@ -290,6 +290,64 @@ func TestConvertDisplayItems_TeamColorFallback(t *testing.T) {
 	}
 }
 
+func TestConvertDisplayItems_PoolColorsAssigned(t *testing.T) {
+	// Regular subagents (no team color in JSONL) get synthetic colors
+	// from the pool so they're visually distinguishable.
+	items := []parser.DisplayItem{
+		{Type: parser.ItemSubagent, ToolID: "t1", ToolName: "Task"},
+		{Type: parser.ItemToolCall, ToolID: "t2", ToolName: "Read"},
+		{Type: parser.ItemSubagent, ToolID: "t3", ToolName: "Task"},
+		{Type: parser.ItemSubagent, ToolID: "t4", ToolName: "Task"},
+	}
+	got := convertDisplayItems(items, nil, nil)
+
+	// Three subagents should each get a distinct color from the pool.
+	if got[0].teamColor == "" {
+		t.Fatal("first subagent should get a pool color, got empty")
+	}
+	if got[2].teamColor == "" {
+		t.Fatal("second subagent should get a pool color, got empty")
+	}
+	if got[3].teamColor == "" {
+		t.Fatal("third subagent should get a pool color, got empty")
+	}
+	if got[0].teamColor == got[2].teamColor {
+		t.Errorf("first two subagents got same color %q, want distinct", got[0].teamColor)
+	}
+	if got[0].teamColor == got[3].teamColor {
+		t.Errorf("first and third subagents got same color %q, want distinct", got[0].teamColor)
+	}
+	// Non-subagent item should not get a color.
+	if got[1].teamColor != "" {
+		t.Errorf("non-subagent item got teamColor %q, want empty", got[1].teamColor)
+	}
+}
+
+func TestConvertDisplayItems_PoolSkipsClaimedColors(t *testing.T) {
+	// When a team agent claims "blue", pool assignment starts from the
+	// next unclaimed color so there are no collisions.
+	toolID := "t1"
+	proc := parser.SubagentProcess{
+		ParentTaskID:  toolID,
+		TeammateColor: "blue",
+	}
+	items := []parser.DisplayItem{
+		{Type: parser.ItemSubagent, ToolID: toolID, ToolName: "Task"},
+		{Type: parser.ItemSubagent, ToolID: "t2", ToolName: "Task"},
+	}
+	got := convertDisplayItems(items, []parser.SubagentProcess{proc}, nil)
+
+	if got[0].teamColor != "blue" {
+		t.Errorf("team agent color = %q, want %q", got[0].teamColor, "blue")
+	}
+	if got[1].teamColor == "" {
+		t.Fatal("uncolored subagent should get a pool color, got empty")
+	}
+	if got[1].teamColor == "blue" {
+		t.Error("pool color should skip claimed 'blue', but got 'blue'")
+	}
+}
+
 func TestBuildSubagentMessage(t *testing.T) {
 	ts := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 

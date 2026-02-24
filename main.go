@@ -39,9 +39,9 @@ const staleSessionThreshold = 12 * time.Hour
 // tickMsg drives the activity indicator animation.
 type tickMsg time.Time
 
-// tickCmd returns a Bubble Tea command that fires a tickMsg every 150ms.
+// tickCmd returns a Bubble Tea command that fires a tickMsg every 100ms.
 func tickCmd() tea.Cmd {
-	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }
@@ -344,6 +344,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		if m.watching && m.sessionOngoing {
 			m.animFrame++
+			if m.view == viewList {
+				m.layoutList()
+			}
 			return m, tickCmd()
 		}
 		return m, nil
