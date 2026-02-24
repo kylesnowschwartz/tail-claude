@@ -998,9 +998,9 @@ func (m model) renderInfoBar() string {
 	if proj := shortPath(m.sessionCwd); proj != "" {
 		leftParts = append(leftParts, StyleSecondary.Render(proj))
 	}
-	if m.sessionBranch != "" {
-		branch := StyleDim.Render(m.sessionBranch)
-		if m.sessionDirty {
+	if m.liveBranch != "" {
+		branch := StyleDim.Render(m.liveBranch)
+		if m.liveDirty {
 			branch += lipgloss.NewStyle().Foreground(ColorContextWarn).Render("*")
 		}
 		leftParts = append(leftParts, branch)
@@ -1055,16 +1055,16 @@ func (m model) renderInfoBar() string {
 func (m model) renderFooter(keybindPairs ...string) string {
 	footer := m.renderInfoBar()
 	if m.showKeybinds {
-		footer += "\n" + m.renderStatusBar(keybindPairs...)
+		footer += "\n" + m.renderKeybindBar(keybindPairs...)
 	}
 	return footer
 }
 
 // -- Status bar ---------------------------------------------------------------
 
-// renderStatusBar renders key hints in a rounded-border box.
+// renderKeybindBar renders key hints in a rounded-border box.
 // When m.watching is true, a dim "tail" indicator is prepended.
-func (m model) renderStatusBar(pairs ...string) string {
+func (m model) renderKeybindBar(pairs ...string) string {
 	keyStyle := StyleAccentBold
 
 	descStyle := StyleDim

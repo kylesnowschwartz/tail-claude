@@ -28,9 +28,6 @@ type loadSessionMsg struct {
 // pickerTickMsg drives the ongoing spinner animation (100ms interval).
 type pickerTickMsg time.Time
 
-// pickerSpinnerFrames aliases the shared braille spinner for ongoing sessions.
-var pickerSpinnerFrames = SpinnerFrames
-
 func pickerTickCmd() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 		return pickerTickMsg(t)
@@ -455,7 +452,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	var line1Parts []string
 
 	if s.IsOngoing {
-		frame := pickerSpinnerFrames[m.pickerAnimFrame%len(pickerSpinnerFrames)]
+		frame := SpinnerFrames[m.pickerAnimFrame%len(SpinnerFrames)]
 		spinStyle := lipgloss.NewStyle().Foreground(ColorOngoing)
 		if isSelected {
 			spinStyle = spinStyle.Background(ColorPickerSelectedBg)

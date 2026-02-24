@@ -169,9 +169,9 @@ type model struct {
 	// Live git context — based on where tail-claude is invoked from (os.Getwd),
 	// not the session's cwd. This correctly reflects worktrees and the user's
 	// actual current branch, rather than historical data from the JSONL.
-	gitCwd        string
-	sessionBranch string // current branch at gitCwd
-	sessionDirty  bool   // true when gitCwd working tree has uncommitted changes
+	gitCwd     string
+	liveBranch string // current branch at gitCwd
+	liveDirty  bool   // true when gitCwd working tree has uncommitted changes
 
 	// Footer toggle (? key)
 	showKeybinds bool
@@ -204,7 +204,6 @@ type loadResult struct {
 	offset       int64
 	ongoing      bool
 	hasTeamTasks bool
-	teamColorMap map[string]string  // tool_use_id -> team color name (fallback for unlinked items)
 	meta         parser.SessionMeta // cwd, branch, permission mode
 }
 
@@ -247,7 +246,6 @@ func loadSession(path string) (loadResult, error) {
 		offset:       offset,
 		ongoing:      ongoing,
 		hasTeamTasks: hasTeamTaskItems(chunks),
-		teamColorMap: colorMap,
 		meta:         parser.ExtractSessionMeta(path),
 	}, nil
 }
@@ -268,9 +266,9 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.sessionPath = result.path
 	m.sessionOngoing = result.ongoing
 	m.sessionCwd = result.meta.Cwd
-	m.sessionBranch = checkGitBranch(m.gitCwd)
+	m.liveBranch = checkGitBranch(m.gitCwd)
 	m.sessionMode = result.meta.PermissionMode
-	m.sessionDirty = checkGitDirty(m.gitCwd)
+	m.liveDirty = checkGitDirty(m.gitCwd)
 	m.animFrame = 0
 	m.view = viewList
 	m.layoutList()
@@ -360,7 +358,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case gitDirtyTickMsg:
-		m.sessionDirty = checkGitDirty(m.gitCwd)
+		m.liveDirty = checkGitDirty(m.gitCwd)
 		return m, gitDirtyTickCmd()
 
 	case tailUpdateMsg:
@@ -372,7 +370,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.permissionMode != "" {
 			m.sessionMode = msg.permissionMode
 		}
-		m.sessionDirty = checkGitDirty(m.gitCwd)
+		m.liveDirty = checkGitDirty(m.gitCwd)
 
 		// Clamp cursor if the message list somehow shrank.
 		if m.cursor >= len(m.messages) && len(m.messages) > 0 {
@@ -769,8 +767,8 @@ Flags:
 		m.projectDir = projectDir
 		m.projectDirs = projectDirs
 		m.gitCwd = invokedFrom
-		m.sessionBranch = checkGitBranch(invokedFrom)
-		m.sessionDirty = checkGitDirty(invokedFrom)
+		m.liveBranch = checkGitBranch(invokedFrom)
+		m.liveDirty = checkGitDirty(invokedFrom)
 		m.sessionCache = parser.NewSessionCache()
 		m.view = viewPicker
 
@@ -798,9 +796,9 @@ Flags:
 		m.height = 1_000_000
 		m.gitCwd = invokedFrom
 		m.sessionCwd = result.meta.Cwd
-		m.sessionBranch = checkGitBranch(invokedFrom)
+		m.liveBranch = checkGitBranch(invokedFrom)
 		m.sessionMode = result.meta.PermissionMode
-		m.sessionDirty = checkGitDirty(invokedFrom)
+		m.liveDirty = checkGitDirty(invokedFrom)
 		if expandAll {
 			for i := range m.messages {
 				m.expanded[i] = true
@@ -830,9 +828,9 @@ Flags:
 	m.sessionOngoing = result.ongoing
 	m.gitCwd = invokedFrom
 	m.sessionCwd = result.meta.Cwd
-	m.sessionBranch = checkGitBranch(invokedFrom)
+	m.liveBranch = checkGitBranch(invokedFrom)
 	m.sessionMode = result.meta.PermissionMode
-	m.sessionDirty = checkGitDirty(invokedFrom)
+	m.liveDirty = checkGitDirty(invokedFrom)
 	m.sessionCache = sessionCache
 
 	// When the session was auto-discovered (no explicit path) and it's stale,
