@@ -176,10 +176,11 @@ type model struct {
 	// Footer toggle (? key)
 	showKeybinds bool
 
-	// Project directory: Claude projects dir for CWD, used by picker + watcher.
-	// Set once at startup from CurrentProjectDir(). Single source of truth for
-	// "which project's sessions to show" -- avoids deriving from sessionPath.
-	projectDir string
+	// Project directories: main project dir + worktree dirs. Set once at startup.
+	// The main dir comes from CurrentProjectDir(); worktree dirs are discovered
+	// via RelatedProjectDirs(). Used by picker + watcher for session discovery.
+	projectDir  string   // primary project dir (main repo)
+	projectDirs []string // all related dirs (main + worktrees)
 
 	// Session picker state
 	sessionCache       *parser.SessionCache
@@ -311,9 +312,9 @@ func (m model) Init() tea.Cmd {
 	}
 
 	// When starting in picker view (e.g. stale session or empty project),
-	// kick off session discovery.
-	if m.view == viewPicker && m.projectDir != "" {
-		cmds = append(cmds, loadPickerSessionsCmd(m.projectDir, m.sessionCache))
+	// kick off session discovery across all project dirs (main + worktrees).
+	if m.view == viewPicker && len(m.projectDirs) > 0 {
+		cmds = append(cmds, loadPickerSessionsCmd(m.projectDirs, m.sessionCache))
 	}
 
 	// Poll git dirty state every 3 seconds regardless of JSONL activity.
@@ -445,8 +446,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Start picker directory watcher for live refresh.
-		if m.pickerWatcher == nil && m.projectDir != "" {
-			pw := newPickerWatcher(m.projectDir, m.sessionCache)
+		if m.pickerWatcher == nil && len(m.projectDirs) > 0 {
+			pw := newPickerWatcher(m.projectDirs, m.sessionCache)
 			go pw.run()
 			m.pickerWatcher = pw
 			cmds = append(cmds, waitForPickerRefresh(pw.sub))
@@ -727,12 +728,19 @@ Flags:
 	// truth for picker discovery and the picker watcher.
 	projectDir, _ := parser.CurrentProjectDir()
 
-	// When no explicit path was given, find the latest session within the
-	// CWD's project. No global fallback — if this project has no sessions,
-	// we show an empty picker (interactive) or exit (dump mode).
+	// Discover related worktree project directories. Claude Code encodes each
+	// worktree's CWD as a separate project directory whose name shares a prefix
+	// with the main repo's directory. We scan all of them for sessions.
+	var projectDirs []string
+	if projectDir != "" {
+		projectDirs = parser.RelatedProjectDirs(projectDir)
+	}
+
+	// When no explicit path was given, find the latest session across the
+	// main project and any worktree directories.
 	autoDiscovered := sessionPath == ""
-	if sessionPath == "" && projectDir != "" {
-		if sessions, err := parser.DiscoverProjectSessions(projectDir); err == nil && len(sessions) > 0 {
+	if sessionPath == "" && len(projectDirs) > 0 {
+		if sessions, err := parser.DiscoverAllProjectSessions(projectDirs); err == nil && len(sessions) > 0 {
 			sessionPath = sessions[0].Path
 		}
 	}
@@ -752,6 +760,7 @@ Flags:
 
 		m := initialModel(nil, hasDarkBg)
 		m.projectDir = projectDir
+		m.projectDirs = projectDirs
 		m.gitCwd = invokedFrom
 		m.sessionBranch = checkGitBranch(invokedFrom)
 		m.sessionDirty = checkGitDirty(invokedFrom)
@@ -806,6 +815,7 @@ Flags:
 	m := initialModel(result.messages, hasDarkBg)
 	m.sessionPath = result.path
 	m.projectDir = projectDir
+	m.projectDirs = projectDirs
 	m.watching = true
 	m.watcher = watcher
 	m.tailSub = watcher.sub

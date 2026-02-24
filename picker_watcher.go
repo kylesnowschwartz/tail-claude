@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,25 +17,27 @@ type pickerRefreshMsg struct {
 	sessions []parser.SessionInfo
 }
 
-// pickerWatcher watches a project directory for .jsonl file changes and
-// pushes refreshed session lists through a channel.
+// pickerWatcher watches project directories for .jsonl file changes and
+// pushes refreshed session lists through a channel. Watches all related
+// project directories (main + worktree dirs) so worktree sessions appear
+// in the picker as soon as they're created.
 type pickerWatcher struct {
-	projectDir string
-	cache      *parser.SessionCache
-	sub        chan []parser.SessionInfo
-	done       chan struct{}
+	projectDirs []string
+	cache       *parser.SessionCache
+	sub         chan []parser.SessionInfo
+	done        chan struct{}
 }
 
-func newPickerWatcher(projectDir string, cache *parser.SessionCache) *pickerWatcher {
+func newPickerWatcher(projectDirs []string, cache *parser.SessionCache) *pickerWatcher {
 	return &pickerWatcher{
-		projectDir: projectDir,
-		cache:      cache,
-		sub:        make(chan []parser.SessionInfo, 1),
-		done:       make(chan struct{}),
+		projectDirs: projectDirs,
+		cache:       cache,
+		sub:         make(chan []parser.SessionInfo, 1),
+		done:        make(chan struct{}),
 	}
 }
 
-// run watches the project directory for .jsonl changes. Debounces 500ms
+// run watches all project directories for .jsonl changes. Debounces 500ms
 // before rescanning. Blocks until stop() is called.
 func (pw *pickerWatcher) run() {
 	w, err := fsnotify.NewWatcher()
@@ -43,8 +46,12 @@ func (pw *pickerWatcher) run() {
 	}
 	defer w.Close()
 
-	if err := w.Add(pw.projectDir); err != nil {
-		return
+	// Watch all existing project directories. Missing dirs are silently
+	// skipped -- they may not exist yet if no worktree session has been created.
+	for _, dir := range pw.projectDirs {
+		if _, err := os.Stat(dir); err == nil {
+			_ = w.Add(dir)
+		}
 	}
 
 	var debounce *time.Timer
@@ -78,9 +85,9 @@ func (pw *pickerWatcher) run() {
 				var sessions []parser.SessionInfo
 				var err error
 				if pw.cache != nil {
-					sessions, err = pw.cache.DiscoverProjectSessions(pw.projectDir)
+					sessions, err = pw.cache.DiscoverAllProjectSessions(pw.projectDirs)
 				} else {
-					sessions, err = parser.DiscoverProjectSessions(pw.projectDir)
+					sessions, err = parser.DiscoverAllProjectSessions(pw.projectDirs)
 				}
 				if err != nil {
 					return

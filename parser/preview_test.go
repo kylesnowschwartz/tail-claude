@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
@@ -400,6 +401,111 @@ func TestReadSessionIncremental_EmptyFile(t *testing.T) {
 	}
 	if offset != 0 {
 		t.Errorf("offset = %d, want 0 for empty file", offset)
+	}
+}
+
+// --- RelatedProjectDirs tests ---
+
+func TestRelatedProjectDirs_FindsWorktreeDirs(t *testing.T) {
+	// Simulate ~/.claude/projects/ with main + worktree dirs.
+	parent := t.TempDir()
+	mainDir := filepath.Join(parent, "-Users-kyle-Code-myproject")
+	worktreeDir := filepath.Join(parent, "-Users-kyle-Code-myproject-.claude-worktrees-foo")
+	unrelatedDir := filepath.Join(parent, "-Users-kyle-Code-other")
+
+	os.Mkdir(mainDir, 0o755)
+	os.Mkdir(worktreeDir, 0o755)
+	os.Mkdir(unrelatedDir, 0o755)
+
+	dirs := parser.RelatedProjectDirs(mainDir)
+	if len(dirs) != 2 {
+		t.Fatalf("got %d dirs, want 2 (main + worktree)", len(dirs))
+	}
+	if dirs[0] != mainDir {
+		t.Errorf("dirs[0] = %q, want main dir", dirs[0])
+	}
+	if dirs[1] != worktreeDir {
+		t.Errorf("dirs[1] = %q, want worktree dir", dirs[1])
+	}
+}
+
+func TestRelatedProjectDirs_NoWorktrees(t *testing.T) {
+	parent := t.TempDir()
+	mainDir := filepath.Join(parent, "-Users-kyle-Code-myproject")
+	os.Mkdir(mainDir, 0o755)
+
+	dirs := parser.RelatedProjectDirs(mainDir)
+	if len(dirs) != 1 {
+		t.Fatalf("got %d dirs, want 1 (main only)", len(dirs))
+	}
+}
+
+func TestRelatedProjectDirs_ExcludesPartialNameMatch(t *testing.T) {
+	// "-Users-kyle-Code-myproject-extra" should NOT match "-Users-kyle-Code-myprojectfoo"
+	// because the extra char after the prefix is not a "-".
+	parent := t.TempDir()
+	mainDir := filepath.Join(parent, "-Users-kyle-Code-myproject")
+	falseMatch := filepath.Join(parent, "-Users-kyle-Code-myprojectfoo")
+
+	os.Mkdir(mainDir, 0o755)
+	os.Mkdir(falseMatch, 0o755)
+
+	dirs := parser.RelatedProjectDirs(mainDir)
+	if len(dirs) != 1 {
+		t.Fatalf("got %d dirs, want 1 (false prefix match excluded)", len(dirs))
+	}
+}
+
+// --- DiscoverAllProjectSessions tests ---
+
+func TestDiscoverAllProjectSessions_MergesAcrossDirs(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	// Session in dir1 (older).
+	p1 := writeJSONL(t, dir1, "session-a.jsonl",
+		userEntry("u1", "2025-01-15T10:00:00Z", "Session A"),
+		assistantEntry("a1", "2025-01-15T10:00:01Z", "Reply A"),
+	)
+	// Session in dir2 (newer).
+	p2 := writeJSONL(t, dir2, "session-b.jsonl",
+		userEntry("u2", "2025-01-15T11:00:00Z", "Session B"),
+		assistantEntry("a2", "2025-01-15T11:00:01Z", "Reply B"),
+	)
+
+	// Force mod times so session-b is newer.
+	older := mustStat(t, p1).ModTime()
+	os.Chtimes(p2, older.Add(time.Second), older.Add(time.Second))
+
+	sessions, err := parser.DiscoverAllProjectSessions([]string{dir1, dir2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("got %d sessions, want 2", len(sessions))
+	}
+	// Newest first.
+	if sessions[0].SessionID != "session-b" {
+		t.Errorf("first session = %q, want session-b (newest first)", sessions[0].SessionID)
+	}
+	if sessions[1].SessionID != "session-a" {
+		t.Errorf("second session = %q, want session-a", sessions[1].SessionID)
+	}
+}
+
+func TestDiscoverAllProjectSessions_SkipsMissingDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeJSONL(t, dir, "real.jsonl",
+		userEntry("u1", "2025-01-15T10:00:00Z", "Hello"),
+		assistantEntry("a1", "2025-01-15T10:00:01Z", "Hi"),
+	)
+
+	sessions, err := parser.DiscoverAllProjectSessions([]string{dir, "/nonexistent/dir"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1 (missing dir skipped)", len(sessions))
 	}
 }
 

@@ -16,7 +16,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "q", "esc", "escape", "backspace":
-		return m, loadPickerSessionsCmd(m.projectDir, m.sessionCache)
+		return m, loadPickerSessionsCmd(m.projectDirs, m.sessionCache)
 	case "j":
 		if m.cursor < len(m.messages)-1 {
 			m.cursor++
@@ -86,7 +86,7 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ensureCursorVisible()
 	case "s":
 		// Open session picker
-		return m, loadPickerSessionsCmd(m.projectDir, m.sessionCache)
+		return m, loadPickerSessionsCmd(m.projectDirs, m.sessionCache)
 	case "J", "ctrl+d":
 		// Scroll viewport down (half page)
 		m.scroll += m.height / 2

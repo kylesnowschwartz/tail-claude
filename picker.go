@@ -37,16 +37,17 @@ func pickerTickCmd() tea.Cmd {
 	})
 }
 
-// loadPickerSessionsCmd discovers sessions in the given project directory.
-// When cache is non-nil, unchanged files return cached metadata.
-func loadPickerSessionsCmd(projectDir string, cache *parser.SessionCache) tea.Cmd {
+// loadPickerSessionsCmd discovers sessions across the given project directories
+// (main repo + worktree dirs). When cache is non-nil, unchanged files return
+// cached metadata.
+func loadPickerSessionsCmd(projectDirs []string, cache *parser.SessionCache) tea.Cmd {
 	return func() tea.Msg {
 		var sessions []parser.SessionInfo
 		var err error
 		if cache != nil {
-			sessions, err = cache.DiscoverProjectSessions(projectDir)
+			sessions, err = cache.DiscoverAllProjectSessions(projectDirs)
 		} else {
-			sessions, err = parser.DiscoverProjectSessions(projectDir)
+			sessions, err = parser.DiscoverAllProjectSessions(projectDirs)
 		}
 		return pickerSessionsMsg{sessions: sessions, err: err}
 	}
