@@ -158,6 +158,9 @@ type model struct {
 	// Markdown rendering
 	md *mdRenderer
 
+	// JSON syntax highlighting
+	jsonHL *jsonHL
+
 	// Live tailing state
 	sessionPath     string
 	watching        bool
@@ -308,6 +311,7 @@ func initialModel(msgs []message, hasDarkBg bool) model {
 		detailExpanded:      make(map[int]bool),
 		detailChildExpanded: make(map[visibleRowKey]bool),
 		md:                  newMdRenderer(hasDarkBg),
+		jsonHL:              newJSONHL(hasDarkBg),
 	}
 }
 

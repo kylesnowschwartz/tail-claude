@@ -661,9 +661,8 @@ func (m model) renderToolExpanded(item displayItem, wrapWidth int, indent string
 	if item.toolInput != "" {
 		headerStyle := StyleSecondaryBold
 		sections = append(sections, indent+headerStyle.Render("Input:"))
-		inputStyle := StyleDim.
-			Width(wrapWidth)
-		sections = append(sections, indentBlock(inputStyle.Render(item.toolInput), indent))
+		sections = append(sections, indentBlock(
+			m.highlightOrDim(item.toolInput, wrapWidth), indent))
 	}
 
 	if item.toolResult != "" || item.toolError {
@@ -680,15 +679,25 @@ func (m model) renderToolExpanded(item displayItem, wrapWidth int, indent string
 			sections = append(sections, indent+headerStyle.Render("Result:"))
 		}
 
-		resultStyle := StyleDim.
-			Width(wrapWidth)
-		sections = append(sections, indentBlock(resultStyle.Render(item.toolResult), indent))
+		sections = append(sections, indentBlock(
+			m.highlightOrDim(item.toolResult, wrapWidth), indent))
 	}
 
 	if len(sections) == 0 {
 		return ""
 	}
 	return strings.Join(sections, "\n")
+}
+
+// highlightOrDim tries JSON syntax highlighting; falls back to dim text.
+// Width wrapping is applied in both paths for consistent layout.
+func (m model) highlightOrDim(text string, wrapWidth int) string {
+	if highlighted, ok := m.jsonHL.highlight(text); ok {
+		// lipgloss Width uses muesli/reflow which is ANSI-aware,
+		// so wrapping chroma-highlighted text preserves escape codes.
+		return lipgloss.NewStyle().Width(wrapWidth).Render(highlighted)
+	}
+	return StyleDim.Width(wrapWidth).Render(text)
 }
 
 // renderTaskInput renders structured metadata for a Task item without a linked
@@ -747,8 +756,8 @@ func (m model) renderTaskInput(item displayItem, wrapWidth int, indent string) s
 		} else {
 			lines = append(lines, indent+labelStyle.Render("Result:"))
 		}
-		resultStyle := valueStyle.Width(wrapWidth)
-		lines = append(lines, indentBlock(resultStyle.Render(item.toolResult), indent))
+		lines = append(lines, indentBlock(
+			m.highlightOrDim(item.toolResult, wrapWidth), indent))
 	}
 
 	if len(lines) == 0 {
