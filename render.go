@@ -570,6 +570,11 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 	case parser.ItemTeammateMessage:
 		summary = parser.Truncate(item.text, 60)
 	}
+	// Suppress summary when it just repeats the tool name (common for MCP
+	// tools with empty input, where summaryDefault returns the name).
+	if summary == item.toolName {
+		summary = ""
+	}
 	summaryRendered := StyleSecondary.Render(summary)
 
 	// Right-side: tokens + duration.
@@ -872,6 +877,188 @@ func detailHeaderMeta(msg message) string {
 		parts = append(parts, StyleDim.Render(msg.timestamp))
 	}
 	return strings.Join(parts, "  ")
+}
+
+// -- Debug log rendering ------------------------------------------------------
+
+// debugLevelBadge returns a colored level label for a debug entry.
+func debugLevelBadge(level parser.DebugLevel) string {
+	switch level {
+	case parser.LevelWarn:
+		return lipgloss.NewStyle().Foreground(ColorContextWarn).Render("WARN ")
+	case parser.LevelError:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorError).Render("ERROR")
+	default:
+		return StyleDim.Render("DEBUG")
+	}
+}
+
+// debugFilterLabel returns the human-readable label for the current filter.
+func debugFilterLabel(level parser.DebugLevel) string {
+	switch level {
+	case parser.LevelWarn:
+		return "warn+"
+	case parser.LevelError:
+		return "error"
+	default:
+		return "all"
+	}
+}
+
+// viewDebugLog renders the debug log viewer.
+func (m model) viewDebugLog() string {
+	width := m.clampWidth()
+
+	if len(m.debugFiltered) == 0 {
+		empty := StyleDim.Render("No debug entries" + " (filter: " + debugFilterLabel(m.debugMinLevel) + ")")
+		footer := m.renderFooter(
+			"f", "filter:"+debugFilterLabel(m.debugMinLevel),
+			"q/esc", "back",
+			"?", "keys",
+		)
+		padding := strings.Repeat("\n", max(m.debugViewHeight()-1, 0))
+		output := centerBlock(empty+padding, width, m.width)
+		return output + "\n" + footer
+	}
+
+	// Render all visible lines.
+	var lines []string
+	for i, entry := range m.debugFiltered {
+		isCursor := i == m.debugCursor
+		lines = append(lines, m.renderDebugEntry(entry, i, isCursor, width))
+		if m.debugExpanded[i] && entry.HasExtra() {
+			// Expanded multi-line content, indented.
+			extraLines := strings.Split(entry.Extra, "\n")
+			for _, el := range extraLines {
+				lines = append(lines, "  "+StyleDim.Render(el))
+			}
+		}
+	}
+
+	content := strings.Join(lines, "\n")
+	allLines := strings.Split(content, "\n")
+	totalLines := len(allLines)
+
+	viewHeight := m.debugViewHeight()
+
+	// Apply scroll offset.
+	scroll := m.debugScroll
+	maxScroll := totalLines - viewHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	if scroll > 0 && scroll < totalLines {
+		allLines = allLines[scroll:]
+	}
+	if len(allLines) > viewHeight {
+		allLines = allLines[:viewHeight]
+	}
+	for len(allLines) < viewHeight {
+		allLines = append(allLines, "")
+	}
+
+	output := strings.Join(allLines, "\n")
+	output = centerBlock(output, width, m.width)
+
+	// Scroll position indicator
+	scrollInfo := ""
+	if totalLines > viewHeight && maxScroll > 0 {
+		pct := scroll * 100 / maxScroll
+		scrollInfo = fmt.Sprintf("  %d%%", pct)
+	}
+
+	// Footer
+	footer := m.renderFooter(
+		"j/k", "nav",
+		"↑/↓", "scroll",
+		"G/g", "jump",
+		"tab", "expand",
+		"f", "filter:"+debugFilterLabel(m.debugMinLevel),
+		"q/esc", "back"+scrollInfo,
+		"?", "keys",
+	)
+
+	return output + "\n" + footer
+}
+
+// renderDebugEntry renders a single collapsed debug entry line.
+//
+// Format: {cursor} HH:MM:SS.mmm  LEVEL  [category] message  [+N lines]  xN
+// Category is inlined as a bracketed prefix on the message -- only present
+// when the entry has one, so entries without a category waste no space.
+func (m model) renderDebugEntry(entry parser.DebugEntry, index int, isCursor bool, width int) string {
+	// Cursor indicator
+	cursor := "  "
+	if isCursor {
+		if entry.HasExtra() {
+			if m.debugExpanded[index] {
+				cursor = IconExpanded.RenderBold() + " "
+			} else {
+				cursor = IconCollapsed.Render() + " "
+			}
+		} else {
+			cursor = IconSelected.Render() + " "
+		}
+	}
+
+	// Timestamp: HH:MM:SS.mmm (local time, dimmed)
+	ts := entry.Timestamp.Local().Format("15:04:05.000")
+	tsRendered := StyleDim.Render(ts)
+
+	// Level badge
+	level := debugLevelBadge(entry.Level)
+
+	// Build suffixes (right side).
+	var suffixes []string
+	if entry.HasExtra() && !m.debugExpanded[index] {
+		hint := fmt.Sprintf("[+%d lines]", entry.ExtraLineCount())
+		suffixes = append(suffixes, StyleDim.Render(hint))
+	}
+	if entry.Count > 1 {
+		countStr := fmt.Sprintf("x%d", entry.Count)
+		suffixes = append(suffixes, StyleMuted.Render(countStr))
+	}
+
+	right := strings.Join(suffixes, " ")
+
+	// Fixed prefix: cursor + timestamp + level.
+	prefix := cursor + tsRendered + "  " + level + "  "
+	prefixWidth := lipgloss.Width(prefix)
+	rightWidth := lipgloss.Width(right)
+
+	// Message with optional inline category prefix.
+	msgSpace := width - prefixWidth - rightWidth - 2 // 2 for gap
+	if msgSpace < 10 {
+		msgSpace = 10
+	}
+
+	msg := entry.Message
+	if entry.Category != "" {
+		msg = "[" + entry.Category + "] " + msg
+	}
+	if lipgloss.Width(msg) > msgSpace {
+		msg = parser.Truncate(msg, msgSpace)
+	}
+
+	// Style message based on level.
+	var msgRendered string
+	switch entry.Level {
+	case parser.LevelError:
+		msgRendered = lipgloss.NewStyle().Foreground(ColorError).Render(msg)
+	case parser.LevelWarn:
+		msgRendered = lipgloss.NewStyle().Foreground(ColorContextWarn).Render(msg)
+	default:
+		msgRendered = StyleDim.Render(msg)
+	}
+
+	leftPart := prefix + msgRendered
+	if right != "" {
+		return spaceBetween(leftPart, right, width)
+	}
+	return leftPart
 }
 
 // -- Activity indicator --------------------------------------------------------

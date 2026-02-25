@@ -1,0 +1,26 @@
+2026-02-25T02:03:45.579Z [DEBUG] MDM settings load completed in 11ms
+2026-02-25T02:03:45.626Z [DEBUG] detectFileEncoding failed for expected reason: ENOENT
+2026-02-25T02:03:45.627Z [DEBUG] detectFileEncoding failed for expected reason: ENOENT
+2026-02-25T02:03:45.661Z [DEBUG] [init] configureGlobalMTLS starting
+2026-02-25T02:03:45.661Z [DEBUG] [init] configureGlobalMTLS complete
+2026-02-25T02:03:45.661Z [DEBUG] [init] configureGlobalAgents starting
+2026-02-25T02:03:45.661Z [DEBUG] [init] configureGlobalAgents complete
+2026-02-25T02:03:45.665Z [DEBUG] detectFileEncoding failed for expected reason: ENOENT
+2026-02-25T02:03:45.666Z [DEBUG] detectFileEncoding failed for expected reason: ENOENT
+2026-02-25T02:03:45.667Z [DEBUG] detectFileEncoding failed for expected reason: ENOENT
+2026-02-25T02:03:45.712Z [ERROR] Error: NON-FATAL: Lock acquisition failed
+    at lPR (/$bunfs/root/claude:3631:2100)
+    at qvA (/$bunfs/root/claude:3631:1211)
+    at processTicksAndRejections (native:7:39)
+2026-02-25T02:03:45.731Z [WARN] Failed to parse YAML frontmatter in plugin-dev/agents/agent-creator.md: YAML Parse error
+2026-02-25T02:03:45.733Z [WARN] Failed to parse YAML frontmatter in plugin-dev/agents/skill-reviewer.md: YAML Parse error
+2026-02-25T02:03:45.737Z [DEBUG] [STARTUP] Loading MCP configs...
+2026-02-25T02:03:45.740Z [DEBUG] [hooks] Hook JSON output validation failed: schema mismatch
+{
+  "expected": {"type": "object", "properties": {"continue": {"type": "boolean"}}},
+  "actual": {"continue": "yes", "reason": "override"}
+}
+2026-02-25T02:03:46.000Z [DEBUG] [MCP] Server "context7" connected
+2026-02-25T02:03:46.100Z [DEBUG] [API:auth] Token refresh completed in 45ms
+2026-02-25T02:03:47.176Z [ERROR] MCP server "context7" Server stderr: Context7 Documentation MCP Server v2.1.2 running on stdio
+2026-02-25T02:04:15.511Z [WARN] [3P telemetry] Event dropped (no event logger initialized): user_prompt

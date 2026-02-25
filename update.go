@@ -1,6 +1,10 @@
 package main
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	"github.com/kylesnowschwartz/tail-claude/parser"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 // resetDetailState zeroes the detail view cursor, scroll, and expansion maps.
 func (m *model) resetDetailState() {
@@ -97,6 +101,31 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.scroll < 0 {
 			m.scroll = 0
 		}
+	case "d":
+		// Open debug log viewer for current session.
+		debugPath := parser.DebugLogPath(m.sessionPath)
+		if debugPath == "" {
+			return m, nil // no debug file, no-op
+		}
+		entries, offset, err := parser.ReadDebugLog(debugPath)
+		if err != nil {
+			return m, nil
+		}
+		m.debugEntries = entries
+		m.debugPath = debugPath
+		m.debugCursor = 0
+		m.debugScroll = 0
+		m.debugMinLevel = parser.LevelDebug
+		m.debugExpanded = make(map[int]bool)
+		m.applyDebugFilters()
+		m.view = viewDebug
+
+		// Start debug file watcher for live tailing.
+		m.stopDebugWatcher()
+		dw := newDebugLogWatcher(debugPath, offset)
+		go dw.run()
+		m.debugWatcher = dw
+		return m, waitForDebugUpdate(dw.sub)
 	case "?":
 		m.showKeybinds = !m.showKeybinds
 		m.layoutList()
@@ -270,6 +299,167 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.detailScroll < 0 {
 		m.detailScroll = 0
+	}
+	return m, nil
+}
+
+// updateDebug handles key events in the debug log viewer.
+func (m model) updateDebug(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "q", "esc", "escape", "backspace":
+		m.stopDebugWatcher()
+		m.view = viewList
+	case "j":
+		if m.debugCursor < len(m.debugFiltered)-1 {
+			m.debugCursor++
+		}
+		m.ensureDebugCursorVisible()
+	case "k":
+		if m.debugCursor > 0 {
+			m.debugCursor--
+		}
+		m.ensureDebugCursorVisible()
+	case "down":
+		m.debugScroll += 3
+		m.clampDebugScroll()
+	case "up":
+		m.debugScroll -= 3
+		if m.debugScroll < 0 {
+			m.debugScroll = 0
+		}
+	case "G":
+		if len(m.debugFiltered) > 0 {
+			m.debugCursor = len(m.debugFiltered) - 1
+		}
+		m.debugScroll = m.debugMaxScroll()
+	case "g":
+		m.debugCursor = 0
+		m.debugScroll = 0
+	case "J", "ctrl+d":
+		m.debugScroll += m.height / 2
+		m.clampDebugScroll()
+	case "K", "ctrl+u":
+		m.debugScroll -= m.height / 2
+		if m.debugScroll < 0 {
+			m.debugScroll = 0
+		}
+	case "tab":
+		// Toggle multi-line entry expansion.
+		if m.debugCursor < len(m.debugFiltered) && m.debugFiltered[m.debugCursor].HasExtra() {
+			m.debugExpanded[m.debugCursor] = !m.debugExpanded[m.debugCursor]
+		}
+	case "f":
+		// Cycle level filter: All -> Warn+ -> Error -> All.
+		switch m.debugMinLevel {
+		case parser.LevelDebug:
+			m.debugMinLevel = parser.LevelWarn
+		case parser.LevelWarn:
+			m.debugMinLevel = parser.LevelError
+		case parser.LevelError:
+			m.debugMinLevel = parser.LevelDebug
+		}
+		m.debugExpanded = make(map[int]bool)
+		m.applyDebugFilters()
+		m.debugScroll = 0
+	case "?":
+		m.showKeybinds = !m.showKeybinds
+	}
+	return m, nil
+}
+
+// debugTotalLines returns the total rendered lines in the debug view.
+func (m model) debugTotalLines() int {
+	total := 0
+	for i, entry := range m.debugFiltered {
+		total++ // header line
+		if m.debugExpanded[i] && entry.HasExtra() {
+			total += entry.ExtraLineCount()
+		}
+	}
+	return total
+}
+
+// debugMaxScroll returns the maximum scroll offset for the debug view.
+func (m model) debugMaxScroll() int {
+	total := m.debugTotalLines()
+	viewHeight := m.debugViewHeight()
+	maxScroll := total - viewHeight
+	if maxScroll < 0 {
+		return 0
+	}
+	return maxScroll
+}
+
+// debugViewHeight returns the visible content lines in the debug view.
+func (m model) debugViewHeight() int {
+	h := m.height - m.footerHeight()
+	if h <= 0 {
+		return 1
+	}
+	return h
+}
+
+// debugCursorLine returns the absolute line offset of the debug cursor.
+func (m model) debugCursorLine() int {
+	line := 0
+	for i := 0; i < m.debugCursor && i < len(m.debugFiltered); i++ {
+		line++ // header line
+		if m.debugExpanded[i] && m.debugFiltered[i].HasExtra() {
+			line += m.debugFiltered[i].ExtraLineCount()
+		}
+	}
+	return line
+}
+
+// ensureDebugCursorVisible adjusts debugScroll to keep the cursor in view.
+func (m *model) ensureDebugCursorVisible() {
+	cursorLine := m.debugCursorLine()
+	viewHeight := m.debugViewHeight()
+
+	if cursorLine < m.debugScroll {
+		m.debugScroll = cursorLine
+	}
+
+	// Include expanded content in cursor end calculation.
+	cursorEnd := cursorLine
+	if m.debugCursor < len(m.debugFiltered) {
+		if m.debugExpanded[m.debugCursor] && m.debugFiltered[m.debugCursor].HasExtra() {
+			cursorEnd += m.debugFiltered[m.debugCursor].ExtraLineCount()
+		}
+	}
+	if cursorEnd >= m.debugScroll+viewHeight {
+		m.debugScroll = cursorEnd - viewHeight + 1
+	}
+
+	m.clampDebugScroll()
+}
+
+// clampDebugScroll caps the debug scroll offset to valid range.
+func (m *model) clampDebugScroll() {
+	maxScroll := m.debugMaxScroll()
+	if m.debugScroll > maxScroll {
+		m.debugScroll = maxScroll
+	}
+	if m.debugScroll < 0 {
+		m.debugScroll = 0
+	}
+}
+
+// updateDebugMouse handles mouse events in the debug view.
+func (m model) updateDebugMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		if m.debugScroll > 0 {
+			m.debugScroll -= 3
+			if m.debugScroll < 0 {
+				m.debugScroll = 0
+			}
+		}
+	case tea.MouseButtonWheelDown:
+		m.debugScroll += 3
+		m.clampDebugScroll()
 	}
 	return m, nil
 }

@@ -29,6 +29,7 @@ const (
 	viewList   viewState = iota // message list (main view)
 	viewDetail                  // full-screen single message
 	viewPicker                  // session picker
+	viewDebug                   // debug log viewer
 )
 
 // staleSessionThreshold controls when an auto-discovered session is
@@ -82,6 +83,11 @@ func gitDirtyTickCmd() tea.Cmd {
 	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
 		return gitDirtyTickMsg{}
 	})
+}
+
+// debugUpdateMsg carries a rebuilt debug entry list after an incremental read.
+type debugUpdateMsg struct {
+	entries []parser.DebugEntry
 }
 
 // displayItem is a structured element within an AI message's detail view.
@@ -208,6 +214,34 @@ type model struct {
 	pickerOngoingGraceSeq int          // sequence counter for picker grace timers (stale timers ignored)
 	pickerExpanded        map[int]bool // tab-expanded previews in picker
 	pickerUniformModel    bool         // all sessions share the same model family
+
+	// Debug log viewer state
+	debugEntries  []parser.DebugEntry // raw parsed entries (before filter/collapse)
+	debugFiltered []parser.DebugEntry // after level filter + duplicate collapse
+	debugCursor   int
+	debugScroll   int
+	debugExpanded map[int]bool      // which multi-line entries are expanded
+	debugMinLevel parser.DebugLevel // current filter: LevelDebug (all), LevelWarn, LevelError
+	debugPath     string            // path to the debug .txt file
+	debugWatcher  *debugLogWatcher  // live tailing watcher for debug file
+}
+
+// applyDebugFilters rebuilds debugFiltered from debugEntries using the current
+// level filter and duplicate collapsing. Clamps cursor to valid range.
+func (m *model) applyDebugFilters() {
+	filtered := parser.FilterByLevel(m.debugEntries, m.debugMinLevel)
+	m.debugFiltered = parser.CollapseDuplicates(filtered)
+	if m.debugCursor >= len(m.debugFiltered) {
+		m.debugCursor = max(len(m.debugFiltered)-1, 0)
+	}
+}
+
+// stopDebugWatcher stops the debug log watcher if one is running.
+func (m *model) stopDebugWatcher() {
+	if m.debugWatcher != nil {
+		m.debugWatcher.stop()
+		m.debugWatcher = nil
+	}
 }
 
 // loadResult holds everything needed to bootstrap the TUI and watcher.
@@ -271,6 +305,7 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	if m.watcher != nil {
 		m.watcher.stop()
 	}
+	m.stopDebugWatcher()
 
 	m.messages = result.messages
 	m.expanded = make(map[int]bool)
@@ -524,6 +559,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.switchSession(msg.loadResult)
 
+	case debugUpdateMsg:
+		m.debugEntries = msg.entries
+		m.applyDebugFilters()
+		cmds := []tea.Cmd{}
+		if m.debugWatcher != nil {
+			cmds = append(cmds, waitForDebugUpdate(m.debugWatcher.sub))
+		}
+		return m, tea.Batch(cmds...)
+
 	case tea.KeyMsg:
 		// Suspend on ctrl+z before dispatching to per-view handlers.
 		if msg.String() == "ctrl+z" {
@@ -534,6 +578,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDetail(msg)
 		case viewPicker:
 			return m.updatePicker(msg)
+		case viewDebug:
+			return m.updateDebug(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -547,10 +593,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
-		if m.view == viewDetail {
+		switch m.view {
+		case viewDetail:
 			return m.updateDetailMouse(msg)
+		case viewDebug:
+			return m.updateDebugMouse(msg)
+		default:
+			return m.updateListMouse(msg)
 		}
-		return m.updateListMouse(msg)
 	}
 
 	return m, nil
@@ -566,6 +616,8 @@ func (m model) View() string {
 		return m.viewDetail()
 	case viewPicker:
 		return m.viewPicker()
+	case viewDebug:
+		return m.viewDebugLog()
 	default:
 		return m.viewList()
 	}
@@ -614,6 +666,7 @@ func (m model) viewList() string {
 		"G/g", "jump",
 		"tab", "toggle",
 		"enter", "detail",
+		"d", "debug log",
 		"e/c", "expand/collapse",
 		"q/esc", "sessions",
 		"?", "keys",
