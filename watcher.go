@@ -21,6 +21,7 @@ const watcherDebounce = 500 * time.Millisecond
 // AI messages -- the last chunk can grow as new tool calls or text arrive.
 type tailUpdateMsg struct {
 	messages       []message
+	teams          []parser.TeamSnapshot
 	ongoing        bool   // whether the session appears to still be in progress
 	permissionMode string // last-seen permissionMode from new entries; empty if unchanged
 }
@@ -51,7 +52,13 @@ type sessionWatcher struct {
 	mu           sync.Mutex
 	debounce     *time.Timer
 	dirDebounce  *time.Timer
+	teamDebounce *time.Timer
 	hasTeamTasks bool // true when parent chunks contain team Task items
+
+	// fsnotify watcher and tracked team session files.
+	// Set by run(), used by readAndRebuild to add newly discovered team files.
+	fsWatcher      *fsnotify.Watcher
+	watchedTeamIDs map[string]bool // team proc IDs already watched
 }
 
 func newSessionWatcher(path string, initialClassified []parser.ClassifiedMsg, initialOffset int64) *sessionWatcher {
@@ -75,6 +82,9 @@ func (w *sessionWatcher) stop() {
 	}
 	if w.dirDebounce != nil {
 		w.dirDebounce.Stop()
+	}
+	if w.teamDebounce != nil {
+		w.teamDebounce.Stop()
 	}
 	w.mu.Unlock()
 }
@@ -117,6 +127,10 @@ func (w *sessionWatcher) run() {
 	projectDir := filepath.Dir(w.path)
 	_ = watcher.Add(projectDir)
 
+	// Store fsnotify watcher so readAndRebuild can add team session files.
+	w.fsWatcher = watcher
+	w.watchedTeamIDs = make(map[string]bool)
+
 	for {
 		select {
 		case <-w.done:
@@ -148,6 +162,15 @@ func (w *sessionWatcher) run() {
 					w.dirDebounce.Stop()
 				}
 				w.dirDebounce = time.AfterFunc(500*time.Millisecond, w.sendSignal)
+				w.mu.Unlock()
+			} else if event.Has(fsnotify.Write) && w.watchedTeamIDs[event.Name] {
+				// Team session file written to — agent is working. Debounce
+				// with a longer window to avoid rebuilding on every tool call.
+				w.mu.Lock()
+				if w.teamDebounce != nil {
+					w.teamDebounce.Stop()
+				}
+				w.teamDebounce = time.AfterFunc(2*time.Second, w.sendSignal)
 				w.mu.Unlock()
 			}
 
@@ -203,9 +226,37 @@ func (w *sessionWatcher) readAndRebuild() {
 	// whether to trigger rebuilds for new .jsonl files.
 	w.hasTeamTasks = hasTeamTaskItems(chunks)
 
+	// Watch newly discovered team session files for writes so the spinner
+	// stays alive while agents work in their own session files.
+	if w.fsWatcher != nil {
+		for i := range allProcs {
+			fp := allProcs[i].FilePath
+			if fp != "" && !w.watchedTeamIDs[fp] {
+				if err := w.fsWatcher.Add(fp); err == nil {
+					w.watchedTeamIDs[fp] = true
+				}
+			}
+		}
+	}
+
+	ongoing := parser.IsOngoing(chunks)
+	if !ongoing {
+		// Parent may be idle while subagents/team members are still working.
+		// Check if any linked process is ongoing.
+		for i := range allProcs {
+			if parser.IsOngoing(allProcs[i].Chunks) {
+				ongoing = true
+				break
+			}
+		}
+	}
+
+	teams := parser.ReconstructTeams(chunks, allProcs)
+
 	update := tailUpdateMsg{
 		messages:       chunksToMessages(chunks, allProcs, colorMap),
-		ongoing:        parser.IsOngoing(chunks),
+		teams:          teams,
+		ongoing:        ongoing,
 		permissionMode: permissionMode,
 	}
 

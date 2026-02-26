@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/kylesnowschwartz/tail-claude/parser"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -100,6 +102,12 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scroll -= m.height / 2
 		if m.scroll < 0 {
 			m.scroll = 0
+		}
+	case "t":
+		// Open team task board (only when teams exist).
+		if len(m.teams) > 0 {
+			m.teamScroll = 0
+			m.view = viewTeam
 		}
 	case "d":
 		// Open debug log viewer for current session.
@@ -498,4 +506,75 @@ func (m model) updateDetailMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// updateTeam handles key events in the team task board view.
+func (m model) updateTeam(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "q", "esc", "escape", "backspace":
+		m.view = viewList
+	case "j", "down":
+		m.teamScroll += 3
+		m.clampTeamScroll()
+	case "k", "up":
+		m.teamScroll -= 3
+		if m.teamScroll < 0 {
+			m.teamScroll = 0
+		}
+	case "J", "ctrl+d":
+		m.teamScroll += m.height / 2
+		m.clampTeamScroll()
+	case "K", "ctrl+u":
+		m.teamScroll -= m.height / 2
+		if m.teamScroll < 0 {
+			m.teamScroll = 0
+		}
+	case "G":
+		m.teamScroll = m.teamMaxScroll()
+	case "g":
+		m.teamScroll = 0
+	case "?":
+		m.showKeybinds = !m.showKeybinds
+	}
+	return m, nil
+}
+
+// updateTeamMouse handles mouse events in the team task board view.
+func (m model) updateTeamMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.teamScroll -= 3
+		if m.teamScroll < 0 {
+			m.teamScroll = 0
+		}
+	case tea.MouseButtonWheelDown:
+		m.teamScroll += 3
+		m.clampTeamScroll()
+	}
+	return m, nil
+}
+
+// teamMaxScroll returns the maximum scroll offset for the team view.
+func (m model) teamMaxScroll() int {
+	content := m.renderTeamContent(m.clampWidth())
+	totalLines := strings.Count(content, "\n") + 1
+	viewHeight := m.teamViewHeight()
+	maxScroll := totalLines - viewHeight
+	if maxScroll < 0 {
+		return 0
+	}
+	return maxScroll
+}
+
+// clampTeamScroll caps the team scroll offset to valid range.
+func (m *model) clampTeamScroll() {
+	maxScroll := m.teamMaxScroll()
+	if m.teamScroll > maxScroll {
+		m.teamScroll = maxScroll
+	}
+	if m.teamScroll < 0 {
+		m.teamScroll = 0
+	}
 }

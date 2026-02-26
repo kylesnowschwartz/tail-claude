@@ -30,6 +30,7 @@ const (
 	viewDetail                  // full-screen single message
 	viewPicker                  // session picker
 	viewDebug                   // debug log viewer
+	viewTeam                    // team task board
 )
 
 // staleSessionThreshold controls when an auto-discovered session is
@@ -215,6 +216,10 @@ type model struct {
 	pickerExpanded        map[int]bool // tab-expanded previews in picker
 	pickerUniformModel    bool         // all sessions share the same model family
 
+	// Team task board state
+	teams      []parser.TeamSnapshot
+	teamScroll int
+
 	// Debug log viewer state
 	debugEntries  []parser.DebugEntry // raw parsed entries (before filter/collapse)
 	debugFiltered []parser.DebugEntry // after level filter + duplicate collapse
@@ -247,6 +252,7 @@ func (m *model) stopDebugWatcher() {
 // loadResult holds everything needed to bootstrap the TUI and watcher.
 type loadResult struct {
 	messages     []message
+	teams        []parser.TeamSnapshot
 	path         string
 	classified   []parser.ClassifiedMsg
 	offset       int64
@@ -279,6 +285,15 @@ func loadSession(path string) (loadResult, error) {
 	colorMap := parser.LinkSubagents(allProcs, chunks, path)
 
 	ongoing := parser.IsOngoing(chunks)
+	if !ongoing {
+		// Parent may be idle while subagents/team members are still working.
+		for i := range allProcs {
+			if parser.IsOngoing(allProcs[i].Chunks) {
+				ongoing = true
+				break
+			}
+		}
+	}
 	if ongoing {
 		if info, err := os.Stat(path); err == nil {
 			if time.Since(info.ModTime()) > parser.OngoingStalenessThreshold {
@@ -287,8 +302,11 @@ func loadSession(path string) (loadResult, error) {
 		}
 	}
 
+	teams := parser.ReconstructTeams(chunks, allProcs)
+
 	return loadResult{
 		messages:     chunksToMessages(chunks, allProcs, colorMap),
+		teams:        teams,
 		path:         path,
 		classified:   classified,
 		offset:       offset,
@@ -308,6 +326,8 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.stopDebugWatcher()
 
 	m.messages = result.messages
+	m.teams = result.teams
+	m.teamScroll = 0
 	m.expanded = make(map[int]bool)
 	m.resetDetailState()
 	m.cursor = 0
@@ -417,6 +437,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// receive fresh data but not have their cursor or scroll disturbed.
 		wasAtEnd := m.view == viewList && m.cursor >= len(m.messages)-1
 		m.messages = msg.messages
+		m.teams = msg.teams
 		if msg.permissionMode != "" {
 			m.sessionMode = msg.permissionMode
 		}
@@ -580,6 +601,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updatePicker(msg)
 		case viewDebug:
 			return m.updateDebug(msg)
+		case viewTeam:
+			return m.updateTeam(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -598,6 +621,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDetailMouse(msg)
 		case viewDebug:
 			return m.updateDebugMouse(msg)
+		case viewTeam:
+			return m.updateTeamMouse(msg)
 		default:
 			return m.updateListMouse(msg)
 		}
@@ -618,6 +643,8 @@ func (m model) View() string {
 		return m.viewPicker()
 	case viewDebug:
 		return m.viewDebugLog()
+	case viewTeam:
+		return m.viewTeamBoard()
 	default:
 		return m.viewList()
 	}
@@ -660,17 +687,23 @@ func (m model) viewList() string {
 	}
 
 	// Footer: info bar + optional keybind hints
-	footer := m.renderFooter(
+	footerPairs := []string{
 		"j/k", "nav",
 		"↑/↓", "scroll",
 		"G/g", "jump",
 		"tab", "toggle",
 		"enter", "detail",
 		"d", "debug log",
+	}
+	if len(m.teams) > 0 {
+		footerPairs = append(footerPairs, "t", "tasks")
+	}
+	footerPairs = append(footerPairs,
 		"e/c", "expand/collapse",
 		"q/esc", "sessions",
 		"?", "keys",
 	)
+	footer := m.renderFooter(footerPairs...)
 
 	return output + "\n" + footer
 }
@@ -921,6 +954,7 @@ Flags:
 	m.liveBranch = checkGitBranch(invokedFrom)
 	m.sessionMode = result.meta.PermissionMode
 	m.liveDirty = checkGitDirty(invokedFrom)
+	m.teams = result.teams
 	m.sessionCache = sessionCache
 
 	// When the session was auto-discovered (no explicit path) and it's stale,

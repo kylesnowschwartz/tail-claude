@@ -1287,3 +1287,190 @@ func (m model) renderKeybindBar(pairs ...string) string {
 
 	return barStyle.Render(strings.Join(hints, sep))
 }
+
+// -- Team task board ----------------------------------------------------------
+
+// teamViewHeight returns the visible content lines in the team task board.
+func (m model) teamViewHeight() int {
+	h := m.height - m.footerHeight()
+	if h <= 0 {
+		return 1
+	}
+	return h
+}
+
+// viewTeamBoard renders the team task board view with scrolling and footer.
+func (m model) viewTeamBoard() string {
+	width := m.clampWidth()
+
+	if len(m.teams) == 0 {
+		empty := StyleDim.Render("No teams found")
+		padding := strings.Repeat("\n", max(m.teamViewHeight()-1, 0))
+		footer := m.renderFooter("q/esc", "back", "?", "keys")
+		output := centerBlock(empty+padding, width, m.width)
+		return output + "\n" + footer
+	}
+
+	content := m.renderTeamContent(width)
+	lines := strings.Split(content, "\n")
+	totalLines := len(lines)
+	viewHeight := m.teamViewHeight()
+
+	// Scroll
+	scroll := m.teamScroll
+	maxScroll := totalLines - viewHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	if scroll > 0 && scroll < totalLines {
+		lines = lines[scroll:]
+	}
+	if len(lines) > viewHeight {
+		lines = lines[:viewHeight]
+	}
+	for len(lines) < viewHeight {
+		lines = append(lines, "")
+	}
+
+	output := strings.Join(lines, "\n")
+	output = centerBlock(output, width, m.width)
+
+	// Scroll indicator
+	scrollInfo := ""
+	if totalLines > viewHeight && maxScroll > 0 {
+		pct := scroll * 100 / maxScroll
+		scrollInfo = fmt.Sprintf("  %d%%", pct)
+	}
+
+	footer := m.renderFooter(
+		"j/k", "scroll",
+		"↑/↓", "scroll",
+		"G/g", "jump",
+		"q/esc", "back"+scrollInfo,
+		"?", "keys",
+	)
+
+	return output + "\n" + footer
+}
+
+// renderTeamContent renders all team sections joined by blank lines.
+// Most recent team first (reverse order, since teams are appended chronologically).
+func (m model) renderTeamContent(width int) string {
+	var sections []string
+	for i := len(m.teams) - 1; i >= 0; i-- {
+		team := m.teams[i]
+		if team.Deleted {
+			continue
+		}
+		sections = append(sections, renderTeamSection(team, width))
+	}
+	if len(sections) == 0 {
+		return StyleDim.Render("All teams deleted")
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+// renderTeamSection renders a single team: divider, description, task rows.
+func renderTeamSection(team parser.TeamSnapshot, width int) string {
+	var lines []string
+
+	// Divider: "── team-name ──────────────────────"
+	lines = append(lines, renderTeamDivider(team.Name, width))
+
+	// Description (if present)
+	if team.Description != "" {
+		lines = append(lines, StyleDim.Render(team.Description))
+	}
+
+	// Blank line before tasks
+	if len(team.Tasks) > 0 {
+		lines = append(lines, "")
+	}
+
+	// Task rows
+	for _, task := range team.Tasks {
+		if task.Status == "deleted" {
+			continue
+		}
+		lines = append(lines, renderTeamTaskRow(task, team.MemberColors, width))
+	}
+
+	// Members without tasks (informational)
+	if len(team.Tasks) == 0 && len(team.Members) > 0 {
+		memberStr := strings.Join(team.Members, ", ")
+		lines = append(lines, StyleDim.Render("Members: "+memberStr))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderTeamDivider renders a horizontal rule with the team name embedded.
+// Format: "── team-name ──────────────────────"
+func renderTeamDivider(name string, width int) string {
+	prefix := GlyphHRule + GlyphHRule + " "
+	suffix := " "
+	nameWidth := lipgloss.Width(name) + lipgloss.Width(prefix) + lipgloss.Width(suffix)
+	remaining := width - nameWidth
+	if remaining < 3 {
+		remaining = 3
+	}
+	rule := strings.Repeat(GlyphHRule, remaining)
+	return StyleDim.Render(prefix) + StylePrimaryBold.Render(name) + StyleDim.Render(suffix+rule)
+}
+
+// renderTeamTaskRow renders a single task row.
+// Format: "  #1  ✓  Fix shell hook anti-patterns         shell-hooks-worker"
+func renderTeamTaskRow(task parser.TeamTask, memberColors map[string]string, width int) string {
+	// Status glyph
+	status := taskStatusGlyph(task.Status)
+
+	// Task ID
+	id := StyleDim.Render(fmt.Sprintf("#%-3s", task.ID))
+
+	// Subject — takes remaining space minus owner
+	ownerWidth := 0
+	if task.Owner != "" {
+		ownerWidth = len(task.Owner) + 2 // 2 for gap
+	}
+	subjectWidth := width - 14 - ownerWidth // 14 = indent(2) + id(4) + status(3) + gaps(5)
+	if subjectWidth < 10 {
+		subjectWidth = 10
+	}
+
+	subject := task.Subject
+	if lipgloss.Width(subject) > subjectWidth {
+		subject = parser.Truncate(subject, subjectWidth)
+	}
+	subjectRendered := fmt.Sprintf("%-*s", subjectWidth, subject)
+
+	// Owner (right-aligned, colored if team color available)
+	ownerRendered := ""
+	if task.Owner != "" {
+		if colorName, ok := memberColors[task.Owner]; ok && colorName != "" {
+			ownerRendered = lipgloss.NewStyle().Foreground(teamColor(colorName)).Render(task.Owner)
+		} else {
+			ownerRendered = StyleDim.Render(task.Owner)
+		}
+	}
+
+	left := "  " + id + "  " + status + "  " + subjectRendered
+	if ownerRendered != "" {
+		return spaceBetween(left, ownerRendered, width)
+	}
+	return left
+}
+
+// taskStatusGlyph maps a task status string to its colored icon.
+func taskStatusGlyph(status string) string {
+	switch status {
+	case "completed":
+		return IconTaskDone.Render()
+	case "in_progress":
+		return IconTaskActive.Render()
+	default:
+		return IconTaskPending.Render()
+	}
+}

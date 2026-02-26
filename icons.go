@@ -48,6 +48,11 @@ var (
 	IconToolErr   = StyledIcon{"󰯠", ColorError}
 	IconToolOk    = StyledIcon{"󰯠", ColorTextDim}
 	IconUser      = StyledIcon{"", ColorTextSecondary}
+
+	// Task board status glyphs
+	IconTaskDone    = StyledIcon{"\u2713", ColorOngoing}   // ✓
+	IconTaskActive  = StyledIcon{"\u27F3", ColorAccent}    // ⟳
+	IconTaskPending = StyledIcon{"\u25CB", ColorTextMuted} // ○
 )
 
 // Plain glyphs -- used as raw strings (never styled via StyledIcon).
