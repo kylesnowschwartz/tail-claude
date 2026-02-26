@@ -380,6 +380,7 @@ func scanSessionMetadata(path string) sessionMetadata {
 	hasAnyOngoingActivity := false
 	hasActivityAfterLastEnding := false
 	shutdownToolIDs := make(map[string]bool)
+	pendingToolIDs := make(map[string]bool) // tool_use IDs awaiting tool_result
 
 	// Duration tracking.
 	var firstTS, lastTS time.Time
@@ -444,10 +445,10 @@ func scanSessionMetadata(path string) sessionMetadata {
 		// --- Ongoing detection (ported from jsonl.ts:437-499) ---
 		if raw.Type == "assistant" && !raw.IsSidechain {
 			scanOngoingAssistant(&raw, &activityIndex, &lastEndingIndex,
-				&hasAnyOngoingActivity, &hasActivityAfterLastEnding, shutdownToolIDs)
+				&hasAnyOngoingActivity, &hasActivityAfterLastEnding, shutdownToolIDs, pendingToolIDs)
 		} else if raw.Type == "user" {
 			scanOngoingUser(&raw, &activityIndex, &lastEndingIndex,
-				&hasAnyOngoingActivity, &hasActivityAfterLastEnding, shutdownToolIDs)
+				&hasAnyOngoingActivity, &hasActivityAfterLastEnding, shutdownToolIDs, pendingToolIDs)
 		}
 
 		// --- Preview extraction (unchanged from scanSessionPreview) ---
@@ -503,10 +504,16 @@ func scanSessionMetadata(path string) sessionMetadata {
 	}
 
 	// Finalize ongoing detection.
+	// Activity-based: is there AI activity after the last ending event?
 	if lastEndingIndex == -1 {
 		meta.isOngoing = hasAnyOngoingActivity
 	} else {
 		meta.isOngoing = hasActivityAfterLastEnding
+	}
+	// Pending tool calls override: a tool_use without a matching tool_result
+	// means work is still in progress, even if text output appeared after it.
+	if !meta.isOngoing && len(pendingToolIDs) > 0 {
+		meta.isOngoing = true
 	}
 
 	// Finalize duration.
@@ -573,7 +580,7 @@ func isUserChunkForTurnCount(e *metadataScanEntry) bool {
 // scanOngoingAssistant processes an assistant entry for ongoing detection.
 // Ported from jsonl.ts:438-470.
 func scanOngoingAssistant(e *metadataScanEntry, activityIndex *int,
-	lastEndingIndex *int, hasAny, hasAfter *bool, shutdownIDs map[string]bool) {
+	lastEndingIndex *int, hasAny, hasAfter *bool, shutdownIDs, pendingToolIDs map[string]bool) {
 
 	var blocks []ongoingBlock
 	if err := json.Unmarshal(e.Message.Content, &blocks); err != nil {
@@ -604,6 +611,7 @@ func scanOngoingAssistant(e *metadataScanEntry, activityIndex *int,
 				*hasAfter = false
 				*activityIndex++
 			} else {
+				pendingToolIDs[b.ID] = true
 				*hasAny = true
 				if *lastEndingIndex >= 0 {
 					*hasAfter = true
@@ -623,7 +631,7 @@ func scanOngoingAssistant(e *metadataScanEntry, activityIndex *int,
 // scanOngoingUser processes a user entry for ongoing detection.
 // Ported from jsonl.ts:471-499.
 func scanOngoingUser(e *metadataScanEntry, activityIndex *int,
-	lastEndingIndex *int, hasAny, hasAfter *bool, shutdownIDs map[string]bool) {
+	lastEndingIndex *int, hasAny, hasAfter *bool, shutdownIDs, pendingToolIDs map[string]bool) {
 
 	// Check for user-rejected tool use at the entry level.
 	isRejection := isToolUseRejection(e.ToolResult)
@@ -633,6 +641,10 @@ func scanOngoingUser(e *metadataScanEntry, activityIndex *int,
 	var text string
 	if err := json.Unmarshal(e.Message.Content, &text); err == nil {
 		if strings.HasPrefix(text, "[Request interrupted by user") {
+			// Interruption clears all pending tool calls — the process was killed.
+			for id := range pendingToolIDs {
+				delete(pendingToolIDs, id)
+			}
 			*lastEndingIndex = *activityIndex
 			*hasAfter = false
 			*activityIndex++
@@ -651,6 +663,7 @@ func scanOngoingUser(e *metadataScanEntry, activityIndex *int,
 			if b.ToolUseID == "" {
 				continue
 			}
+			delete(pendingToolIDs, b.ToolUseID)
 			if shutdownIDs[b.ToolUseID] || isRejection {
 				// Ending event.
 				*lastEndingIndex = *activityIndex
@@ -666,6 +679,10 @@ func scanOngoingUser(e *metadataScanEntry, activityIndex *int,
 			}
 		case "text":
 			if strings.HasPrefix(b.Text, "[Request interrupted by user") {
+				// Interruption clears all pending tool calls.
+				for id := range pendingToolIDs {
+					delete(pendingToolIDs, id)
+				}
 				*lastEndingIndex = *activityIndex
 				*hasAfter = false
 				*activityIndex++

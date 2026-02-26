@@ -63,14 +63,16 @@ func isShutdownApproval(toolName string, toolInput json.RawMessage) bool {
 }
 
 // IsOngoing reports whether the session appears to still be in progress.
-// A session is ongoing if there's AI activity (thinking, tool_use, tool_result)
-// after the last "ending event."
+// A session is ongoing if either:
 //
-// Ending events:
-//   - Text output with non-empty content
-//   - User interruption messages
-//   - ExitPlanMode tool calls
-//   - SendMessage shutdown_response with approve: true
+//  1. There's AI activity (thinking, tool_use, tool_result) after the last
+//     "ending event" (text output, interruption, ExitPlanMode, shutdown approval).
+//  2. Any tool call is still awaiting a result (pending tool calls).
+//
+// Condition 2 catches team sessions where the parent writes text output after
+// receiving partial agent results. The activity-based check (1) only looks
+// forward from the last ending event, so it misses still-running agents whose
+// tool_use appeared earlier in the sequence.
 //
 // If no ending event exists, it's ongoing if there's any AI activity at all.
 //
@@ -149,7 +151,14 @@ func IsOngoing(chunks []Chunk) bool {
 
 	// If we had items, use the activity-based detection.
 	if hasItems {
-		return isOngoingFromActivities(activities)
+		if isOngoingFromActivities(activities) {
+			return true
+		}
+		// Activity sequence says complete, but check for pending tool calls.
+		// This catches team sessions where the parent writes text output after
+		// receiving some agent results, masking still-running agents earlier
+		// in the activity sequence.
+		return hasPendingToolCalls(chunks)
 	}
 
 	// Fallback for old-style chunks without structured items:
@@ -160,6 +169,33 @@ func IsOngoing(chunks []Chunk) bool {
 		}
 	}
 
+	return false
+}
+
+// hasPendingToolCalls checks whether any tool call is still awaiting a result.
+// Excludes tool calls that are ending events (ExitPlanMode, shutdown approvals)
+// since those legitimately have no result when the session is done.
+func hasPendingToolCalls(chunks []Chunk) bool {
+	for _, chunk := range chunks {
+		if chunk.Type != AIChunk {
+			continue
+		}
+		for _, item := range chunk.Items {
+			if item.Type != ItemToolCall && item.Type != ItemSubagent {
+				continue
+			}
+			if item.ToolResult != "" {
+				continue
+			}
+			if item.ToolName == "ExitPlanMode" {
+				continue
+			}
+			if isShutdownApproval(item.ToolName, item.ToolInput) {
+				continue
+			}
+			return true
+		}
+	}
 	return false
 }
 

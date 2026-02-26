@@ -120,6 +120,20 @@ func TestScanSessionMetadata_Duration(t *testing.T) {
 	}
 }
 
+func TestScanSessionMetadata_OngoingPendingTask(t *testing.T) {
+	meta := scanSessionMetadata(filepath.Join("testdata", "ongoing_pending_task.jsonl"))
+	if !meta.isOngoing {
+		t.Error("expected isOngoing=true: taskB has no result, Agent B still running")
+	}
+}
+
+func TestScanSessionMetadata_NotOngoingInterruptedPending(t *testing.T) {
+	meta := scanSessionMetadata(filepath.Join("testdata", "not_ongoing_interrupted_pending.jsonl"))
+	if meta.isOngoing {
+		t.Error("expected isOngoing=false: user interrupted, pending task should be cleared")
+	}
+}
+
 // --- resolveGitRoot tests ---
 
 func TestResolveGitRoot_NormalRepo(t *testing.T) {
