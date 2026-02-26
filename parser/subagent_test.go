@@ -699,6 +699,8 @@ func TestTeamLinkingIntegration(t *testing.T) {
 
 	// Phase 1 should fail for all — agent_ids are "name@team", not file UUIDs.
 	// Phase 2 should match the 3 agents with summaries.
+	// After linking, matched team workers have their IDs remapped from
+	// file-based UUIDs to "name@team" format for ReconstructTeams.
 	tests := []struct {
 		id         string
 		wantTaskID string
@@ -706,9 +708,9 @@ func TestTeamLinkingIntegration(t *testing.T) {
 		wantType   string
 		wantLinked bool
 	}{
-		{"team-impl-001", "task-1", "Implement auth module", "general-purpose", true},
-		{"team-test-002", "task-2", "Write integration tests", "sc-test-runner", true},
-		{"team-research-003", "task-3", "Research API docs", "Explore", true},
+		{"implementer@my-project", "task-1", "Implement auth module", "general-purpose", true},
+		{"tester@my-project", "task-2", "Write integration tests", "sc-test-runner", true},
+		{"researcher@my-project", "task-3", "Research API docs", "Explore", true},
 		{"team-impl-001-cont", "", "", "", false}, // continuation: no summary, no match
 	}
 
@@ -757,6 +759,10 @@ func TestLinkSubagents_TeamAndRegularMixed(t *testing.T) {
 	// Phase 2: team subagent linked by summary match.
 	if procs[1].ParentTaskID != "tool-team" {
 		t.Errorf("team-1.ParentTaskID = %q, want %q", procs[1].ParentTaskID, "tool-team")
+	}
+	// After linking, team worker ID remapped to name@team format.
+	if procs[1].ID != "researcher@proj" {
+		t.Errorf("team-1.ID = %q, want %q (remapped to name@team)", procs[1].ID, "researcher@proj")
 	}
 }
 

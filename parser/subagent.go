@@ -386,6 +386,27 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 		}
 	}
 
+	// Remap IDs for team workers discovered via DiscoverSubagents (hex UUID)
+	// to the "name@team" format that ReconstructTeams expects. Without this,
+	// team workers in subagents/ are invisible to the team task board —
+	// phases 2-4 of ReconstructTeams filter on splitWorkerID which requires
+	// the "@" separator.
+	for i := range processes {
+		if processes[i].ParentTaskID == "" {
+			continue
+		}
+		it, ok := toolIDToTask[processes[i].ParentTaskID]
+		if !ok || !IsTeamTask(it) {
+			continue
+		}
+		fields := parseInputFields(it.ToolInput)
+		teamName := getString(fields, "team_name")
+		agentName := getString(fields, "name")
+		if teamName != "" && agentName != "" {
+			processes[i].ID = agentName + "@" + teamName
+		}
+	}
+
 	return links.toolIDToColor
 }
 

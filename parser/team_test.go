@@ -378,6 +378,68 @@ func TestReconstructTeams_MemberColors(t *testing.T) {
 	}
 }
 
+func TestReconstructTeams_MemberOngoing(t *testing.T) {
+	chunks := []parser.Chunk{
+		makeToolCallItem("TeamCreate", map[string]interface{}{
+			"team_name": "proj",
+		}),
+		makeTeamSpawnItem("proj", "active-worker"),
+		makeTeamSpawnItem("proj", "done-worker"),
+	}
+
+	// Active worker: tool_use with no tool_result -> IsOngoing == true.
+	activeInput, _ := json.Marshal(map[string]interface{}{"command": "npm test"})
+	activeWorker := parser.SubagentProcess{
+		ID: "active-worker@proj",
+		Chunks: []parser.Chunk{{
+			Type: parser.AIChunk,
+			Items: []parser.DisplayItem{{
+				Type:      parser.ItemToolCall,
+				ToolName:  "Bash",
+				ToolID:    "tool_1",
+				ToolInput: json.RawMessage(activeInput),
+				// No ToolResult -> pending tool call -> ongoing.
+			}},
+		}},
+	}
+
+	// Done worker: tool_use with a tool_result -> IsOngoing == false.
+	doneInput, _ := json.Marshal(map[string]interface{}{"command": "echo done"})
+	doneWorker := parser.SubagentProcess{
+		ID: "done-worker@proj",
+		Chunks: []parser.Chunk{{
+			Type: parser.AIChunk,
+			Items: []parser.DisplayItem{
+				{
+					Type:       parser.ItemToolCall,
+					ToolName:   "Bash",
+					ToolID:     "tool_2",
+					ToolInput:  json.RawMessage(doneInput),
+					ToolResult: "done",
+				},
+				{
+					Type: parser.ItemOutput,
+					Text: "All finished.",
+				},
+			},
+		}},
+	}
+
+	workers := []parser.SubagentProcess{activeWorker, doneWorker}
+	teams := parser.ReconstructTeams(chunks, workers)
+
+	if len(teams) == 0 {
+		t.Fatal("expected 1 team")
+	}
+
+	if !teams[0].MemberOngoing["active-worker"] {
+		t.Error("active-worker should be ongoing (pending tool call)")
+	}
+	if teams[0].MemberOngoing["done-worker"] {
+		t.Error("done-worker should not be ongoing (tool call completed)")
+	}
+}
+
 func TestReconstructTeams_EmptyChunks(t *testing.T) {
 	teams := parser.ReconstructTeams(nil, nil)
 	if len(teams) != 0 {

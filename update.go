@@ -558,7 +558,7 @@ func (m model) updateTeamMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 // teamMaxScroll returns the maximum scroll offset for the team view.
 func (m model) teamMaxScroll() int {
-	content := m.renderTeamContent(m.clampWidth())
+	content := m.renderTeamContent(m.clampWidth(), m.animFrame)
 	totalLines := strings.Count(content, "\n") + 1
 	viewHeight := m.teamViewHeight()
 	maxScroll := totalLines - viewHeight

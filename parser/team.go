@@ -17,12 +17,13 @@ type TeamTask struct {
 // TeamSnapshot represents the reconstructed state of a team at the
 // end of a session (or at the current point during live tailing).
 type TeamSnapshot struct {
-	Name         string
-	Description  string
-	Tasks        []TeamTask
-	Members      []string          // worker names from Task spawn calls
-	MemberColors map[string]string // member name -> color name (e.g. "blue")
-	Deleted      bool              // true after TeamDelete
+	Name          string
+	Description   string
+	Tasks         []TeamTask
+	Members       []string          // worker names from Task spawn calls
+	MemberColors  map[string]string // member name -> color name (e.g. "blue")
+	MemberOngoing map[string]bool   // member name -> true if worker session is ongoing
+	Deleted       bool              // true after TeamDelete
 }
 
 // ReconstructTeams replays tool call events from lead chunks and linked
@@ -90,6 +91,7 @@ func ReconstructTeams(chunks []Chunk, workers []SubagentProcess) []TeamSnapshot 
 	// Phase 3: Populate member colors from worker metadata.
 	for i := range teams {
 		teams[i].MemberColors = make(map[string]string)
+		teams[i].MemberOngoing = make(map[string]bool)
 	}
 	for _, w := range workers {
 		agentName, teamName := splitWorkerID(w.ID)
@@ -99,6 +101,21 @@ func ReconstructTeams(chunks []Chunk, workers []SubagentProcess) []TeamSnapshot 
 		for i := range teams {
 			if teams[i].Name == teamName {
 				teams[i].MemberColors[agentName] = w.TeammateColor
+			}
+		}
+	}
+
+	// Phase 4: Populate member ongoing state from worker sessions.
+	for _, w := range workers {
+		agentName, teamName := splitWorkerID(w.ID)
+		if teamName == "" {
+			continue
+		}
+		if IsOngoing(w.Chunks) {
+			for i := range teams {
+				if teams[i].Name == teamName {
+					teams[i].MemberOngoing[agentName] = true
+				}
 			}
 		}
 	}

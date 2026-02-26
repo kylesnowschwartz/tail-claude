@@ -1311,7 +1311,7 @@ func (m model) viewTeamBoard() string {
 		return output + "\n" + footer
 	}
 
-	content := m.renderTeamContent(width)
+	content := m.renderTeamContent(width, m.animFrame)
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
 	viewHeight := m.teamViewHeight()
@@ -1358,14 +1358,14 @@ func (m model) viewTeamBoard() string {
 
 // renderTeamContent renders all team sections joined by blank lines.
 // Most recent team first (reverse order, since teams are appended chronologically).
-func (m model) renderTeamContent(width int) string {
+func (m model) renderTeamContent(width, animFrame int) string {
 	var sections []string
 	for i := len(m.teams) - 1; i >= 0; i-- {
 		team := m.teams[i]
 		if team.Deleted {
 			continue
 		}
-		sections = append(sections, renderTeamSection(team, width))
+		sections = append(sections, renderTeamSection(team, width, animFrame))
 	}
 	if len(sections) == 0 {
 		return StyleDim.Render("All teams deleted")
@@ -1373,8 +1373,8 @@ func (m model) renderTeamContent(width int) string {
 	return strings.Join(sections, "\n\n")
 }
 
-// renderTeamSection renders a single team: divider, description, task rows.
-func renderTeamSection(team parser.TeamSnapshot, width int) string {
+// renderTeamSection renders a single team: divider, description, progress, members, task rows.
+func renderTeamSection(team parser.TeamSnapshot, width, animFrame int) string {
 	var lines []string
 
 	// Divider: "── team-name ──────────────────────"
@@ -1383,6 +1383,14 @@ func renderTeamSection(team parser.TeamSnapshot, width int) string {
 	// Description (if present)
 	if team.Description != "" {
 		lines = append(lines, StyleDim.Render(team.Description))
+	}
+
+	// Progress summary: "3 members · 1/3 done"
+	lines = append(lines, renderTeamSummary(team))
+
+	// Members row with colored names and ongoing spinners.
+	if len(team.Members) > 0 {
+		lines = append(lines, renderTeamMembers(team, animFrame))
 	}
 
 	// Blank line before tasks
@@ -1395,16 +1403,61 @@ func renderTeamSection(team parser.TeamSnapshot, width int) string {
 		if task.Status == "deleted" {
 			continue
 		}
-		lines = append(lines, renderTeamTaskRow(task, team.MemberColors, width))
-	}
-
-	// Members without tasks (informational)
-	if len(team.Tasks) == 0 && len(team.Members) > 0 {
-		memberStr := strings.Join(team.Members, ", ")
-		lines = append(lines, StyleDim.Render("Members: "+memberStr))
+		lines = append(lines, renderTeamTaskRow(task, team, width, animFrame))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderTeamSummary renders the progress summary line: "3 members · 2/5 done".
+func renderTeamSummary(team parser.TeamSnapshot) string {
+	var parts []string
+
+	if len(team.Members) > 0 {
+		parts = append(parts, fmt.Sprintf("%d members", len(team.Members)))
+	}
+
+	// Count completed and total (excluding deleted).
+	total, completed := 0, 0
+	for _, task := range team.Tasks {
+		if task.Status == "deleted" {
+			continue
+		}
+		total++
+		if task.Status == "completed" {
+			completed++
+		}
+	}
+	if total > 0 {
+		parts = append(parts, fmt.Sprintf("%d/%d done", completed, total))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return StyleDim.Render(strings.Join(parts, " · "))
+}
+
+// renderTeamMembers renders a row of colored member names with ongoing spinners.
+func renderTeamMembers(team parser.TeamSnapshot, animFrame int) string {
+	var parts []string
+	for _, name := range team.Members {
+		var rendered string
+
+		// Spinner prefix for ongoing members.
+		if team.MemberOngoing[name] {
+			frame := SpinnerFrames[animFrame%len(SpinnerFrames)]
+			rendered = lipgloss.NewStyle().Foreground(ColorOngoing).Render(frame) + " "
+		}
+
+		if colorName, ok := team.MemberColors[name]; ok && colorName != "" {
+			rendered += lipgloss.NewStyle().Foreground(teamColor(colorName)).Render(name)
+		} else {
+			rendered += StyleDim.Render(name)
+		}
+		parts = append(parts, rendered)
+	}
+	return "  " + strings.Join(parts, "  ")
 }
 
 // renderTeamDivider renders a horizontal rule with the team name embedded.
@@ -1423,9 +1476,17 @@ func renderTeamDivider(name string, width int) string {
 
 // renderTeamTaskRow renders a single task row.
 // Format: "  #1  ✓  Fix shell hook anti-patterns         shell-hooks-worker"
-func renderTeamTaskRow(task parser.TeamTask, memberColors map[string]string, width int) string {
+// When the task's owner has an ongoing session, a spinner appears after the status glyph.
+func renderTeamTaskRow(task parser.TeamTask, team parser.TeamSnapshot, width, animFrame int) string {
 	// Status glyph
 	status := taskStatusGlyph(task.Status)
+
+	// Ongoing spinner for active workers: 1 glyph + 1 space, or 2 spaces for alignment.
+	spinnerSlot := "  "
+	if team.MemberOngoing[task.Owner] {
+		frame := SpinnerFrames[animFrame%len(SpinnerFrames)]
+		spinnerSlot = lipgloss.NewStyle().Foreground(ColorOngoing).Render(frame) + " "
+	}
 
 	// Task ID
 	id := StyleDim.Render(fmt.Sprintf("#%-3s", task.ID))
@@ -1435,7 +1496,7 @@ func renderTeamTaskRow(task parser.TeamTask, memberColors map[string]string, wid
 	if task.Owner != "" {
 		ownerWidth = len(task.Owner) + 2 // 2 for gap
 	}
-	subjectWidth := width - 14 - ownerWidth // 14 = indent(2) + id(4) + status(3) + gaps(5)
+	subjectWidth := width - 16 - ownerWidth // 16 = indent(2) + id(4) + status(3) + spinner(2) + gaps(5)
 	if subjectWidth < 10 {
 		subjectWidth = 10
 	}
@@ -1449,14 +1510,14 @@ func renderTeamTaskRow(task parser.TeamTask, memberColors map[string]string, wid
 	// Owner (right-aligned, colored if team color available)
 	ownerRendered := ""
 	if task.Owner != "" {
-		if colorName, ok := memberColors[task.Owner]; ok && colorName != "" {
+		if colorName, ok := team.MemberColors[task.Owner]; ok && colorName != "" {
 			ownerRendered = lipgloss.NewStyle().Foreground(teamColor(colorName)).Render(task.Owner)
 		} else {
 			ownerRendered = StyleDim.Render(task.Owner)
 		}
 	}
 
-	left := "  " + id + "  " + status + "  " + subjectRendered
+	left := "  " + id + "  " + status + spinnerSlot + subjectRendered
 	if ownerRendered != "" {
 		return spaceBetween(left, ownerRendered, width)
 	}
