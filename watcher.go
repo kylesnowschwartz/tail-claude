@@ -57,8 +57,8 @@ type sessionWatcher struct {
 
 	// fsnotify watcher and tracked team session files.
 	// Set by run(), used by readAndRebuild to add newly discovered team files.
-	fsWatcher      *fsnotify.Watcher
-	watchedTeamIDs map[string]bool // team proc IDs already watched
+	fsWatcher        *fsnotify.Watcher
+	watchedProcPaths map[string]bool // subagent/team file paths already watched
 }
 
 func newSessionWatcher(path string, initialClassified []parser.ClassifiedMsg, initialOffset int64) *sessionWatcher {
@@ -129,7 +129,7 @@ func (w *sessionWatcher) run() {
 
 	// Store fsnotify watcher so readAndRebuild can add team session files.
 	w.fsWatcher = watcher
-	w.watchedTeamIDs = make(map[string]bool)
+	w.watchedProcPaths = make(map[string]bool)
 
 	for {
 		select {
@@ -163,7 +163,7 @@ func (w *sessionWatcher) run() {
 				}
 				w.dirDebounce = time.AfterFunc(500*time.Millisecond, w.sendSignal)
 				w.mu.Unlock()
-			} else if event.Has(fsnotify.Write) && w.watchedTeamIDs[event.Name] {
+			} else if event.Has(fsnotify.Write) && w.watchedProcPaths[event.Name] {
 				// Team session file written to — agent is working. Debounce
 				// with a longer window to avoid rebuilding on every tool call.
 				w.mu.Lock()
@@ -231,9 +231,9 @@ func (w *sessionWatcher) readAndRebuild() {
 	if w.fsWatcher != nil {
 		for i := range allProcs {
 			fp := allProcs[i].FilePath
-			if fp != "" && !w.watchedTeamIDs[fp] {
+			if fp != "" && !w.watchedProcPaths[fp] {
 				if err := w.fsWatcher.Add(fp); err == nil {
-					w.watchedTeamIDs[fp] = true
+					w.watchedProcPaths[fp] = true
 				}
 			}
 		}
