@@ -212,6 +212,7 @@ type model struct {
 	pickerAnimFrame       int          // spinner frame counter, incremented each tick
 	pickerHasOngoing      bool         // true when any session is still in progress
 	pickerTickActive      bool         // true while the picker tick loop is running
+	pickerLoading         bool         // true while initial session discovery is in progress
 	pickerOngoingGraceSeq int          // sequence counter for picker grace timers (stale timers ignored)
 	pickerExpanded        map[int]bool // tab-expanded previews in picker
 	pickerUniformModel    bool         // all sessions share the same model family
@@ -387,6 +388,9 @@ func (m model) Init() tea.Cmd {
 	// kick off session discovery across all project dirs (main + worktrees).
 	if m.view == viewPicker && len(m.projectDirs) > 0 {
 		cmds = append(cmds, loadPickerSessionsCmd(m.projectDirs, m.sessionCache))
+		if m.pickerLoading {
+			cmds = append(cmds, pickerTickCmd())
+		}
 	}
 
 	// Poll git dirty state every 3 seconds regardless of JSONL activity.
@@ -506,6 +510,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case pickerSessionsMsg:
+		m.pickerLoading = false
+		m.pickerTickActive = false // reset; updatePickerSessionState re-enables if needed
 		if msg.err != nil {
 			// Fall back to list view on error.
 			return m, nil
@@ -894,6 +900,8 @@ Flags:
 		m.liveDirty = checkGitDirty(invokedFrom)
 		m.sessionCache = parser.NewSessionCache()
 		m.view = viewPicker
+		m.pickerLoading = true
+		m.pickerTickActive = true
 
 		p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 		if _, err := p.Run(); err != nil {
@@ -963,6 +971,8 @@ Flags:
 		if info, err := os.Stat(result.path); err == nil {
 			if time.Since(info.ModTime()) > staleSessionThreshold {
 				m.view = viewPicker
+				m.pickerLoading = true
+				m.pickerTickActive = true
 			}
 		}
 	}

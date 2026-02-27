@@ -354,6 +354,10 @@ func (m model) viewPicker() string {
 
 	// Empty state
 	if len(m.pickerItems) == 0 {
+		if m.pickerLoading {
+			frame := SpinnerFrames[m.pickerAnimFrame%len(SpinnerFrames)]
+			return header + "\n" + StyleDim.Render(frame+" Loading sessions...")
+		}
 		return header + "\n" + StyleDim.Render("No sessions found for this project.")
 	}
 
