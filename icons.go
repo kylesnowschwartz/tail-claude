@@ -28,6 +28,7 @@ func (s StyledIcon) WithColor(c lipgloss.AdaptiveColor) string {
 // Requires a Nerd Font patched terminal font (e.g. JetBrains Mono Nerd Font).
 // Codepoints from Font Awesome (U+F000-U+F2E0) and Material Design (U+F0001+).
 var (
+	IconBranch    = StyledIcon{"\uE0A0", ColorGitBranch} // powerline branch glyph
 	IconChat      = StyledIcon{"\uF086", ColorTextDim}
 	IconClaude    = StyledIcon{"󱙺", ColorInfo}
 	IconClock     = StyledIcon{"", ColorTextDim}

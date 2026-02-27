@@ -8,6 +8,36 @@ import (
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
+func TestProjectDirForPath(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	prefix := filepath.Join(home, ".claude", "projects") + "/"
+
+	tests := []struct {
+		name    string
+		path    string
+		wantDir string // just the encoded part after ~/.claude/projects/
+	}{
+		{"plain path", "/Users/kyle/Code/proj", "-Users-kyle-Code-proj"},
+		{"dotfile path", "/Users/kyle/.config/nvim", "-Users-kyle--config-nvim"},
+		{"worktree with .claude", "/Users/kyle/Code/proj/.claude/worktrees/wt", "-Users-kyle-Code-proj--claude-worktrees-wt"},
+		{"underscore in path", "/private/var/folders/s0/abc_def/T/proj", "-private-var-folders-s0-abc-def-T-proj"},
+		{"dots in project name", "/Users/kyle/Code/my.project.name", "-Users-kyle-Code-my-project-name"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, err := parser.ProjectDirForPath(tt.path)
+			if err != nil {
+				t.Fatalf("ProjectDirForPath error: %v", err)
+			}
+			want := prefix + tt.wantDir
+			if dir != want {
+				t.Errorf("got  %q\nwant %q", dir, want)
+			}
+		})
+	}
+}
+
 func TestReadSession_ValidFile(t *testing.T) {
 	path := filepath.Join("testdata", "minimal.jsonl")
 	chunks, err := parser.ReadSession(path)

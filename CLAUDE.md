@@ -65,7 +65,28 @@ Prefer pure functions that take inputs and return outputs. Push side effects to 
 
 Claude Code stores sessions at `~/.claude/projects/{encoded-project-path}/{session-uuid}.jsonl`.
 
-Path encoding: `/Users/kyle/Code/foo` becomes `-Users-kyle-Code-foo`.
+### Path encoding
+
+Claude Code encodes absolute paths by replacing three characters with `-`:
+
+| Character | Example input | Encoded |
+|-----------|--------------|---------|
+| `/` (separator) | `/Users/kyle/Code/foo` | `-Users-kyle-Code-foo` |
+| `.` (dot) | `/Users/kyle/.config/nvim` | `-Users-kyle--config-nvim` |
+| `_` (underscore) | `/tmp/abc_def/proj` | `-tmp-abc-def-proj` |
+
+The double-dash `--` pattern appears when `/` is immediately followed by `.` in the original path (each replaced independently). This is common in dotfile and worktree paths:
+
+```
+/Users/kyle/.claude/worktrees/wt  ->  -Users-kyle--claude-worktrees-wt
+/Users/kyle/.worktrees/agent-foo  ->  -Users-kyle--worktrees-agent-foo
+```
+
+The encoding is **lossy** -- paths containing literal dashes can't be round-tripped. For authoritative path resolution, read the `cwd` field from session JSONL entries.
+
+**Caveat**: some reference projects only replace `/` and `\`. The CLI uses the stricter three-character rule above. Verified empirically against 273 project directories on disk (zero contain literal dots or underscores).
+
+Implementation: `parser/session.go:encodePath()`.
 
 Each JSONL line is a JSON object with: `type`, `uuid`, `timestamp`, `isSidechain`, `isMeta`, `message` (with `role`, `content`, `model`, `usage`, `stop_reason`).
 

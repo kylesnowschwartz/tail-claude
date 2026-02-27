@@ -161,11 +161,41 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, loadSessionCmd(s.Path)
 		}
+	case "b":
+		if len(m.worktreeProjectDirs) == 0 {
+			return m, nil
+		}
+		m.pickerWorktreeMode = !m.pickerWorktreeMode
+		if m.pickerWorktreeMode {
+			m.projectDirs = dedup(append([]string{m.projectDir}, m.worktreeProjectDirs...))
+		} else {
+			m.projectDirs = []string{m.projectDir}
+		}
+		if m.pickerWatcher != nil {
+			m.pickerWatcher.stop()
+			m.pickerWatcher = nil
+		}
+		m.pickerLoading = true
+		m.pickerTickActive = true
+		return m, tea.Batch(loadPickerSessionsCmd(m.projectDirs, m.sessionCache), pickerTickCmd())
 	case "?":
 		m.showKeybinds = !m.showKeybinds
 		m.ensurePickerVisible()
 	}
 	return m, nil
+}
+
+// dedup returns a new slice with duplicates removed, preserving order.
+func dedup(ss []string) []string {
+	seen := make(map[string]bool, len(ss))
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // pickerSelectedSession returns the session at the current cursor, or nil.
@@ -350,6 +380,9 @@ func (m model) viewPicker() string {
 	// Header
 	header := StyleAccentBold.Render("Sessions") + " " +
 		StyleDim.Render(fmt.Sprintf("(%d)", len(m.pickerSessions)))
+	if m.pickerWorktreeMode {
+		header += " " + IconBranch.Render() + " " + StyleMuted.Render("worktrees")
+	}
 	header += "\n"
 
 	// Empty state
@@ -379,14 +412,24 @@ func (m model) viewPicker() string {
 	// Scroll position indicator.
 	scrollInfo := m.pickerScrollInfo()
 
-	footer := m.renderFooter(
+	footerPairs := []string{
 		"j/k", "nav",
 		"tab", "preview",
 		"enter", "open",
+	}
+	if len(m.worktreeProjectDirs) > 0 {
+		if m.pickerWorktreeMode {
+			footerPairs = append(footerPairs, "b", "project")
+		} else {
+			footerPairs = append(footerPairs, "b", "worktrees")
+		}
+	}
+	footerPairs = append(footerPairs,
 		"G/g", "jump",
 		"q/esc", "back"+scrollInfo,
 		"?", "keys",
 	)
+	footer := m.renderFooter(footerPairs...)
 
 	return content + "\n" + footer
 }
@@ -518,6 +561,16 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 			mColor = metaColor
 		}
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(mColor).Render(short))
+	}
+
+	if s.GitBranch != "" {
+		branchIcon := IconBranch.WithColor(metaColor)
+		branchName := s.GitBranch
+		if len(branchName) > 20 {
+			branchName = branchName[:17] + "..."
+		}
+		branchStr := lipgloss.NewStyle().Foreground(metaColor).Render(branchName)
+		metaParts = append(metaParts, branchIcon+" "+branchStr)
 	}
 
 	if s.TurnCount > 0 {

@@ -201,6 +201,10 @@ type model struct {
 	projectDir  string
 	projectDirs []string
 
+	// Worktree session discovery
+	worktreeProjectDirs []string // extra project dirs from git worktrees (set once at startup)
+	pickerWorktreeMode  bool     // true = show sessions from all worktrees
+
 	// Session picker state
 	sessionCache          *parser.SessionCache
 	pickerSessions        []parser.SessionInfo
@@ -866,6 +870,27 @@ Flags:
 		projectDirs = []string{projectDir}
 	}
 
+	// Discover worktree project dirs for the toggle feature.
+	var worktreeProjectDirs []string
+	inWorktree := false
+	if projectDir != "" {
+		for _, wtPath := range discoverWorktreeDirs(invokedFrom) {
+			wtDir, err := parser.ProjectDirForPath(wtPath)
+			if err != nil || wtDir == projectDir {
+				continue
+			}
+			worktreeProjectDirs = append(worktreeProjectDirs, wtDir)
+		}
+		// If invoked from inside a worktree, default to showing all worktree
+		// sessions so the user sees the session they're actually working in.
+		if len(worktreeProjectDirs) > 0 {
+			inWorktree = parser.ResolveGitRoot(invokedFrom) != invokedFrom
+			if inWorktree {
+				projectDirs = dedup(append([]string{projectDir}, worktreeProjectDirs...))
+			}
+		}
+	}
+
 	// When no explicit path was given, find the latest session across the
 	// main project and any worktree directories.
 	autoDiscovered := sessionPath == ""
@@ -891,6 +916,8 @@ Flags:
 		m := initialModel(nil, hasDarkBg)
 		m.projectDir = projectDir
 		m.projectDirs = projectDirs
+		m.worktreeProjectDirs = worktreeProjectDirs
+		m.pickerWorktreeMode = inWorktree
 		m.gitCwd = invokedFrom
 		m.liveBranch = checkGitBranch(invokedFrom)
 		m.liveDirty = checkGitDirty(invokedFrom)
@@ -948,6 +975,8 @@ Flags:
 	m.sessionPath = result.path
 	m.projectDir = projectDir
 	m.projectDirs = projectDirs
+	m.worktreeProjectDirs = worktreeProjectDirs
+	m.pickerWorktreeMode = inWorktree
 	m.watching = true
 	m.watcher = watcher
 	m.tailSub = watcher.sub

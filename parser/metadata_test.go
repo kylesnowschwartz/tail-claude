@@ -134,7 +134,7 @@ func TestScanSessionMetadata_NotOngoingInterruptedPending(t *testing.T) {
 	}
 }
 
-// --- resolveGitRoot tests ---
+// --- ResolveGitRoot tests ---
 
 func TestResolveGitRoot_NormalRepo(t *testing.T) {
 	// Create a fake git repo with a .git directory.
@@ -143,9 +143,9 @@ func TestResolveGitRoot_NormalRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := resolveGitRoot(dir)
+	got := ResolveGitRoot(dir)
 	if got != dir {
-		t.Errorf("resolveGitRoot(%q) = %q, want %q", dir, got, dir)
+		t.Errorf("ResolveGitRoot(%q) = %q, want %q", dir, got, dir)
 	}
 }
 
@@ -170,14 +170,14 @@ func TestResolveGitRoot_Worktree(t *testing.T) {
 		0644,
 	)
 
-	got := resolveGitRoot(worktreeDir)
+	got := ResolveGitRoot(worktreeDir)
 	if got != mainRepo {
-		t.Errorf("resolveGitRoot(%q) = %q, want %q (main repo)", worktreeDir, got, mainRepo)
+		t.Errorf("ResolveGitRoot(%q) = %q, want %q (main repo)", worktreeDir, got, mainRepo)
 	}
 }
 
 func TestResolveGitRoot_SubdirOfWorktree(t *testing.T) {
-	// resolveGitRoot should walk up from a subdirectory.
+	// ResolveGitRoot should walk up from a subdirectory.
 	mainRepo := t.TempDir()
 	worktreeDir := t.TempDir()
 
@@ -194,9 +194,9 @@ func TestResolveGitRoot_SubdirOfWorktree(t *testing.T) {
 	subdir := filepath.Join(worktreeDir, "src", "pkg")
 	os.MkdirAll(subdir, 0755)
 
-	got := resolveGitRoot(subdir)
+	got := ResolveGitRoot(subdir)
 	if got != mainRepo {
-		t.Errorf("resolveGitRoot(%q) = %q, want %q", subdir, got, mainRepo)
+		t.Errorf("ResolveGitRoot(%q) = %q, want %q", subdir, got, mainRepo)
 	}
 }
 
@@ -206,9 +206,9 @@ func TestResolveGitRoot_NoGit(t *testing.T) {
 	subdir := filepath.Join(dir, "a", "b")
 	os.MkdirAll(subdir, 0755)
 
-	got := resolveGitRoot(subdir)
+	got := ResolveGitRoot(subdir)
 	if got != subdir {
-		t.Errorf("resolveGitRoot(%q) = %q, want original path", subdir, got)
+		t.Errorf("ResolveGitRoot(%q) = %q, want original path", subdir, got)
 	}
 }
 
@@ -225,13 +225,13 @@ func TestResolveGitRoot_RealWorktree(t *testing.T) {
 		t.Skip("not a worktree .git file")
 	}
 
-	// If we get here, we're in a worktree. resolveGitRoot should
+	// If we get here, we're in a worktree. ResolveGitRoot should
 	// resolve to the main repo, not the worktree dir.
 	cwd, _ := os.Getwd()
-	resolved := resolveGitRoot(cwd)
+	resolved := ResolveGitRoot(cwd)
 
 	// The resolved path should NOT contain ".claude/worktrees".
 	if filepath.Base(filepath.Dir(filepath.Dir(resolved))) == ".claude" {
-		t.Errorf("resolveGitRoot still points to worktree: %s", resolved)
+		t.Errorf("ResolveGitRoot still points to worktree: %s", resolved)
 	}
 }

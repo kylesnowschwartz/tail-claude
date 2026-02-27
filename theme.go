@@ -67,6 +67,7 @@ var (
 
 	// Picker
 	ColorPickerSelectedBg = ac("254", "237")
+	ColorGitBranch        = ac("5", "135") // purple: acceptEdits
 
 	// Team member colors (matches claude-devtools teamColors.ts).
 	// 8 named colors assignable to team-spawned agents.
