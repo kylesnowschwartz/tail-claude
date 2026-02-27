@@ -210,42 +210,6 @@ func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 	})
 }
 
-// RelatedProjectDirs finds all project directories that share a prefix with
-// the main project directory. Claude Code encodes worktree CWDs as separate
-// project directories whose encoded names start with the main repo's encoded
-// name (because worktree paths are subdirectories of the main repo).
-//
-// Returns the main dir first, followed by matching worktree dirs sorted
-// alphabetically. Ignores errors from missing directories.
-func RelatedProjectDirs(mainProjectDir string) []string {
-	prefix := filepath.Base(mainProjectDir)
-	parent := filepath.Dir(mainProjectDir)
-
-	entries, err := os.ReadDir(parent)
-	if err != nil {
-		return []string{mainProjectDir}
-	}
-
-	dirs := []string{mainProjectDir}
-	for _, de := range entries {
-		if !de.IsDir() {
-			continue
-		}
-		name := de.Name()
-		if name == prefix {
-			continue // already included as mainProjectDir
-		}
-		// Worktree directories start with the main prefix. The next character
-		// must be a "-" (the encoded path separator) to avoid false matches
-		// where one project name is a prefix of another unrelated project.
-		if strings.HasPrefix(name, prefix+"-") {
-			dirs = append(dirs, filepath.Join(parent, name))
-		}
-	}
-
-	return dirs
-}
-
 // DiscoverAllProjectSessions finds sessions across multiple project directories
 // (main + worktree dirs). Calls DiscoverProjectSessions on each, merges results,
 // and sorts by ModTime descending. Missing directories are silently skipped.

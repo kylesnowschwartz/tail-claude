@@ -196,11 +196,10 @@ type model struct {
 	// Footer toggle (? key)
 	showKeybinds bool
 
-	// Project directories: main project dir + worktree dirs. Set once at startup.
-	// The main dir comes from CurrentProjectDir(); worktree dirs are discovered
-	// via RelatedProjectDirs(). Used by picker + watcher for session discovery.
-	projectDir  string   // primary project dir (main repo)
-	projectDirs []string // all related dirs (main + worktrees)
+	// Project directories for session discovery. Set once at startup from
+	// CurrentProjectDir(). Exact match only -- no prefix expansion.
+	projectDir  string
+	projectDirs []string
 
 	// Session picker state
 	sessionCache          *parser.SessionCache
@@ -862,12 +861,9 @@ Flags:
 	// truth for picker discovery and the picker watcher.
 	projectDir, _ := parser.CurrentProjectDir()
 
-	// Discover related worktree project directories. Claude Code encodes each
-	// worktree's CWD as a separate project directory whose name shares a prefix
-	// with the main repo's directory. We scan all of them for sessions.
 	var projectDirs []string
 	if projectDir != "" {
-		projectDirs = parser.RelatedProjectDirs(projectDir)
+		projectDirs = []string{projectDir}
 	}
 
 	// When no explicit path was given, find the latest session across the

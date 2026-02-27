@@ -404,55 +404,36 @@ func TestReadSessionIncremental_EmptyFile(t *testing.T) {
 	}
 }
 
-// --- RelatedProjectDirs tests ---
+// --- Exact project directory matching tests ---
 
-func TestRelatedProjectDirs_FindsWorktreeDirs(t *testing.T) {
-	// Simulate ~/.claude/projects/ with main + worktree dirs.
-	parent := t.TempDir()
-	mainDir := filepath.Join(parent, "-Users-kyle-Code-myproject")
-	worktreeDir := filepath.Join(parent, "-Users-kyle-Code-myproject-.claude-worktrees-foo")
-	unrelatedDir := filepath.Join(parent, "-Users-kyle-Code-other")
+func TestDiscoverAllProjectSessions_ExactMatchOnly(t *testing.T) {
+	// Simulate ~/.claude/projects/ with a parent dir and a child that shares
+	// its prefix. Only the explicitly-passed directory's sessions should appear.
+	projectsRoot := t.TempDir()
+	parentDir := filepath.Join(projectsRoot, "-Users-kyle-Code-my-projects")
+	childDir := filepath.Join(projectsRoot, "-Users-kyle-Code-my-projects-tail-claude")
 
-	os.Mkdir(mainDir, 0o755)
-	os.Mkdir(worktreeDir, 0o755)
-	os.Mkdir(unrelatedDir, 0o755)
+	os.Mkdir(parentDir, 0o755)
+	os.Mkdir(childDir, 0o755)
 
-	dirs := parser.RelatedProjectDirs(mainDir)
-	if len(dirs) != 2 {
-		t.Fatalf("got %d dirs, want 2 (main + worktree)", len(dirs))
+	writeJSONL(t, parentDir, "parent-session.jsonl",
+		userEntry("u1", "2025-01-15T10:00:00Z", "Parent session"),
+		assistantEntry("a1", "2025-01-15T10:00:01Z", "Reply"),
+	)
+	writeJSONL(t, childDir, "child-session.jsonl",
+		userEntry("u2", "2025-01-15T11:00:00Z", "Child session"),
+		assistantEntry("a2", "2025-01-15T11:00:01Z", "Reply"),
+	)
+
+	sessions, err := parser.DiscoverAllProjectSessions([]string{parentDir})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if dirs[0] != mainDir {
-		t.Errorf("dirs[0] = %q, want main dir", dirs[0])
+	if len(sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1 (exact match only)", len(sessions))
 	}
-	if dirs[1] != worktreeDir {
-		t.Errorf("dirs[1] = %q, want worktree dir", dirs[1])
-	}
-}
-
-func TestRelatedProjectDirs_NoWorktrees(t *testing.T) {
-	parent := t.TempDir()
-	mainDir := filepath.Join(parent, "-Users-kyle-Code-myproject")
-	os.Mkdir(mainDir, 0o755)
-
-	dirs := parser.RelatedProjectDirs(mainDir)
-	if len(dirs) != 1 {
-		t.Fatalf("got %d dirs, want 1 (main only)", len(dirs))
-	}
-}
-
-func TestRelatedProjectDirs_ExcludesPartialNameMatch(t *testing.T) {
-	// "-Users-kyle-Code-myproject-extra" should NOT match "-Users-kyle-Code-myprojectfoo"
-	// because the extra char after the prefix is not a "-".
-	parent := t.TempDir()
-	mainDir := filepath.Join(parent, "-Users-kyle-Code-myproject")
-	falseMatch := filepath.Join(parent, "-Users-kyle-Code-myprojectfoo")
-
-	os.Mkdir(mainDir, 0o755)
-	os.Mkdir(falseMatch, 0o755)
-
-	dirs := parser.RelatedProjectDirs(mainDir)
-	if len(dirs) != 1 {
-		t.Fatalf("got %d dirs, want 1 (false prefix match excluded)", len(dirs))
+	if sessions[0].SessionID != "parent-session" {
+		t.Errorf("session = %q, want parent-session", sessions[0].SessionID)
 	}
 }
 
