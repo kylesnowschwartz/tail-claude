@@ -67,6 +67,7 @@ var (
 
 	// Picker
 	ColorPickerSelectedBg = ac("254", "237")
+	ColorPickerMeta       = ColorTextMuted // metadata icons in picker rows
 	ColorGitBranch        = ac("5", "135") // purple: acceptEdits
 
 	// Team member colors (matches claude-devtools teamColors.ts).

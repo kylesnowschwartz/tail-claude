@@ -564,7 +564,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 
 	if s.GitBranch != "" {
-		branchIcon := IconBranch.WithColor(metaColor)
+		branchIcon := IconPickerBranch.Render()
 		branchName := s.GitBranch
 		if len(branchName) > 20 {
 			branchName = branchName[:17] + "..."
@@ -574,7 +574,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 
 	if s.TurnCount > 0 {
-		chatIcon := IconChat.WithColor(metaColor)
+		chatIcon := IconPickerChat.Render()
 		countStr := lipgloss.NewStyle().Foreground(metaColor).Render(fmt.Sprintf("%3d", s.TurnCount))
 		metaParts = append(metaParts, chatIcon+" "+countStr)
 	}
@@ -594,7 +594,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 
 	if s.SessionID != "" {
-		sessionIcon := IconSession.WithColor(metaColor)
+		sessionIcon := IconPickerSession.Render()
 		nameStr := lipgloss.NewStyle().Foreground(metaColor).Render(formatSessionName(s.SessionID))
 		metaParts = append(metaParts, sessionIcon+" "+nameStr)
 	}

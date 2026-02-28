@@ -50,6 +50,12 @@ var (
 	IconToolOk    = StyledIcon{"󰯠", ColorTextDim}
 	IconUser      = StyledIcon{"", ColorTextSecondary}
 
+	// Picker metadata icons -- carry ColorPickerMeta so call sites
+	// use .Render() instead of .WithColor(metaColor) everywhere.
+	IconPickerBranch  = StyledIcon{IconBranch.Glyph, ColorPickerMeta}
+	IconPickerChat    = StyledIcon{IconChat.Glyph, ColorPickerMeta}
+	IconPickerSession = StyledIcon{IconSession.Glyph, ColorPickerMeta}
+
 	// Task board status glyphs
 	IconTaskDone    = StyledIcon{"\u2713", ColorOngoing}   // ✓
 	IconTaskActive  = StyledIcon{"\u27F3", ColorAccent}    // ⟳
