@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"time"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
@@ -130,7 +131,7 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 		if it.Type == parser.ItemSubagent {
 			if proc := procByTaskID[it.ToolID]; proc != nil {
 				out[i].subagentProcess = proc
-				out[i].subagentOngoing = parser.IsOngoing(proc.Chunks)
+				out[i].subagentOngoing = isSubagentOngoing(proc)
 				if proc.TeammateColor != "" {
 					out[i].teamColor = proc.TeammateColor
 				}
@@ -170,6 +171,22 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 	}
 
 	return out
+}
+
+// isSubagentOngoing checks whether a subagent session is still in progress.
+// Combines chunk-based activity analysis with a file staleness check: if the
+// session file hasn't been modified in OngoingStalenessThreshold, the agent
+// process is gone regardless of what the chunks say. This catches edge cases
+// where IsOngoing returns a false positive on fully completed sessions.
+func isSubagentOngoing(proc *parser.SubagentProcess) bool {
+	if !parser.IsOngoing(proc.Chunks) {
+		return false
+	}
+	// File hasn't been written to recently — agent is dead.
+	if !proc.FileModTime.IsZero() && time.Since(proc.FileModTime) > parser.OngoingStalenessThreshold {
+		return false
+	}
+	return true
 }
 
 // currentDetailMsg returns the message being viewed in detail view.

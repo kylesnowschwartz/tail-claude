@@ -915,3 +915,144 @@ func TestBuildChunks_ItemTokenCountMultipleTools(t *testing.T) {
 		t.Errorf("Read TokenCount = %d, want %d (input+result)", items[1].TokenCount, wantRead)
 	}
 }
+
+// --- Concurrent Task duration suppression ---
+
+func TestBuildChunks_ConcurrentTaskDuration(t *testing.T) {
+	// When a Bash tool_use coexists with a background Task in the same AI
+	// turn, the Bash tool_result timestamp is delayed by the Task's runtime.
+	// The Bash DurationMs should be zeroed to suppress the misleading display.
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	bashResult := t0.Add(11 * time.Minute) // inflated: waited for Task agents
+	taskResult := t0.Add(11 * time.Minute)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{
+				{ID: "bash1", Name: "Bash"},
+				{ID: "task1", Name: "Task"},
+			},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "bash1", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"git push"}`)},
+				{Type: "tool_use", ToolID: "task1", ToolName: "Task", ToolInput: json.RawMessage(`{"subagent_type":"Explore","description":"Research something"}`)},
+			},
+		},
+		// Bash result arrives after Task agents complete (inflated timestamp).
+		parser.AIMsg{
+			Timestamp: bashResult,
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "bash1", Content: "Everything up-to-date"},
+			},
+		},
+		// Task result arrives around the same time.
+		parser.AIMsg{
+			Timestamp: taskResult,
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "task1", Content: "Agent completed research"},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+
+	items := chunks[0].Items
+	if len(items) != 2 {
+		t.Fatalf("len(Items) = %d, want 2", len(items))
+	}
+
+	// Bash duration should be suppressed (zeroed).
+	if items[0].ToolName != "Bash" {
+		t.Fatalf("Items[0].ToolName = %q, want Bash", items[0].ToolName)
+	}
+	if items[0].DurationMs != 0 {
+		t.Errorf("Bash DurationMs = %d, want 0 (inflated by concurrent Task)", items[0].DurationMs)
+	}
+
+	// Task duration should be preserved.
+	if items[1].ToolName != "Task" {
+		t.Fatalf("Items[1].ToolName = %q, want Task", items[1].ToolName)
+	}
+	if items[1].DurationMs == 0 {
+		t.Error("Task DurationMs should be preserved, got 0")
+	}
+}
+
+func TestBuildChunks_NoConcurrentTask_DurationPreserved(t *testing.T) {
+	// Without concurrent Task calls, Bash duration should be preserved even
+	// if it exceeds the threshold (unlikely but tests the guard).
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	t1 := t0.Add(90 * time.Second) // 90s is above threshold but no Task
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "bash1", Name: "Bash"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "bash1", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"make build"}`)},
+			},
+		},
+		parser.AIMsg{
+			Timestamp: t1,
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "bash1", Content: "ok"},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+
+	if items[0].DurationMs != 90000 {
+		t.Errorf("Bash DurationMs = %d, want 90000 (no concurrent Task, should preserve)", items[0].DurationMs)
+	}
+}
+
+func TestBuildChunks_ConcurrentTask_ShortDurationPreserved(t *testing.T) {
+	// Non-Task tools under the threshold should keep their duration even
+	// when a Task is present — only inflated durations are suspicious.
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{
+				{ID: "read1", Name: "Read"},
+				{ID: "task1", Name: "Task"},
+			},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "read1", ToolName: "Read", ToolInput: json.RawMessage(`{"file_path":"a.go"}`)},
+				{Type: "tool_use", ToolID: "task1", ToolName: "Task", ToolInput: json.RawMessage(`{"subagent_type":"Explore","description":"check"}`)},
+			},
+		},
+		// Read result comes back in 2 seconds — plausible, keep it.
+		parser.AIMsg{
+			Timestamp: t0.Add(2 * time.Second),
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "read1", Content: "package main"},
+			},
+		},
+		parser.AIMsg{
+			Timestamp: t0.Add(5 * time.Minute),
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "task1", Content: "done"},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+
+	// Read: 2s is under the 60s threshold, should be preserved.
+	if items[0].DurationMs != 2000 {
+		t.Errorf("Read DurationMs = %d, want 2000 (under threshold, preserved)", items[0].DurationMs)
+	}
+}

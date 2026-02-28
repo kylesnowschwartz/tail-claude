@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+// concurrentTaskDurationThreshold is the maximum plausible duration for a
+// non-Task tool (Bash, Read, Edit, etc.) before we suspect it's inflated by
+// concurrent background Task agents. When the same AI turn contains both
+// Task calls and non-Task calls, Claude Code delays writing tool_result
+// entries until all background agents complete, inflating wall-clock
+// durations for tools that actually finished in seconds.
+const concurrentTaskDurationThreshold int64 = 60_000 // 60 seconds
+
 // DisplayItemType discriminates the display item categories.
 type DisplayItemType int
 
@@ -282,6 +290,7 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 	// Only set Items if we had any blocks to process.
 	var finalItems []DisplayItem
 	if hasBlocks {
+		suppressInflatedDurations(items)
 		finalItems = items
 	}
 
@@ -307,6 +316,42 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 		Usage:         usage,
 		StopReason:    stop,
 		DurationMs:    dur,
+	}
+}
+
+// suppressInflatedDurations zeroes out non-Task tool durations that are
+// inflated by concurrent background Task agents in the same AI turn.
+//
+// When Claude Code runs Bash/Read/Edit alongside background Task calls,
+// the tool_result entry timestamps reflect wall-clock time (including the
+// wait for agents to complete), not the tool's actual execution time.
+// A git push that takes 3 seconds can show as 11 minutes.
+//
+// Heuristic: if the turn contains at least one Task (ItemSubagent) AND a
+// non-Task tool exceeds concurrentTaskDurationThreshold, the non-Task
+// duration is unreliable. Zero it to suppress display.
+func suppressInflatedDurations(items []DisplayItem) {
+	// Find the maximum Task duration in this turn.
+	var maxTaskDur int64
+	for i := range items {
+		if items[i].Type == ItemSubagent && items[i].DurationMs > maxTaskDur {
+			maxTaskDur = items[i].DurationMs
+		}
+	}
+	if maxTaskDur == 0 {
+		return
+	}
+
+	// Zero out non-Task tools whose duration exceeds the threshold and
+	// is close to or exceeds the Task duration (suggesting they waited
+	// for the same background work).
+	for i := range items {
+		if items[i].Type == ItemSubagent || items[i].Type == ItemTeammateMessage {
+			continue
+		}
+		if items[i].DurationMs > concurrentTaskDurationThreshold {
+			items[i].DurationMs = 0
+		}
 	}
 }
 

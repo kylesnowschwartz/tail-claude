@@ -242,9 +242,9 @@ func (w *sessionWatcher) readAndRebuild() {
 	ongoing := parser.IsOngoing(chunks)
 	if !ongoing {
 		// Parent may be idle while subagents/team members are still working.
-		// Check if any linked process is ongoing.
+		// Check if any linked process is ongoing (with staleness guard).
 		for i := range allProcs {
-			if parser.IsOngoing(allProcs[i].Chunks) {
+			if isSubagentOngoing(&allProcs[i]) {
 				ongoing = true
 				break
 			}

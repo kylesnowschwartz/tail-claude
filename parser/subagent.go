@@ -15,6 +15,7 @@ import (
 type SubagentProcess struct {
 	ID            string    // agentId from filename (agent-{id}.jsonl)
 	FilePath      string    // full path to subagent JSONL file
+	FileModTime   time.Time // last modification time of the JSONL file
 	Chunks        []Chunk   // parsed via ReadSession pipeline
 	StartTime     time.Time // first message timestamp
 	EndTime       time.Time // last message timestamp
@@ -99,6 +100,7 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 		procs = append(procs, SubagentProcess{
 			ID:            agentID,
 			FilePath:      filePath,
+			FileModTime:   info.ModTime(),
 			Chunks:        chunks,
 			StartTime:     startTime,
 			EndTime:       endTime,
@@ -679,6 +681,7 @@ func DiscoverTeamSessions(sessionPath string, parentChunks []Chunk) ([]SubagentP
 		procs = append(procs, SubagentProcess{
 			ID:            agentName + "@" + teamName,
 			FilePath:      filePath,
+			FileModTime:   info.ModTime(),
 			Chunks:        chunks,
 			StartTime:     startTime,
 			EndTime:       endTime,
