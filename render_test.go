@@ -203,8 +203,8 @@ func TestDetailHeaderStats(t *testing.T) {
 	t.Run("tool calls show icon and count", func(t *testing.T) {
 		msg := message{toolCallCount: 3}
 		got := detailHeaderStats(msg)
-		if !strings.Contains(got, IconToolOk.Glyph) {
-			t.Errorf("should contain tool icon %q, got %q", IconToolOk.Glyph, got)
+		if !strings.Contains(got, Icon.Tool.Ok.Glyph) {
+			t.Errorf("should contain tool icon %q, got %q", Icon.Tool.Ok.Glyph, got)
 		}
 		if !strings.Contains(got, "3") {
 			t.Errorf("should contain count '3', got %q", got)
@@ -214,8 +214,8 @@ func TestDetailHeaderStats(t *testing.T) {
 	t.Run("thinking shows icon and count", func(t *testing.T) {
 		msg := message{thinkingCount: 2, toolCallCount: 3}
 		got := detailHeaderStats(msg)
-		if !strings.Contains(got, IconThinking.Glyph) {
-			t.Errorf("should contain thinking icon %q, got %q", IconThinking.Glyph, got)
+		if !strings.Contains(got, Icon.Thinking.Glyph) {
+			t.Errorf("should contain thinking icon %q, got %q", Icon.Thinking.Glyph, got)
 		}
 		if !strings.Contains(got, "2") {
 			t.Errorf("should contain count '2', got %q", got)
@@ -225,8 +225,8 @@ func TestDetailHeaderStats(t *testing.T) {
 	t.Run("messages show icon and count", func(t *testing.T) {
 		msg := message{outputCount: 1}
 		got := detailHeaderStats(msg)
-		if !strings.Contains(got, IconOutput.Glyph) {
-			t.Errorf("should contain output icon %q, got %q", IconOutput.Glyph, got)
+		if !strings.Contains(got, Icon.Output.Glyph) {
+			t.Errorf("should contain output icon %q, got %q", Icon.Output.Glyph, got)
 		}
 		if !strings.Contains(got, "1") {
 			t.Errorf("should contain count '1', got %q", got)

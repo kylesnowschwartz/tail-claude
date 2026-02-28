@@ -381,7 +381,7 @@ func (m model) viewPicker() string {
 	header := StyleAccentBold.Render("Sessions") + " " +
 		StyleDim.Render(fmt.Sprintf("(%d)", len(m.pickerSessions)))
 	if m.pickerWorktreeMode {
-		header += " " + IconBranch.Render() + " " + StyleMuted.Render("worktrees")
+		header += " " + Icon.Branch.Render() + " " + StyleMuted.Render("worktrees")
 	}
 	header += "\n"
 
@@ -552,7 +552,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	metaColor := ColorTextMuted
 
 	var metaParts []string
-	dot := IconDot.Render()
+	dot := Icon.Dot.Render()
 
 	if s.Model != "" {
 		short := fmt.Sprintf("%-10s", shortModel(s.Model))
@@ -564,7 +564,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 
 	if s.GitBranch != "" {
-		branchIcon := IconPickerBranch.Render()
+		branchIcon := Icon.Branch.WithColor(ColorPickerMeta)
 		branchName := s.GitBranch
 		if len(branchName) > 20 {
 			branchName = branchName[:17] + "..."
@@ -574,7 +574,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 
 	if s.TurnCount > 0 {
-		chatIcon := IconPickerChat.Render()
+		chatIcon := Icon.Chat.WithColor(ColorPickerMeta)
 		countStr := lipgloss.NewStyle().Foreground(metaColor).Render(fmt.Sprintf("%3d", s.TurnCount))
 		metaParts = append(metaParts, chatIcon+" "+countStr)
 	}
@@ -594,7 +594,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 
 	if s.SessionID != "" {
-		sessionIcon := IconPickerSession.Render()
+		sessionIcon := Icon.Session.WithColor(ColorPickerMeta)
 		nameStr := lipgloss.NewStyle().Foreground(metaColor).Render(formatSessionName(s.SessionID))
 		metaParts = append(metaParts, sessionIcon+" "+nameStr)
 	}

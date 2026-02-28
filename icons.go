@@ -4,6 +4,7 @@ import (
 	"image/color"
 
 	"charm.land/lipgloss/v2"
+	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
 // StyledIcon pairs an icon glyph with its default foreground color.
@@ -28,112 +29,153 @@ func (s StyledIcon) WithColor(c color.Color) string {
 	return lipgloss.NewStyle().Foreground(c).Render(s.Glyph)
 }
 
-// Icons used throughout the TUI.
+// Shared glyphs -- named so intentional reuse across icons is explicit.
+// All use Unicode escapes to prevent silent corruption by LLM tools.
+const (
+	glyphRobot        = "\U000F167A" // nf-md-robot_outline
+	glyphWrench       = "\U000F0BE0" // nf-md-wrench_outline
+	glyphFolderSearch = "\U000F0968" // nf-md-folder_search
+	glyphPenNib       = "\uEE75"     // nf-fa-pen_nib
+)
+
+// toolIcons groups per-category icons for the detail view item rows.
+type toolIcons struct {
+	Err   StyledIcon
+	Ok    StyledIcon
+	Read  StyledIcon
+	Edit  StyledIcon
+	Write StyledIcon
+	Bash  StyledIcon
+	Grep  StyledIcon
+	Glob  StyledIcon
+	Task  StyledIcon
+	Skill StyledIcon
+	Web   StyledIcon
+	Misc  StyledIcon
+}
+
+// taskIcons groups status glyphs for the task board.
+type taskIcons struct {
+	Done    StyledIcon
+	Active  StyledIcon
+	Pending StyledIcon
+}
+
+// iconSet holds every icon in the TUI, grouped by domain.
 // Requires a Nerd Font patched terminal font (e.g. JetBrains Mono Nerd Font).
 // Codepoints from Font Awesome (U+F000-U+F2E0) and Material Design (U+F0001+).
-//
-// NOTE: These are initialized by initIcons() after initTheme() resolves colors.
-var (
-	IconBranch    StyledIcon
-	IconChat      StyledIcon
-	IconClaude    StyledIcon
-	IconClock     StyledIcon
-	IconCollapsed StyledIcon
-	IconDot       StyledIcon
-	IconDrillDown StyledIcon
-	IconEllipsis  StyledIcon
-	IconExpanded  StyledIcon
-	IconOutput    StyledIcon
-	IconSelected  StyledIcon
-	IconSession   StyledIcon
-	IconSubagent  StyledIcon
-	IconSystem    StyledIcon
-	IconSystemErr StyledIcon
-	IconTeammate  StyledIcon
-	IconThinking  StyledIcon
-	IconToken     StyledIcon
-	IconToolErr   StyledIcon
-	IconToolOk    StyledIcon
-	IconUser      StyledIcon
+type iconSet struct {
+	Branch    StyledIcon
+	Chat      StyledIcon
+	Claude    StyledIcon
+	Clock     StyledIcon
+	Collapsed StyledIcon
+	Dot       StyledIcon
+	DrillDown StyledIcon
+	Ellipsis  StyledIcon
+	Expanded  StyledIcon
+	Output    StyledIcon
+	Selected  StyledIcon
+	Session   StyledIcon
+	Subagent  StyledIcon
+	System    StyledIcon
+	SystemErr StyledIcon
+	Teammate  StyledIcon
+	Thinking  StyledIcon
+	Token     StyledIcon
+	User      StyledIcon
+	Tool      toolIcons
+	Task      taskIcons
+}
 
-	// Per-category tool icons (detail view item rows).
-	IconToolRead  StyledIcon
-	IconToolEdit  StyledIcon
-	IconToolWrite StyledIcon
-	IconToolBash  StyledIcon
-	IconToolGrep  StyledIcon
-	IconToolGlob  StyledIcon
-	IconToolTask  StyledIcon
-	IconToolSkill StyledIcon
-	IconToolWeb   StyledIcon
-	IconToolMisc  StyledIcon
-
-	// Picker metadata icons -- carry ColorPickerMeta so call sites
-	// use .Render() instead of .WithColor(metaColor) everywhere.
-	IconPickerBranch  StyledIcon
-	IconPickerChat    StyledIcon
-	IconPickerSession StyledIcon
-
-	// Task board status glyphs
-	IconTaskDone    StyledIcon
-	IconTaskActive  StyledIcon
-	IconTaskPending StyledIcon
-)
+// Icon is the single source of truth for all TUI icons.
+// Initialized by initIcons() after initTheme() resolves colors.
+var Icon iconSet
 
 // Plain glyphs -- used as raw strings (never styled via StyledIcon).
 const (
 	GlyphHRule    = "\u2500" // box drawing horizontal (compact separators)
-	GlyphBeadFull = "\uEABC" // nf-cod-circle_filled (activity indicator bead)
+	GlyphBeadFull = "\uEABC" // nf-cod-circle (activity indicator bead)
 )
 
 // SpinnerFrames is a 10-frame braille spinner used for ongoing indicators.
 var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// initIcons builds all StyledIcon values from resolved theme colors.
+// initIcons builds all icon values from resolved theme colors.
 // Must be called after initTheme().
 //
 // All glyphs use explicit Unicode escapes (\uXXXX / \U000XXXXX) to prevent
 // silent corruption when LLM tools round-trip the file. Nerd Font codepoints
 // in the Private Use Area are particularly vulnerable to being dropped.
 func initIcons() {
-	IconBranch = StyledIcon{"\uE0A0", ColorGitBranch}     // nf-pl-branch
-	IconChat = StyledIcon{"\uF086", ColorTextDim}         // nf-fa-comments
-	IconClaude = StyledIcon{"\U000F167A", ColorInfo}      // nf-md-robot_outline
-	IconClock = StyledIcon{"\uF017", ColorTextDim}        // nf-fa-clock_o
-	IconCollapsed = StyledIcon{"\uF054", ColorTextDim}    // nf-fa-chevron_right
-	IconDot = StyledIcon{"\u00B7", ColorTextMuted}        // middle dot
-	IconDrillDown = StyledIcon{"\uF061", ColorAccent}     // nf-fa-arrow_right
-	IconEllipsis = StyledIcon{"\u2026", ColorTextDim}     // horizontal ellipsis
-	IconExpanded = StyledIcon{"\uF078", ColorTextPrimary} // nf-fa-chevron_down
-	IconOutput = StyledIcon{"\U000F0182", ColorAccent}    // nf-md-code_tags
-	IconSelected = StyledIcon{"\u2502", ColorAccent}      // box drawing vertical
-	IconSession = StyledIcon{"\U000F0237", ColorTextDim}  // nf-md-file_document
-	IconSubagent = StyledIcon{"\U000F167A", ColorAccent}  // nf-md-robot_outline
-	IconSystem = StyledIcon{"\uF120", ColorTextMuted}     // nf-fa-terminal
-	IconSystemErr = StyledIcon{"\uF06A", ColorError}      // nf-fa-exclamation_circle
-	IconTeammate = StyledIcon{"\U000F167A", ColorAccent}  // nf-md-robot_outline
-	IconThinking = StyledIcon{"\uF0EB", ColorTextDim}     // nf-fa-lightbulb_o
-	IconToken = StyledIcon{"\uEDE8", ColorTextDim}        // nf-cod-symbol_numeric
-	IconToolErr = StyledIcon{"\U000F0BE0", ColorError}    // nf-md-console
-	IconToolOk = StyledIcon{"\U000F0BE0", ColorTextDim}   // nf-md-console
-	IconUser = StyledIcon{"\uF007", ColorTextSecondary}   // nf-fa-user
+	Icon = iconSet{
+		Branch:    StyledIcon{"\uE0A0", ColorGitBranch}, // nf-pl-branch
+		Chat:      StyledIcon{"\uF086", ColorTextDim},   // nf-fa-comments
+		Claude:    StyledIcon{glyphRobot, ColorInfo},
+		Clock:     StyledIcon{"\uF017", ColorTextDim},     // nf-fa-clock
+		Collapsed: StyledIcon{"\uF054", ColorTextDim},     // nf-fa-chevron_right
+		Dot:       StyledIcon{"\u00B7", ColorTextMuted},   // middle dot
+		DrillDown: StyledIcon{"\uF061", ColorAccent},      // nf-fa-arrow_right
+		Ellipsis:  StyledIcon{"\u2026", ColorTextDim},     // horizontal ellipsis
+		Expanded:  StyledIcon{"\uF078", ColorTextPrimary}, // nf-fa-chevron_down
+		Output:    StyledIcon{"\U000F0182", ColorAccent},  // nf-md-comment_outline
+		Selected:  StyledIcon{"\u2502", ColorAccent},      // box drawing vertical
+		Session:   StyledIcon{"\U000F0237", ColorTextDim}, // nf-md-fingerprint
+		Subagent:  StyledIcon{glyphRobot, ColorAccent},
+		System:    StyledIcon{"\uF120", ColorTextMuted}, // nf-fa-terminal
+		SystemErr: StyledIcon{"\uF06A", ColorError},     // nf-fa-circle_exclamation
+		Teammate:  StyledIcon{glyphRobot, ColorAccent},
+		Thinking:  StyledIcon{"\uF0EB", ColorTextDim},       // nf-fa-lightbulb
+		Token:     StyledIcon{"\uEDE8", ColorTextDim},       // nf-fa-coins
+		User:      StyledIcon{"\uF007", ColorTextSecondary}, // nf-fa-user
+		Tool: toolIcons{
+			Err:   StyledIcon{glyphWrench, ColorError},
+			Ok:    StyledIcon{glyphWrench, ColorTextDim},
+			Read:  StyledIcon{"\uE28B", ColorToolRead}, // nf-fae-book_open_o
+			Edit:  StyledIcon{glyphPenNib, ColorToolEdit},
+			Write: StyledIcon{glyphPenNib, ColorToolWrite},
+			Bash:  StyledIcon{glyphWrench, ColorToolBash},
+			Grep:  StyledIcon{glyphFolderSearch, ColorToolGrep},
+			Glob:  StyledIcon{glyphFolderSearch, ColorToolGlob},
+			Task:  StyledIcon{glyphRobot, ColorToolTask},
+			Skill: StyledIcon{glyphWrench, ColorToolSkill},
+			Web:   StyledIcon{"\U000F059F", ColorToolWeb}, // nf-md-web
+			Misc:  StyledIcon{glyphWrench, ColorToolOther},
+		},
+		Task: taskIcons{
+			Done:    StyledIcon{"\u2713", ColorOngoing},   // check mark
+			Active:  StyledIcon{"\u27F3", ColorAccent},    // clockwise arrow
+			Pending: StyledIcon{"\u25CB", ColorTextMuted}, // white circle
+		},
+	}
+}
 
-	IconToolRead = StyledIcon{"\uE28B", ColorToolRead}       // nf-custom-file
-	IconToolEdit = StyledIcon{"\uEE75", ColorToolEdit}       // nf-cod-edit
-	IconToolWrite = StyledIcon{"\uEE75", ColorToolWrite}     // nf-cod-new_file
-	IconToolBash = StyledIcon{"\U000F0BE0", ColorToolBash}   // nf-md-console
-	IconToolGrep = StyledIcon{"\U000F0968", ColorToolGrep}   // nf-md-text_search
-	IconToolGlob = StyledIcon{"\U000F0968", ColorToolGlob}   // nf-md-folder_search
-	IconToolTask = StyledIcon{"\U000F167A", ColorToolTask}   // nf-md-robot_outline
-	IconToolSkill = StyledIcon{"\U000F0BE0", ColorToolSkill} // nf-md-console
-	IconToolWeb = StyledIcon{"\U000F059F", ColorToolWeb}     // nf-md-web
-	IconToolMisc = StyledIcon{"\U000F0BE0", ColorToolOther}  // nf-md-console
-
-	IconPickerBranch = StyledIcon{IconBranch.Glyph, ColorPickerMeta}
-	IconPickerChat = StyledIcon{IconChat.Glyph, ColorPickerMeta}
-	IconPickerSession = StyledIcon{IconSession.Glyph, ColorPickerMeta}
-
-	IconTaskDone = StyledIcon{"\u2713", ColorOngoing}      // check mark
-	IconTaskActive = StyledIcon{"\u27F3", ColorAccent}     // clockwise arrow
-	IconTaskPending = StyledIcon{"\u25CB", ColorTextMuted} // white circle
+// toolCategoryIcon returns the styled icon for a tool category.
+// Error tools always get the red error icon regardless of category.
+func toolCategoryIcon(cat parser.ToolCategory, isError bool) string {
+	if isError {
+		return Icon.Tool.Err.Render()
+	}
+	switch cat {
+	case parser.CategoryRead:
+		return Icon.Tool.Read.Render()
+	case parser.CategoryEdit:
+		return Icon.Tool.Edit.Render()
+	case parser.CategoryWrite:
+		return Icon.Tool.Write.Render()
+	case parser.CategoryBash:
+		return Icon.Tool.Bash.Render()
+	case parser.CategoryGrep:
+		return Icon.Tool.Grep.Render()
+	case parser.CategoryGlob:
+		return Icon.Tool.Glob.Render()
+	case parser.CategoryTask:
+		return Icon.Tool.Task.Render()
+	case parser.CategoryTool:
+		return Icon.Tool.Skill.Render()
+	case parser.CategoryWeb:
+		return Icon.Tool.Web.Render()
+	default:
+		return Icon.Tool.Misc.Render()
+	}
 }

@@ -65,22 +65,22 @@ const beadCount = 5
 // chevron returns the expand/collapse indicator
 func chevron(expanded bool) string {
 	if expanded {
-		return IconExpanded.Render()
+		return Icon.Expanded.Render()
 	}
-	return IconCollapsed.Render()
+	return Icon.Collapsed.Render()
 }
 
 // selectionIndicator returns a left-margin marker for the selected message
 func selectionIndicator(selected bool) string {
 	if selected {
-		return IconSelected.Render() + " "
+		return Icon.Selected.Render() + " "
 	}
 	return "  "
 }
 
 // userHeaderLine renders "timestamp  You {icon}" used in both list and detail views.
 func userHeaderLine(msg message) string {
-	return StyleDim.Render(msg.timestamp) + "  " + StylePrimaryBold.Render("You") + " " + IconUser.Render()
+	return StyleDim.Render(msg.timestamp) + "  " + StylePrimaryBold.Render("You") + " " + Icon.User.Render()
 }
 
 // spaceBetween lays out left and right strings with gap-fill spacing to span width.
@@ -134,16 +134,16 @@ func truncateLines(content string, maxLines int) (string, int) {
 
 // formatToolResultPreview renders a one-line tool result summary for collapsed view.
 func formatToolResultPreview(lo *parser.LastOutput) string {
-	icon := IconToolOk
+	icon := Icon.Tool.Ok
 	if lo.IsError {
-		icon = IconToolErr
+		icon = Icon.Tool.Err
 	}
 	nameStyle := StylePrimaryBold
 	resultStyle := StyleSecondary
 
 	result := lo.ToolResult
 	if len(result) > 200 {
-		result = result[:200] + IconEllipsis.Glyph
+		result = result[:200] + Icon.Ellipsis.Glyph
 	}
 	// Collapse newlines for single-line preview
 	result = strings.ReplaceAll(result, "\n", " ")
@@ -213,7 +213,7 @@ func (m model) claudeMessageBody(msg message, isExpanded bool, cw int) string {
 	rendered := m.md.renderMarkdown(content, cw)
 	if hidden > 0 {
 		hint := StyleDim.Render(
-			fmt.Sprintf("%s (%d lines hidden)", IconEllipsis.Render(), hidden))
+			fmt.Sprintf("%s (%d lines hidden)", Icon.Ellipsis.Render(), hidden))
 		rendered += "\n" + hint
 	}
 	return rendered
@@ -237,7 +237,7 @@ func (m model) claudeExpandedItems(msg message, cw int) string {
 		rows = append(rows, "", md) // blank line separator
 		if hidden > 0 {
 			hint := StyleDim.Render(
-				fmt.Sprintf("%s %d more lines — Enter for full text", IconEllipsis.Render(), hidden))
+				fmt.Sprintf("%s %d more lines — Enter for full text", Icon.Ellipsis.Render(), hidden))
 			rows = append(rows, hint)
 		}
 	}
@@ -306,7 +306,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 		truncated, hidden := truncateLines(content, maxCollapsedLines)
 		if hidden > 0 {
 			content = truncated
-			hint = StyleDim.Render(fmt.Sprintf("%s (%d lines hidden)", IconEllipsis.Render(), hidden))
+			hint = StyleDim.Render(fmt.Sprintf("%s (%d lines hidden)", Icon.Ellipsis.Render(), hidden))
 		}
 	}
 
@@ -341,9 +341,9 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 	// System messages always show inline -- they're short
 	sel := selectionIndicator(isSelected)
 
-	icon := IconSystem
+	icon := Icon.System
 	if msg.isError {
-		icon = IconSystemErr
+		icon = Icon.SystemErr
 	}
 	sysIcon := icon.Render()
 
@@ -353,7 +353,7 @@ func renderSystemMessage(msg message, containerWidth int, isSelected, _ bool) st
 
 	content := StyleDim.Render(msg.content)
 
-	line := sel + sysIcon + " " + label + "  " + IconDot.Glyph + "  " + ts + "  " + content
+	line := sel + sysIcon + " " + label + "  " + Icon.Dot.Glyph + "  " + ts + "  " + content
 	return "\n" + line + "\n"
 }
 
@@ -396,7 +396,7 @@ func (m model) renderDetailContent(msg message, width int) rendered {
 		header = userHeaderLine(msg)
 		body = m.md.renderMarkdown(msg.content, width-4)
 	case RoleSystem:
-		header = IconSystem.Render() +
+		header = Icon.System.Render() +
 			" " + StyleSecondary.Render("System") +
 			"  " + StyleDim.Render(msg.timestamp)
 		body = StyleDim.Render(msg.content)
@@ -468,42 +468,12 @@ func renderTraceHeader(parent displayItem) string {
 	toolCount, msgCount := traceItemStats(items)
 
 	dimStyle := StyleDim
-	traceIcon := IconSystem.WithColor(ColorTextDim)
+	traceIcon := Icon.System.WithColor(ColorTextDim)
 	traceLabel := StylePrimaryBold.Render("Execution Trace")
-	dot := dimStyle.Render(" " + IconDot.Glyph + " ")
+	dot := dimStyle.Render(" " + Icon.Dot.Glyph + " ")
 	countStr := dimStyle.Render(fmt.Sprintf("%d tool calls, %d messages", toolCount, msgCount))
 
 	return traceIcon + "  " + traceLabel + dot + countStr
-}
-
-// toolCategoryIcon returns the styled icon for a tool category.
-// Error tools always get the red error icon regardless of category.
-func toolCategoryIcon(cat parser.ToolCategory, isError bool) string {
-	if isError {
-		return IconToolErr.Render()
-	}
-	switch cat {
-	case parser.CategoryRead:
-		return IconToolRead.Render()
-	case parser.CategoryEdit:
-		return IconToolEdit.Render()
-	case parser.CategoryWrite:
-		return IconToolWrite.Render()
-	case parser.CategoryBash:
-		return IconToolBash.Render()
-	case parser.CategoryGrep:
-		return IconToolGrep.Render()
-	case parser.CategoryGlob:
-		return IconToolGlob.Render()
-	case parser.CategoryTask:
-		return IconToolTask.Render()
-	case parser.CategoryTool:
-		return IconToolSkill.Render()
-	case parser.CategoryWeb:
-		return IconToolWeb.Render()
-	default:
-		return IconToolMisc.Render()
-	}
 }
 
 // renderDetailItemRow renders a single item row in the detail view.
@@ -515,11 +485,11 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 	cursor := "  "
 	if index == cursorIndex {
 		if item.subagentProcess != nil {
-			cursor = IconDrillDown.RenderBold() + " "
+			cursor = Icon.DrillDown.RenderBold() + " "
 		} else if isExpanded {
-			cursor = IconExpanded.RenderBold() + " "
+			cursor = Icon.Expanded.RenderBold() + " "
 		} else {
-			cursor = IconCollapsed.Render() + " "
+			cursor = Icon.Collapsed.Render() + " "
 		}
 	}
 
@@ -528,10 +498,10 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 
 	switch item.itemType {
 	case parser.ItemThinking:
-		indicator = IconThinking.Render()
+		indicator = Icon.Thinking.Render()
 		name = "Thinking"
 	case parser.ItemOutput:
-		indicator = IconOutput.Render()
+		indicator = Icon.Output.Render()
 		name = "Output"
 		if item.toolName != "" {
 			name = item.toolName
@@ -541,7 +511,7 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		name = item.toolName
 	case parser.ItemSubagent:
 		if item.teamColor != "" {
-			indicator = IconSubagent.WithColor(teamColor(item.teamColor))
+			indicator = Icon.Subagent.WithColor(teamColor(item.teamColor))
 		} else {
 			indicator = toolCategoryIcon(item.toolCategory, item.toolError)
 		}
@@ -556,9 +526,9 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		}
 	case parser.ItemTeammateMessage:
 		if item.teamColor != "" {
-			indicator = IconTeammate.WithColor(teamColor(item.teamColor))
+			indicator = Icon.Teammate.WithColor(teamColor(item.teamColor))
 		} else {
-			indicator = IconTeammate.Render()
+			indicator = Icon.Teammate.Render()
 		}
 		name = item.teammateID
 		if name == "" {
@@ -636,7 +606,7 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		// When both present, prefix duration with a green dot separator.
 		// The dot + space adds 2 visible chars; pad the else branch to match.
 		if tokStr != "" && durStr != "" {
-			dot := lipgloss.NewStyle().Foreground(ColorOngoing).Render(IconDot.Glyph)
+			dot := lipgloss.NewStyle().Foreground(ColorOngoing).Render(Icon.Dot.Glyph)
 			rightSide = tokPart + "  " + dot + " " + durPart
 		} else {
 			rightSide = tokPart + "    " + durPart
@@ -766,7 +736,7 @@ func (m model) renderTaskInput(item displayItem, wrapWidth int, indent string) s
 		if json.Unmarshal(raw, &prompt) == nil && prompt != "" {
 			const maxPrompt = 500
 			if len(prompt) > maxPrompt {
-				prompt = prompt[:maxPrompt] + IconEllipsis.Glyph
+				prompt = prompt[:maxPrompt] + Icon.Ellipsis.Glyph
 			}
 			// Collapse newlines for a compact preview.
 			prompt = strings.ReplaceAll(prompt, "\n", " ")
@@ -823,10 +793,10 @@ func (m model) renderSubagentTrace(item displayItem, wrapWidth int, indent strin
 // When in a trace drill-down (savedDetail != nil && traceMsg != nil), a dim
 // breadcrumb prefix shows the parent view: "Claude opus4.6 > ..."
 func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) rendered {
-	headerIcon := IconClaude
+	headerIcon := Icon.Claude
 	headerLabel := "Claude"
 	if msg.subagentLabel != "" {
-		headerIcon = IconSubagent
+		headerIcon = Icon.Subagent
 		headerLabel = msg.subagentLabel
 	}
 	icon := headerIcon.RenderBold()
@@ -853,25 +823,25 @@ func (m model) renderDetailHeader(msg message, width int, leftSuffix ...string) 
 func detailHeaderStats(msg message) string {
 	var parts []string
 	if msg.thinkingCount > 0 {
-		parts = append(parts, IconThinking.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.thinkingCount)))
+		parts = append(parts, Icon.Thinking.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.thinkingCount)))
 	}
 	if msg.toolCallCount > 0 {
-		parts = append(parts, IconToolOk.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.toolCallCount)))
+		parts = append(parts, Icon.Tool.Ok.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.toolCallCount)))
 	}
 	if msg.outputCount > 0 {
-		parts = append(parts, IconOutput.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.outputCount)))
+		parts = append(parts, Icon.Output.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.outputCount)))
 	}
 	if msg.teammateSpawns > 0 {
-		parts = append(parts, IconTeammate.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.teammateSpawns)))
+		parts = append(parts, Icon.Teammate.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.teammateSpawns)))
 	}
 	if msg.teammateMessages > 0 {
-		parts = append(parts, IconChat.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.teammateMessages)))
+		parts = append(parts, Icon.Chat.Render()+" "+StyleSecondary.Render(fmt.Sprintf("%d", msg.teammateMessages)))
 	}
 
 	if len(parts) == 0 {
 		return ""
 	}
-	dot := " " + IconDot.Render() + " "
+	dot := " " + Icon.Dot.Render() + " "
 	return dot + strings.Join(parts, "  ")
 }
 
@@ -881,7 +851,7 @@ func subagentIcons(items []displayItem) string {
 	var icons []string
 	for _, it := range items {
 		if it.itemType == parser.ItemSubagent {
-			icons = append(icons, IconSubagent.WithColor(teamColor(it.teamColor)))
+			icons = append(icons, Icon.Subagent.WithColor(teamColor(it.teamColor)))
 		}
 	}
 	if len(icons) == 0 {
@@ -894,10 +864,10 @@ func subagentIcons(items []displayItem) string {
 func detailHeaderMeta(msg message) string {
 	var parts []string
 	if msg.tokensRaw > 0 {
-		parts = append(parts, IconToken.Render()+" "+StyleSecondary.Render(formatTokens(msg.tokensRaw)))
+		parts = append(parts, Icon.Token.Render()+" "+StyleSecondary.Render(formatTokens(msg.tokensRaw)))
 	}
 	if msg.durationMs > 0 {
-		parts = append(parts, IconClock.Render()+" "+StyleSecondary.Render(formatDuration(msg.durationMs)))
+		parts = append(parts, Icon.Clock.Render()+" "+StyleSecondary.Render(formatDuration(msg.durationMs)))
 	}
 	if msg.timestamp != "" {
 		parts = append(parts, StyleDim.Render(msg.timestamp))
@@ -1021,12 +991,12 @@ func (m model) renderDebugEntry(entry parser.DebugEntry, index int, isCursor boo
 	if isCursor {
 		if entry.HasExtra() {
 			if m.debugExpanded[index] {
-				cursor = IconExpanded.RenderBold() + " "
+				cursor = Icon.Expanded.RenderBold() + " "
 			} else {
-				cursor = IconCollapsed.Render() + " "
+				cursor = Icon.Collapsed.Render() + " "
 			}
 		} else {
-			cursor = IconSelected.Render() + " "
+			cursor = Icon.Selected.Render() + " "
 		}
 	}
 
@@ -1213,7 +1183,7 @@ func renderModeBadge(mode string) string {
 // on the left, with project/branch/context% vertically centered on the middle
 // row beside it. Otherwise it collapses to a single line.
 func (m model) renderInfoBar() string {
-	sep := " " + IconDot.Render() + " "
+	sep := " " + Icon.Dot.Render() + " "
 
 	// Build left metadata parts (path, branch).
 	var leftParts []string
@@ -1291,7 +1261,7 @@ func (m model) renderKeybindBar(pairs ...string) string {
 
 	descStyle := StyleDim
 
-	sep := " " + IconDot.Render() + " "
+	sep := " " + Icon.Dot.Render() + " "
 
 	var hints []string
 
@@ -1554,10 +1524,10 @@ func renderTeamTaskRow(task parser.TeamTask, team parser.TeamSnapshot, width, an
 func taskStatusGlyph(status string) string {
 	switch status {
 	case "completed":
-		return IconTaskDone.Render()
+		return Icon.Task.Done.Render()
 	case "in_progress":
-		return IconTaskActive.Render()
+		return Icon.Task.Active.Render()
 	default:
-		return IconTaskPending.Render()
+		return Icon.Task.Pending.Render()
 	}
 }
