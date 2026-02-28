@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	"image/color"
+
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
@@ -85,7 +86,7 @@ func TestFormatTime(t *testing.T) {
 func TestModelColor(t *testing.T) {
 	tests := []struct {
 		model string
-		want  lipgloss.AdaptiveColor
+		want  color.Color
 	}{
 		{"opus4.6", ColorModelOpus},
 		{"claude-opus-4-6", ColorModelOpus},

@@ -1,9 +1,16 @@
 package main
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"image/color"
+
+	"charm.land/lipgloss/v2"
+)
 
 // -- Colors ---------------------------------------------------------------
-// All colors use AdaptiveColor for dark/light terminal support.
+// All colors resolve at init via initTheme(hasDarkBg). Before Bubble Tea
+// enters alt-screen, main() detects the background and calls initTheme once.
+// After that, every color is a concrete color.Color — no runtime lookup.
+//
 // Light values: ANSI 0-15 for accents (palette-adaptive), 256-color for grays
 // (predictable). ANSI 7/15 (white) are invisible on light backgrounds — never
 // use them for Light values.
@@ -31,78 +38,67 @@ import "github.com/charmbracelet/lipgloss"
 
 var (
 	// Text hierarchy
-	ColorTextPrimary   = ac("0", "252")
-	ColorTextSecondary = ac("8", "245")
-	ColorTextDim       = ac("242", "243")
-	ColorTextMuted     = ac("245", "240")
+	ColorTextPrimary   color.Color
+	ColorTextSecondary color.Color
+	ColorTextDim       color.Color
+	ColorTextMuted     color.Color
 
 	// Accents
-	ColorAccent = ac("4", "75")
-	ColorError  = ac("1", "196")
-	ColorInfo   = ac("4", "69")
+	ColorAccent color.Color
+	ColorError  color.Color
+	ColorInfo   color.Color
 
 	// Surfaces
-	ColorBorder = ac("250", "60")
+	ColorBorder color.Color
 
 	// Model family (matches claude-devtools)
-	ColorModelOpus   = ac("1", "204")
-	ColorModelSonnet = ac("4", "75")
-	ColorModelHaiku  = ac("2", "114")
+	ColorModelOpus   color.Color
+	ColorModelSonnet color.Color
+	ColorModelHaiku  color.Color
 
 	// Token highlight
-	ColorTokenHigh = ac("3", "208")
+	ColorTokenHigh color.Color
 
 	// Ongoing indicator
-	ColorOngoing = ac("2", "76")
+	ColorOngoing color.Color
 
 	// Context usage thresholds
-	ColorContextOk   = ac("2", "114") // green: <50%
-	ColorContextWarn = ac("3", "208") // yellow/orange: 50-80%
-	ColorContextCrit = ac("1", "196") // red: >80%
+	ColorContextOk   color.Color // green: <50%
+	ColorContextWarn color.Color // yellow/orange: 50-80%
+	ColorContextCrit color.Color // red: >80%
 
 	// Permission mode pill backgrounds
-	ColorPillBypass      = ac("1", "196") // red: bypassPermissions
-	ColorPillAcceptEdits = ac("5", "135") // purple: acceptEdits
-	ColorPillPlan        = ac("2", "114") // green: plan
+	ColorPillBypass      color.Color // red: bypassPermissions
+	ColorPillAcceptEdits color.Color // purple: acceptEdits
+	ColorPillPlan        color.Color // green: plan
 
 	// Picker
-	ColorPickerSelectedBg = ac("254", "237")
-	ColorPickerMeta       = ColorTextMuted // metadata icons in picker rows
-	ColorGitBranch        = ac("5", "135") // purple: acceptEdits
+	ColorPickerSelectedBg color.Color
+	ColorPickerMeta       color.Color // metadata icons in picker rows
+	ColorGitBranch        color.Color // purple: acceptEdits
 
 	// Tool category colors (per-category icons in detail view).
-	// ColorToolRead  = ac("33", "33")   // blue
-	// ColorToolEdit  = ac("214", "214") // amber
-	// ColorToolWrite = ac("35", "35")   // green
-	// ColorToolBash  = ac("196", "196") // red
-	// ColorToolGrep  = ac("99", "99")   // purple
-	// ColorToolGlob  = ac("37", "37")   // cyan
-	// ColorToolTask  = ac("205", "205") // pink
-	// ColorToolSkill = ac("245", "245") // gray
-	// ColorToolWeb   = ac("33", "33")   // blue (same as read)
-	// ColorToolOther = ac("245", "245") // gray
-
-	ColorToolRead  = ColorTextDim
-	ColorToolEdit  = ColorTextDim
-	ColorToolWrite = ColorTextDim
-	ColorToolBash  = ColorTextDim
-	ColorToolGrep  = ColorTextDim
-	ColorToolGlob  = ColorTextDim
-	ColorToolTask  = ColorTextDim
-	ColorToolSkill = ColorTextDim
-	ColorToolWeb   = ColorTextDim
-	ColorToolOther = ColorTextDim
+	ColorToolRead  color.Color
+	ColorToolEdit  color.Color
+	ColorToolWrite color.Color
+	ColorToolBash  color.Color
+	ColorToolGrep  color.Color
+	ColorToolGlob  color.Color
+	ColorToolTask  color.Color
+	ColorToolSkill color.Color
+	ColorToolWeb   color.Color
+	ColorToolOther color.Color
 
 	// Team member colors (matches claude-devtools teamColors.ts).
 	// 8 named colors assignable to team-spawned agents.
-	ColorTeamBlue   = ac("4", "75")
-	ColorTeamGreen  = ac("2", "114")
-	ColorTeamRed    = ac("1", "204")
-	ColorTeamYellow = ac("3", "220")
-	ColorTeamPurple = ac("5", "177")
-	ColorTeamCyan   = ac("6", "80")
-	ColorTeamOrange = ac("3", "208")
-	ColorTeamPink   = ac("5", "211")
+	ColorTeamBlue   color.Color
+	ColorTeamGreen  color.Color
+	ColorTeamRed    color.Color
+	ColorTeamYellow color.Color
+	ColorTeamPurple color.Color
+	ColorTeamCyan   color.Color
+	ColorTeamOrange color.Color
+	ColorTeamPink   color.Color
 )
 
 // -- Semantic text styles -----------------------------------------------------
@@ -111,16 +107,88 @@ var (
 // are immutable value types -- each method returns a copy.
 
 var (
-	StylePrimaryBold   = lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary)
-	StyleSecondary     = lipgloss.NewStyle().Foreground(ColorTextSecondary)
-	StyleSecondaryBold = lipgloss.NewStyle().Bold(true).Foreground(ColorTextSecondary)
-	StyleDim           = lipgloss.NewStyle().Foreground(ColorTextDim)
-	StyleMuted         = lipgloss.NewStyle().Foreground(ColorTextMuted)
-	StyleAccentBold    = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
-	StyleErrorBold     = lipgloss.NewStyle().Bold(true).Foreground(ColorError)
+	StylePrimaryBold   lipgloss.Style
+	StyleSecondary     lipgloss.Style
+	StyleSecondaryBold lipgloss.Style
+	StyleDim           lipgloss.Style
+	StyleMuted         lipgloss.Style
+	StyleAccentBold    lipgloss.Style
+	StyleErrorBold     lipgloss.Style
 )
 
-// ac is a shorthand constructor for lipgloss.AdaptiveColor.
-func ac(light, dark string) lipgloss.AdaptiveColor {
-	return lipgloss.AdaptiveColor{Light: light, Dark: dark}
+// initTheme resolves all colors for the detected background and rebuilds
+// styles. Called once in main() before Bubble Tea starts.
+func initTheme(hasDarkBg bool) {
+	ld := lipgloss.LightDark(hasDarkBg)
+
+	// Text hierarchy
+	ColorTextPrimary = ld(lipgloss.Color("0"), lipgloss.Color("252"))
+	ColorTextSecondary = ld(lipgloss.Color("8"), lipgloss.Color("245"))
+	ColorTextDim = ld(lipgloss.Color("242"), lipgloss.Color("243"))
+	ColorTextMuted = ld(lipgloss.Color("245"), lipgloss.Color("240"))
+
+	// Accents
+	ColorAccent = ld(lipgloss.Color("4"), lipgloss.Color("75"))
+	ColorError = ld(lipgloss.Color("1"), lipgloss.Color("196"))
+	ColorInfo = ld(lipgloss.Color("4"), lipgloss.Color("69"))
+
+	// Surfaces
+	ColorBorder = ld(lipgloss.Color("250"), lipgloss.Color("60"))
+
+	// Model family
+	ColorModelOpus = ld(lipgloss.Color("1"), lipgloss.Color("204"))
+	ColorModelSonnet = ld(lipgloss.Color("4"), lipgloss.Color("75"))
+	ColorModelHaiku = ld(lipgloss.Color("2"), lipgloss.Color("114"))
+
+	// Token highlight
+	ColorTokenHigh = ld(lipgloss.Color("3"), lipgloss.Color("208"))
+
+	// Ongoing indicator
+	ColorOngoing = ld(lipgloss.Color("2"), lipgloss.Color("76"))
+
+	// Context usage thresholds
+	ColorContextOk = ld(lipgloss.Color("2"), lipgloss.Color("114"))
+	ColorContextWarn = ld(lipgloss.Color("3"), lipgloss.Color("208"))
+	ColorContextCrit = ld(lipgloss.Color("1"), lipgloss.Color("196"))
+
+	// Permission mode pill backgrounds
+	ColorPillBypass = ld(lipgloss.Color("1"), lipgloss.Color("196"))
+	ColorPillAcceptEdits = ld(lipgloss.Color("5"), lipgloss.Color("135"))
+	ColorPillPlan = ld(lipgloss.Color("2"), lipgloss.Color("114"))
+
+	// Picker
+	ColorPickerSelectedBg = ld(lipgloss.Color("254"), lipgloss.Color("237"))
+	ColorPickerMeta = ColorTextMuted
+	ColorGitBranch = ld(lipgloss.Color("5"), lipgloss.Color("135"))
+
+	// Tool category colors — all dim for now.
+	ColorToolRead = ColorTextDim
+	ColorToolEdit = ColorTextDim
+	ColorToolWrite = ColorTextDim
+	ColorToolBash = ColorTextDim
+	ColorToolGrep = ColorTextDim
+	ColorToolGlob = ColorTextDim
+	ColorToolTask = ColorTextDim
+	ColorToolSkill = ColorTextDim
+	ColorToolWeb = ColorTextDim
+	ColorToolOther = ColorTextDim
+
+	// Team member colors
+	ColorTeamBlue = ld(lipgloss.Color("4"), lipgloss.Color("75"))
+	ColorTeamGreen = ld(lipgloss.Color("2"), lipgloss.Color("114"))
+	ColorTeamRed = ld(lipgloss.Color("1"), lipgloss.Color("204"))
+	ColorTeamYellow = ld(lipgloss.Color("3"), lipgloss.Color("220"))
+	ColorTeamPurple = ld(lipgloss.Color("5"), lipgloss.Color("177"))
+	ColorTeamCyan = ld(lipgloss.Color("6"), lipgloss.Color("80"))
+	ColorTeamOrange = ld(lipgloss.Color("3"), lipgloss.Color("208"))
+	ColorTeamPink = ld(lipgloss.Color("5"), lipgloss.Color("211"))
+
+	// Rebuild styles with resolved colors.
+	StylePrimaryBold = lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary)
+	StyleSecondary = lipgloss.NewStyle().Foreground(ColorTextSecondary)
+	StyleSecondaryBold = lipgloss.NewStyle().Bold(true).Foreground(ColorTextSecondary)
+	StyleDim = lipgloss.NewStyle().Foreground(ColorTextDim)
+	StyleMuted = lipgloss.NewStyle().Foreground(ColorTextMuted)
+	StyleAccentBold = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
+	StyleErrorBold = lipgloss.NewStyle().Bold(true).Foreground(ColorError)
 }

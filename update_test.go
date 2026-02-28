@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
@@ -648,7 +648,7 @@ func TestUpdateListMouse(t *testing.T) {
 	t.Run("WheelUp decreases scroll", func(t *testing.T) {
 		m := testModel()
 		m.scroll = 9
-		result, cmd := m.updateListMouse(mouseScroll(tea.MouseButtonWheelUp))
+		result, cmd := m.updateListMouse(mouseScroll(tea.MouseWheelUp))
 		got := asModel(result)
 		if got.scroll != 6 {
 			t.Errorf("scroll = %d, want 6 (decreased by 3)", got.scroll)
@@ -661,7 +661,7 @@ func TestUpdateListMouse(t *testing.T) {
 	t.Run("WheelUp clamps at 0", func(t *testing.T) {
 		m := testModel()
 		m.scroll = 1
-		result, _ := m.updateListMouse(mouseScroll(tea.MouseButtonWheelUp))
+		result, _ := m.updateListMouse(mouseScroll(tea.MouseWheelUp))
 		got := asModel(result)
 		if got.scroll != 0 {
 			t.Errorf("scroll = %d, want 0 (clamped)", got.scroll)
@@ -671,7 +671,7 @@ func TestUpdateListMouse(t *testing.T) {
 	t.Run("WheelUp at 0 stays 0", func(t *testing.T) {
 		m := testModel()
 		m.scroll = 0
-		result, _ := m.updateListMouse(mouseScroll(tea.MouseButtonWheelUp))
+		result, _ := m.updateListMouse(mouseScroll(tea.MouseWheelUp))
 		got := asModel(result)
 		if got.scroll != 0 {
 			t.Errorf("scroll = %d, want 0 (already at top)", got.scroll)
@@ -682,7 +682,7 @@ func TestUpdateListMouse(t *testing.T) {
 		m := testModel()
 		m.totalRenderedLines = 100
 		m.scroll = 0
-		result, _ := m.updateListMouse(mouseScroll(tea.MouseButtonWheelDown))
+		result, _ := m.updateListMouse(mouseScroll(tea.MouseWheelDown))
 		got := asModel(result)
 		if got.scroll != 3 {
 			t.Errorf("scroll = %d, want 3 (increased by 3)", got.scroll)
@@ -693,7 +693,7 @@ func TestUpdateListMouse(t *testing.T) {
 		m := testModel()
 		m.totalRenderedLines = 10
 		m.scroll = 8 // near the end; maxScroll = 10 - listViewHeight
-		result, _ := m.updateListMouse(mouseScroll(tea.MouseButtonWheelDown))
+		result, _ := m.updateListMouse(mouseScroll(tea.MouseWheelDown))
 		got := asModel(result)
 		// listViewHeight = 40 - 3 - 0 - 1 = 36; maxScroll = max(0, 10-36) = 0
 		if got.scroll != 0 {
@@ -710,7 +710,7 @@ func TestUpdateDetailMouse(t *testing.T) {
 		m.view = viewDetail
 		m.detailScroll = 9
 		m.detailMaxScroll = 20
-		result, cmd := m.updateDetailMouse(mouseScroll(tea.MouseButtonWheelUp))
+		result, cmd := m.updateDetailMouse(mouseScroll(tea.MouseWheelUp))
 		got := asModel(result)
 		if got.detailScroll != 6 {
 			t.Errorf("detailScroll = %d, want 6 (decreased by 3)", got.detailScroll)
@@ -725,7 +725,7 @@ func TestUpdateDetailMouse(t *testing.T) {
 		m.view = viewDetail
 		m.detailScroll = 1
 		m.detailMaxScroll = 20
-		result, _ := m.updateDetailMouse(mouseScroll(tea.MouseButtonWheelUp))
+		result, _ := m.updateDetailMouse(mouseScroll(tea.MouseWheelUp))
 		got := asModel(result)
 		if got.detailScroll != 0 {
 			t.Errorf("detailScroll = %d, want 0 (clamped)", got.detailScroll)
@@ -737,7 +737,7 @@ func TestUpdateDetailMouse(t *testing.T) {
 		m.view = viewDetail
 		m.detailScroll = 0
 		m.detailMaxScroll = 20
-		result, _ := m.updateDetailMouse(mouseScroll(tea.MouseButtonWheelDown))
+		result, _ := m.updateDetailMouse(mouseScroll(tea.MouseWheelDown))
 		got := asModel(result)
 		if got.detailScroll != 3 {
 			t.Errorf("detailScroll = %d, want 3 (increased by 3)", got.detailScroll)
@@ -749,7 +749,7 @@ func TestUpdateDetailMouse(t *testing.T) {
 		m.view = viewDetail
 		m.detailScroll = 19
 		m.detailMaxScroll = 20
-		result, _ := m.updateDetailMouse(mouseScroll(tea.MouseButtonWheelDown))
+		result, _ := m.updateDetailMouse(mouseScroll(tea.MouseWheelDown))
 		got := asModel(result)
 		if got.detailScroll != 20 {
 			t.Errorf("detailScroll = %d, want 20 (clamped at max)", got.detailScroll)

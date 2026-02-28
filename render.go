@@ -3,11 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"strings"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // -- Rendered output ----------------------------------------------------------
@@ -1152,7 +1153,7 @@ func (m model) renderActivityIndicator(width int) string {
 	}
 
 	// Color palette from brightest to dimmest.
-	colors := []lipgloss.AdaptiveColor{
+	colors := []color.Color{
 		ColorAccent,        // head (bright blue)
 		ColorInfo,          // near head
 		ColorTextSecondary, // mid
@@ -1187,21 +1188,21 @@ func (m model) renderActivityIndicator(width int) string {
 //	╰──────────╯
 func renderModeBadge(mode string) string {
 	label := shortMode(mode)
-	var color lipgloss.AdaptiveColor
+	var clr color.Color
 	switch mode {
 	case "bypassPermissions":
-		color = ColorPillBypass
+		clr = ColorPillBypass
 	case "acceptEdits":
-		color = ColorPillAcceptEdits
+		clr = ColorPillAcceptEdits
 	case "plan":
-		color = ColorPillPlan
+		clr = ColorPillPlan
 	default:
 		return ""
 	}
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(color).
-		Foreground(color).
+		BorderForeground(clr).
+		Foreground(clr).
 		Padding(0, 1).
 		Render(label)
 }
@@ -1230,16 +1231,16 @@ func (m model) renderInfoBar() string {
 	// Context usage percentage (right-aligned).
 	var rightStr string
 	if pct := contextPercent(m.messages); pct >= 0 {
-		var color lipgloss.AdaptiveColor
+		var clr color.Color
 		switch {
 		case pct > 80:
-			color = ColorContextCrit
+			clr = ColorContextCrit
 		case pct > 50:
-			color = ColorContextWarn
+			clr = ColorContextWarn
 		default:
-			color = ColorContextOk
+			clr = ColorContextOk
 		}
-		rightStr = lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%d%% ctx", pct))
+		rightStr = lipgloss.NewStyle().Foreground(clr).Render(fmt.Sprintf("%d%% ctx", pct))
 	}
 
 	badge := renderModeBadge(m.sessionMode)

@@ -2,12 +2,11 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 // shortModel turns "claude-opus-4-6" into "opus4.6".
@@ -28,7 +27,7 @@ func shortModel(m string) string {
 }
 
 // modelColor returns a color based on the Claude model family.
-func modelColor(model string) lipgloss.AdaptiveColor {
+func modelColor(model string) color.Color {
 	switch {
 	case strings.Contains(model, "opus"):
 		return ColorModelOpus
@@ -43,7 +42,7 @@ func modelColor(model string) lipgloss.AdaptiveColor {
 
 // teamColor returns a color for a team member color name from the JSONL data.
 // Falls back to ColorAccent (blue) for unknown or empty names.
-func teamColor(name string) lipgloss.AdaptiveColor {
+func teamColor(name string) color.Color {
 	switch strings.ToLower(name) {
 	case "blue":
 		return ColorTeamBlue

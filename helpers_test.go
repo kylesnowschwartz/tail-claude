@@ -1,40 +1,46 @@
 package main
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
-// key constructs a tea.KeyMsg from a string like "j", "tab", "enter", "ctrl+c".
-// Single-character strings are mapped to KeyRunes; named keys get their
-// corresponding KeyType constant.
-func key(s string) tea.KeyMsg {
+// key constructs a tea.KeyPressMsg from a string like "j", "tab", "enter", "ctrl+c".
+// Single-character strings produce a key with that Text; named keys get their
+// corresponding KeyType / Code.
+func key(s string) tea.KeyPressMsg {
 	switch s {
 	case "tab":
-		return tea.KeyMsg{Type: tea.KeyTab}
+		return tea.KeyPressMsg{Code: tea.KeyTab}
 	case "enter":
-		return tea.KeyMsg{Type: tea.KeyEnter}
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "ctrl+c":
-		return tea.KeyMsg{Type: tea.KeyCtrlC}
+		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	case "ctrl+d":
-		return tea.KeyMsg{Type: tea.KeyCtrlD}
+		return tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}
 	case "ctrl+u":
-		return tea.KeyMsg{Type: tea.KeyCtrlU}
+		return tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}
+	case "ctrl+z":
+		return tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl}
 	case "esc", "escape":
-		return tea.KeyMsg{Type: tea.KeyEsc}
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "backspace":
-		return tea.KeyMsg{Type: tea.KeyBackspace}
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "up":
-		return tea.KeyMsg{Type: tea.KeyUp}
+		return tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
-		return tea.KeyMsg{Type: tea.KeyDown}
+		return tea.KeyPressMsg{Code: tea.KeyDown}
 	default:
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+		runes := []rune(s)
+		if len(runes) == 1 {
+			return tea.KeyPressMsg{Code: runes[0], Text: s}
+		}
+		return tea.KeyPressMsg{Text: s}
 	}
 }
 
-// mouseScroll constructs a tea.MouseMsg for wheel events.
-func mouseScroll(button tea.MouseButton) tea.MouseMsg {
-	return tea.MouseMsg{Button: button}
+// mouseScroll constructs a tea.MouseWheelMsg for wheel events.
+func mouseScroll(button tea.MouseButton) tea.MouseWheelMsg {
+	return tea.MouseWheelMsg{Button: button}
 }
 
 // testModel returns a model with 3 messages (user, claude, system),

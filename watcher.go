@@ -7,7 +7,7 @@ import (
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/fsnotify/fsnotify"
 )
 

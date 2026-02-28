@@ -9,9 +9,8 @@ import (
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Message roles
@@ -601,7 +600,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// Suspend on ctrl+z before dispatching to per-view handlers.
 		if msg.String() == "ctrl+z" {
 			return m, tea.Suspend
@@ -643,23 +642,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
+	var content string
 	if m.width == 0 {
-		return "Loading..."
+		content = "Loading..."
+	} else {
+		switch m.view {
+		case viewDetail:
+			content = m.viewDetail()
+		case viewPicker:
+			content = m.viewPicker()
+		case viewDebug:
+			content = m.viewDebugLog()
+		case viewTeam:
+			content = m.viewTeamBoard()
+		default:
+			content = m.viewList()
+		}
 	}
-
-	switch m.view {
-	case viewDetail:
-		return m.viewDetail()
-	case viewPicker:
-		return m.viewPicker()
-	case viewDebug:
-		return m.viewDebugLog()
-	case viewTeam:
-		return m.viewTeamBoard()
-	default:
-		return m.viewList()
-	}
+	v := tea.NewView(content)
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
 }
 
 // viewList renders the message list (main view).
@@ -808,10 +812,10 @@ func (m model) viewDetail() string {
 
 func main() {
 	// Detect terminal background ONCE, before Bubble Tea takes over.
-	// termenv queries via OSC 11 which can fail in alt-screen mode.
-	// Tell lipgloss explicitly so AdaptiveColor agrees with glamour.
-	hasDarkBg := termenv.HasDarkBackground()
-	lipgloss.SetHasDarkBackground(hasDarkBg)
+	// lipgloss queries via OSC 11 which can fail in alt-screen mode.
+	hasDarkBg := lipgloss.HasDarkBackground(os.Stdin, os.Stderr)
+	initTheme(hasDarkBg)
+	initIcons()
 
 	dumpMode := false
 	expandAll := false
@@ -929,7 +933,7 @@ Flags:
 		m.pickerLoading = true
 		m.pickerTickActive = true
 
-		p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+		p := tea.NewProgram(m)
 		if _, err := p.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
@@ -963,7 +967,7 @@ Flags:
 			}
 		}
 		m.layoutList()
-		fmt.Println(m.View())
+		fmt.Println(m.viewList())
 		return
 	}
 
@@ -1007,7 +1011,7 @@ Flags:
 		}
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

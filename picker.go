@@ -8,8 +8,8 @@ import (
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // pickerSessionsMsg delivers discovered sessions to the model.
@@ -115,7 +115,7 @@ func rebuildPickerItems(sessions []parser.SessionInfo) []pickerItem {
 // --- Picker update ---
 
 // updatePicker handles key events in the session picker view.
-func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "esc", "escape", "backspace":
 		if m.pickerWatcher != nil {

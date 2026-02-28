@@ -3,13 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"github.com/charmbracelet/colorprofile"
 )
 
 // jsonHL syntax-highlights JSON strings for terminal display.
@@ -33,7 +33,8 @@ func newJSONHL(hasDarkBg bool) *jsonHL {
 	}
 	style := styles.Get(styleName)
 
-	formatterName := chromaFormatter(lipgloss.ColorProfile())
+	profile := colorprofile.Detect(os.Stderr, os.Environ())
+	formatterName := chromaFormatter(profile)
 	formatter := formatters.Get(formatterName)
 
 	return &jsonHL{
@@ -73,15 +74,14 @@ func (h *jsonHL) highlight(s string) (string, bool) {
 	return out.String(), true
 }
 
-// chromaFormatter maps termenv color profiles to chroma terminal formatter
-// names. Ensures highlighted output matches the terminal's capabilities.
-func chromaFormatter(profile termenv.Profile) string {
+// chromaFormatter maps colorprofile profiles to chroma terminal formatter names.
+func chromaFormatter(profile colorprofile.Profile) string {
 	switch profile {
-	case termenv.TrueColor:
+	case colorprofile.TrueColor:
 		return "terminal16m"
-	case termenv.ANSI256:
+	case colorprofile.ANSI256:
 		return "terminal256"
-	case termenv.ANSI:
+	case colorprofile.ANSI:
 		return "terminal16"
 	default:
 		return "terminal"

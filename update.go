@@ -5,7 +5,7 @@ import (
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // resetDetailState zeroes the detail view cursor, scroll, and expansion maps.
@@ -17,7 +17,7 @@ func (m *model) resetDetailState() {
 }
 
 // updateList handles key events in the message list view.
-func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -183,7 +183,7 @@ func (m *model) toggleDetailExpansion() {
 }
 
 // updateDetail handles key events in the full-screen detail view.
-func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	hasItems := m.detailHasItems()
 	detailMsg := m.currentDetailMsg()
 
@@ -312,7 +312,7 @@ func (m model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // updateDebug handles key events in the debug log viewer.
-func (m model) updateDebug(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateDebug(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -457,15 +457,15 @@ func (m *model) clampDebugScroll() {
 
 // updateDebugMouse handles mouse events in the debug view.
 func (m model) updateDebugMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
 		if m.debugScroll > 0 {
 			m.debugScroll -= 3
 			if m.debugScroll < 0 {
 				m.debugScroll = 0
 			}
 		}
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		m.debugScroll += 3
 		m.clampDebugScroll()
 	}
@@ -474,15 +474,15 @@ func (m model) updateDebugMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 // updateListMouse handles mouse events in the list view.
 func (m model) updateListMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
 		if m.scroll > 0 {
 			m.scroll -= 3
 			if m.scroll < 0 {
 				m.scroll = 0
 			}
 		}
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		m.scroll += 3
 		m.clampListScroll()
 	}
@@ -491,15 +491,15 @@ func (m model) updateListMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 // updateDetailMouse handles mouse events in the detail view.
 func (m model) updateDetailMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
 		if m.detailScroll > 0 {
 			m.detailScroll -= 3
 			if m.detailScroll < 0 {
 				m.detailScroll = 0
 			}
 		}
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		m.detailScroll += 3
 		if m.detailScroll > m.detailMaxScroll {
 			m.detailScroll = m.detailMaxScroll
@@ -509,7 +509,7 @@ func (m model) updateDetailMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 // updateTeam handles key events in the team task board view.
-func (m model) updateTeam(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateTeam(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -543,13 +543,13 @@ func (m model) updateTeam(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // updateTeamMouse handles mouse events in the team task board view.
 func (m model) updateTeamMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
 		m.teamScroll -= 3
 		if m.teamScroll < 0 {
 			m.teamScroll = 0
 		}
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		m.teamScroll += 3
 		m.clampTeamScroll()
 	}
