@@ -156,5 +156,5 @@ tail-claude [flags] [session.jsonl]
 - Keep parser package free of TUI dependencies
 - Test files live alongside source (`*_test.go`)
 - Test fixtures in `parser/testdata/`
-- No external dependencies beyond bubbletea, glamour, lipgloss, termenv, and fsnotify
+- No external dependencies beyond bubbletea/v2, lipgloss/v2, glamour, chroma/v2, colorprofile, fsnotify, and x/term
 - Attribution for ported parsing logic documented in ATTRIBUTION.md
