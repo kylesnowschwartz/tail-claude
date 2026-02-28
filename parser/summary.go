@@ -68,7 +68,7 @@ func summaryRead(f map[string]json.RawMessage) string {
 	if fp == "" {
 		return "Read"
 	}
-	base := filepath.Base(fp)
+	short := ShortPath(fp, 2)
 
 	limit := getNumber(f, "limit")
 	if limit > 0 {
@@ -76,9 +76,9 @@ func summaryRead(f map[string]json.RawMessage) string {
 		if offset == 0 {
 			offset = 1
 		}
-		return fmt.Sprintf("%s - lines %d-%d", base, offset, offset+limit-1)
+		return fmt.Sprintf("%s - lines %d-%d", short, offset, offset+limit-1)
 	}
-	return base
+	return short
 }
 
 func summaryWrite(f map[string]json.RawMessage) string {
@@ -86,14 +86,14 @@ func summaryWrite(f map[string]json.RawMessage) string {
 	if fp == "" {
 		return "Write"
 	}
-	base := filepath.Base(fp)
+	short := ShortPath(fp, 2)
 
 	content := getString(f, "content")
 	if content != "" {
 		lines := len(strings.Split(content, "\n"))
-		return fmt.Sprintf("%s - %d lines", base, lines)
+		return fmt.Sprintf("%s - %d lines", short, lines)
 	}
-	return base
+	return short
 }
 
 func summaryEdit(f map[string]json.RawMessage) string {
@@ -101,7 +101,7 @@ func summaryEdit(f map[string]json.RawMessage) string {
 	if fp == "" {
 		return "Edit"
 	}
-	base := filepath.Base(fp)
+	short := ShortPath(fp, 2)
 
 	oldStr := getString(f, "old_string")
 	newStr := getString(f, "new_string")
@@ -113,19 +113,25 @@ func summaryEdit(f map[string]json.RawMessage) string {
 			if oldLines > 1 {
 				s = "s"
 			}
-			return fmt.Sprintf("%s - %d line%s", base, oldLines, s)
+			return fmt.Sprintf("%s - %d line%s", short, oldLines, s)
 		}
-		return fmt.Sprintf("%s - %d -> %d lines", base, oldLines, newLines)
+		return fmt.Sprintf("%s - %d -> %d lines", short, oldLines, newLines)
 	}
-	return base
+	return short
 }
 
 func summaryBash(f map[string]json.RawMessage) string {
-	if desc := getString(f, "description"); desc != "" {
-		return Truncate(desc, 50)
+	desc := getString(f, "description")
+	cmd := getString(f, "command")
+
+	if desc != "" && cmd != "" {
+		return Truncate(desc+": "+cmd, 60)
 	}
-	if cmd := getString(f, "command"); cmd != "" {
-		return Truncate(cmd, 50)
+	if desc != "" {
+		return Truncate(desc, 60)
+	}
+	if cmd != "" {
+		return Truncate(cmd, 60)
 	}
 	return "Bash"
 }
@@ -310,6 +316,25 @@ func summaryDefault(name string, f map[string]json.RawMessage) string {
 }
 
 // --- Helpers ---
+
+// ShortPath returns the last n segments of a file path.
+// Uses forward slashes for normalization. Returns the full path
+// if it has fewer than n segments.
+func ShortPath(fullPath string, n int) string {
+	normalized := filepath.ToSlash(fullPath)
+	parts := strings.Split(normalized, "/")
+	// Filter out empty segments (leading slash produces one).
+	var segments []string
+	for _, p := range parts {
+		if p != "" {
+			segments = append(segments, p)
+		}
+	}
+	if len(segments) <= n {
+		return strings.Join(segments, "/")
+	}
+	return strings.Join(segments[len(segments)-n:], "/")
+}
 
 // getString extracts a string field from a raw JSON map. Returns "" if missing or wrong type.
 func getString(fields map[string]json.RawMessage, key string) string {

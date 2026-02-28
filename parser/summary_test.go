@@ -14,24 +14,29 @@ func TestToolSummary_Read(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "file_path only",
+			name:  "file_path shows last 2 segments",
 			input: `{"file_path":"/Users/kyle/Code/project/main.go"}`,
-			want:  "main.go",
+			want:  "project/main.go",
 		},
 		{
 			name:  "with limit and offset",
 			input: `{"file_path":"/Users/kyle/Code/project/main.go","limit":50,"offset":10}`,
-			want:  "main.go - lines 10-59",
+			want:  "project/main.go - lines 10-59",
 		},
 		{
 			name:  "with limit no offset",
 			input: `{"file_path":"/Users/kyle/Code/project/main.go","limit":100}`,
-			want:  "main.go - lines 1-100",
+			want:  "project/main.go - lines 1-100",
 		},
 		{
 			name:  "no file_path",
 			input: `{}`,
 			want:  "Read",
+		},
+		{
+			name:  "single segment path",
+			input: `{"file_path":"main.go"}`,
+			want:  "main.go",
 		},
 	}
 	for _, tt := range tests {
@@ -51,14 +56,14 @@ func TestToolSummary_Write(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "with content",
-			input: `{"file_path":"/tmp/foo.txt","content":"line1\nline2\nline3"}`,
-			want:  "foo.txt - 3 lines",
+			name:  "with content shows last 2 segments",
+			input: `{"file_path":"/tmp/project/foo.txt","content":"line1\nline2\nline3"}`,
+			want:  "project/foo.txt - 3 lines",
 		},
 		{
-			name:  "file_path only",
-			input: `{"file_path":"/tmp/foo.txt"}`,
-			want:  "foo.txt",
+			name:  "file_path only shows last 2 segments",
+			input: `{"file_path":"/tmp/project/foo.txt"}`,
+			want:  "project/foo.txt",
 		},
 		{
 			name:  "no file_path",
@@ -84,18 +89,18 @@ func TestToolSummary_Edit(t *testing.T) {
 	}{
 		{
 			name:  "with old and new strings same line count",
-			input: `{"file_path":"/tmp/foo.go","old_string":"a\nb","new_string":"c\nd"}`,
-			want:  "foo.go - 2 lines",
+			input: `{"file_path":"/tmp/server/foo.go","old_string":"a\nb","new_string":"c\nd"}`,
+			want:  "server/foo.go - 2 lines",
 		},
 		{
 			name:  "with old and new strings different line count",
-			input: `{"file_path":"/tmp/foo.go","old_string":"a","new_string":"b\nc\nd"}`,
-			want:  "foo.go - 1 -> 3 lines",
+			input: `{"file_path":"/tmp/server/foo.go","old_string":"a","new_string":"b\nc\nd"}`,
+			want:  "server/foo.go - 1 -> 3 lines",
 		},
 		{
-			name:  "file_path only",
-			input: `{"file_path":"/tmp/foo.go"}`,
-			want:  "foo.go",
+			name:  "file_path only shows last 2 segments",
+			input: `{"file_path":"/tmp/server/foo.go"}`,
+			want:  "server/foo.go",
 		},
 		{
 			name:  "no file_path",
@@ -120,8 +125,13 @@ func TestToolSummary_Bash(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "description preferred over command",
+			name:  "description and command combined",
 			input: `{"command":"go test ./...","description":"Run all tests"}`,
+			want:  "Run all tests: go test ./...",
+		},
+		{
+			name:  "description only",
+			input: `{"description":"Run all tests"}`,
 			want:  "Run all tests",
 		},
 		{
@@ -130,9 +140,14 @@ func TestToolSummary_Bash(t *testing.T) {
 			want:  "go test ./...",
 		},
 		{
-			name:  "long command truncated",
-			input: `{"command":"this is a very long command that should be truncated at fifty characters exactly here"}`,
-			want:  "this is a very long command that should be trunca\u2026",
+			name:  "combined truncated at 60",
+			input: `{"description":"Install package dependencies","command":"npm install --save-dev @types/node typescript eslint prettier"}`,
+			want:  "Install package dependencies: npm install --save-dev @types\u2026",
+		},
+		{
+			name:  "long command truncated at 60",
+			input: `{"command":"this is a very long command that should be truncated at sixty characters exactly right here"}`,
+			want:  "this is a very long command that should be truncated at six\u2026",
 		},
 		{
 			name:  "empty",
@@ -493,13 +508,13 @@ func TestToolSummary_DefaultWithCommonFields(t *testing.T) {
 }
 
 func TestToolSummary_Truncation(t *testing.T) {
-	// Bash truncates at 50 runes (49 chars + ellipsis)
-	longCmd := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaXXX" // 53 chars
+	// Bash truncates at 60 runes (59 chars + ellipsis)
+	longCmd := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaXXX" // 63 chars: 60 a's + 3 X's
 	got := parser.ToolSummary("Bash", json.RawMessage(`{"command":"`+longCmd+`"}`))
-	if len([]rune(got)) > 50 {
+	if len([]rune(got)) > 60 {
 		t.Errorf("truncation failed: rune len=%d, got %q", len([]rune(got)), got)
 	}
-	want := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u2026"
+	want := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\u2026" // 59 a's + ellipsis = 60
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -610,6 +625,54 @@ func TestToolSummary_LSP(t *testing.T) {
 			got := parser.ToolSummary("LSP", json.RawMessage(tt.input))
 			if got != tt.want {
 				t.Errorf("ToolSummary(LSP, %s) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShortPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		segments int
+		want     string
+	}{
+		{
+			name:     "absolute path with 2 segments",
+			path:     "/Users/kyle/Code/project/main.go",
+			segments: 2,
+			want:     "project/main.go",
+		},
+		{
+			name:     "absolute path with 3 segments",
+			path:     "/Users/kyle/Code/project/parser/main.go",
+			segments: 3,
+			want:     "project/parser/main.go",
+		},
+		{
+			name:     "fewer segments than requested",
+			path:     "main.go",
+			segments: 2,
+			want:     "main.go",
+		},
+		{
+			name:     "exact number of segments",
+			path:     "/tmp/foo.go",
+			segments: 2,
+			want:     "tmp/foo.go",
+		},
+		{
+			name:     "single segment requested",
+			path:     "/Users/kyle/Code/project/main.go",
+			segments: 1,
+			want:     "main.go",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parser.ShortPath(tt.path, tt.segments)
+			if got != tt.want {
+				t.Errorf("ShortPath(%q, %d) = %q, want %q", tt.path, tt.segments, got, tt.want)
 			}
 		})
 	}

@@ -190,8 +190,8 @@ func TestBuildChunks_Items_ThinkingTextToolUse(t *testing.T) {
 	if items[2].ToolID != "call_1" {
 		t.Errorf("Items[2].ToolID = %q, want call_1", items[2].ToolID)
 	}
-	if items[2].ToolSummary != "main.go" {
-		t.Errorf("Items[2].ToolSummary = %q, want main.go", items[2].ToolSummary)
+	if items[2].ToolSummary != "tmp/main.go" {
+		t.Errorf("Items[2].ToolSummary = %q, want tmp/main.go", items[2].ToolSummary)
 	}
 }
 
@@ -390,8 +390,8 @@ func TestBuildChunks_Items_ToolSummaryPopulated(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("len(Items) = %d, want 1", len(items))
 	}
-	if items[0].ToolSummary != "Run tests" {
-		t.Errorf("ToolSummary = %q, want 'Run tests'", items[0].ToolSummary)
+	if items[0].ToolSummary != "Run tests: go test ./..." {
+		t.Errorf("ToolSummary = %q, want 'Run tests: go test ./...'", items[0].ToolSummary)
 	}
 }
 
