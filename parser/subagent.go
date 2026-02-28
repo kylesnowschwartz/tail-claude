@@ -129,18 +129,18 @@ func isWarmupAgent(path string) bool {
 	// Read just enough to find the first user entry. Subagent files are
 	// small-ish and the first entry is almost always the user message,
 	// so scanning a few lines is fine.
-	scanner := newJSONLScanner(f)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
+	lr := newLineReader(f)
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
 		}
 
 		var partial struct {
 			Type    string          `json:"type"`
 			Message json.RawMessage `json:"message"`
 		}
-		if err := json.Unmarshal(line, &partial); err != nil {
+		if err := json.Unmarshal([]byte(line), &partial); err != nil {
 			continue
 		}
 		if partial.Type != "user" {
@@ -198,17 +198,17 @@ func readSubagentSession(path string) ([]Chunk, string, string, error) {
 	}
 	defer f.Close()
 
-	scanner := newJSONLScanner(f)
+	lr := newLineReader(f)
 
 	var msgs []ClassifiedMsg
 	var teamSummary, teamColor string
 	extractedTeamMeta := false
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
 		}
-		entry, ok := ParseEntry(line)
+		entry, ok := ParseEntry([]byte(line))
 		if !ok {
 			continue
 		}
@@ -236,7 +236,7 @@ func readSubagentSession(path string) ([]Chunk, string, string, error) {
 		}
 		msgs = append(msgs, msg)
 	}
-	if err := scanner.Err(); err != nil {
+	if err := lr.Err(); err != nil {
 		return nil, "", "", err
 	}
 
@@ -472,14 +472,14 @@ func scanAgentLinks(sessionPath string) agentLinkData {
 	}
 	defer f.Close()
 
-	scanner := newJSONLScanner(f)
+	lr := newLineReader(f)
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
 		}
-		entry, ok := ParseEntry(line)
+		entry, ok := ParseEntry([]byte(line))
 		if !ok {
 			continue
 		}
@@ -555,12 +555,9 @@ func ReadTeamSessionMeta(path string) (teamName, agentName string) {
 	}
 	defer f.Close()
 
-	scanner := newJSONLScanner(f)
-	if !scanner.Scan() {
-		return "", ""
-	}
-	line := scanner.Bytes()
-	if len(line) == 0 {
+	lr := newLineReader(f)
+	line, ok := lr.next()
+	if !ok {
 		return "", ""
 	}
 
@@ -568,7 +565,7 @@ func ReadTeamSessionMeta(path string) (teamName, agentName string) {
 		TeamName  string `json:"teamName"`
 		AgentName string `json:"agentName"`
 	}
-	if err := json.Unmarshal(line, &meta); err != nil {
+	if err := json.Unmarshal([]byte(line), &meta); err != nil {
 		return "", ""
 	}
 	return meta.TeamName, meta.AgentName

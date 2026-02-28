@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,22 +8,6 @@ import (
 	"strings"
 	"time"
 )
-
-// jsonlScannerInitialBuf is the initial buffer capacity for JSONL line scanning.
-const jsonlScannerInitialBuf = 64 * 1024
-
-// jsonlScannerMaxBuf is the maximum buffer size for a single JSONL line.
-// 4 MiB accommodates the largest Claude API responses (tool results with
-// full file contents, base64-encoded images, etc).
-const jsonlScannerMaxBuf = 4 * 1024 * 1024
-
-// newJSONLScanner creates a bufio.Scanner configured for reading JSONL session
-// files. Sets a 64 KiB initial buffer that can grow to 4 MiB per line.
-func newJSONLScanner(f *os.File) *bufio.Scanner {
-	s := bufio.NewScanner(f)
-	s.Buffer(make([]byte, 0, jsonlScannerInitialBuf), jsonlScannerMaxBuf)
-	return s
-}
 
 // SessionInfo holds metadata about a discovered session file for the picker.
 type SessionInfo struct {
@@ -86,21 +69,16 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 		return nil, offset, err
 	}
 
-	scanner := newJSONLScanner(f)
+	lr := newLineReader(f)
 
 	var msgs []ClassifiedMsg
-	bytesRead := offset
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		// +1 for the \n delimiter stripped by scanner. This assumes Unix line
-		// endings, which is correct -- Claude Code only runs on macOS/Linux.
-		bytesRead += int64(len(line)) + 1
-
-		if len(line) == 0 {
-			continue
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
 		}
-		entry, ok := ParseEntry(line)
+		entry, ok := ParseEntry([]byte(line))
 		if !ok {
 			continue
 		}
@@ -110,11 +88,11 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 		}
 		msgs = append(msgs, msg)
 	}
-	if err := scanner.Err(); err != nil {
-		return msgs, bytesRead, err
+	if err := lr.Err(); err != nil {
+		return msgs, offset + lr.BytesRead(), err
 	}
 
-	return msgs, bytesRead, nil
+	return msgs, offset + lr.BytesRead(), nil
 }
 
 // ProjectDirForPath returns the Claude CLI projects directory for an absolute
@@ -173,53 +151,15 @@ func CurrentProjectDir() (string, error) {
 }
 
 // ResolveGitRoot returns the git toplevel for the given directory. If the
-// directory is inside a git worktree, it walks up to find the main working
-// tree root. Git worktrees have a .git *file* (not directory) containing
-// "gitdir: /path/to/main/.git/worktrees/<name>". We follow that chain to
-// find the real repo root whose path Claude uses for session storage.
+// directory is inside a git worktree, it resolves to the main working tree
+// root via the .git file's gitdir reference and commondir.
 //
 // Falls back to the original path if anything fails (not a git repo, etc).
 func ResolveGitRoot(dir string) string {
-	// Walk up looking for .git entry.
-	current := dir
-	for {
-		gitPath := filepath.Join(current, ".git")
-		info, err := os.Lstat(gitPath)
-		if err == nil {
-			if info.IsDir() {
-				// Normal git repo -- this directory is the root.
-				return current
-			}
-			// .git is a file -- this is a worktree (or submodule).
-			// Contents: "gitdir: /path/to/main/.git/worktrees/<name>"
-			data, err := os.ReadFile(gitPath)
-			if err != nil {
-				return dir
-			}
-			content := strings.TrimSpace(string(data))
-			if !strings.HasPrefix(content, "gitdir: ") {
-				return dir
-			}
-			gitdir := strings.TrimPrefix(content, "gitdir: ")
-			// gitdir points to something like /repo/.git/worktrees/foo
-			// The main repo's .git dir is two levels up from there.
-			mainGitDir := filepath.Clean(filepath.Join(gitdir, "..", ".."))
-			// The main repo root is the parent of .git.
-			mainRoot := filepath.Dir(mainGitDir)
-			// Sanity check: mainRoot/.git should be a directory.
-			if fi, err := os.Stat(filepath.Join(mainRoot, ".git")); err == nil && fi.IsDir() {
-				return mainRoot
-			}
-			return dir
-		}
-
-		parent := filepath.Dir(current)
-		if parent == current {
-			// Hit filesystem root without finding .git.
-			return dir
-		}
-		current = parent
+	if root := findGitRepoRoot(dir); root != "" {
+		return root
 	}
+	return dir
 }
 
 // DiscoverProjectSessions finds all session .jsonl files in a project directory,
@@ -344,7 +284,7 @@ func scanSessionMetadata(path string) sessionMetadata {
 	}
 	defer f.Close()
 
-	scanner := newJSONLScanner(f)
+	lr := newLineReader(f)
 
 	var meta sessionMetadata
 	var commandFallback string
@@ -370,18 +310,17 @@ func scanSessionMetadata(path string) sessionMetadata {
 	// Duration tracking.
 	var firstTS, lastTS time.Time
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		linesRead++
-
-		if len(line) == 0 {
-			continue
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
 		}
+		linesRead++
 
 		// Parse the entry with a lightweight struct that captures toolUseResult
 		// as raw JSON for the ongoing detection edge case.
 		var raw metadataScanEntry
-		if err := json.Unmarshal(line, &raw); err != nil {
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
 			continue
 		}
 		if raw.UUID == "" {
