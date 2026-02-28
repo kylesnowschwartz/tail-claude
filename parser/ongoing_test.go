@@ -181,11 +181,32 @@ func TestIsOngoing_Fallback_LastAIChunkNoStopReason(t *testing.T) {
 }
 
 func TestIsOngoing_UserChunksOnly(t *testing.T) {
+	// A session with only a user prompt means Claude is processing.
+	// Dead-session case is handled by staleness thresholds in callers.
 	chunks := []parser.Chunk{
 		{Type: parser.UserChunk, UserText: "Hello"},
 	}
-	if parser.IsOngoing(chunks) {
-		t.Error("user-only chunks should not be ongoing")
+	if !parser.IsOngoing(chunks) {
+		t.Error("trailing user prompt should be ongoing (Claude is processing)")
+	}
+}
+
+func TestIsOngoing_UserPromptAfterCompletedTurn(t *testing.T) {
+	// AI completes with text output, then user types a new prompt.
+	// Should be ongoing — Claude is processing the new request.
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	chunks := parser.BuildChunks([]parser.ClassifiedMsg{
+		parser.UserMsg{Timestamp: t0, Text: "First question"},
+		parser.AIMsg{
+			Timestamp:  t0.Add(1 * time.Second),
+			Model:      "claude-opus-4-6",
+			StopReason: "end_turn",
+			Blocks:     []parser.ContentBlock{{Type: "text", Text: "Here's the answer."}},
+		},
+		parser.UserMsg{Timestamp: t0.Add(10 * time.Second), Text: "Follow-up question"},
+	})
+	if !parser.IsOngoing(chunks) {
+		t.Error("trailing user prompt after completed turn should be ongoing")
 	}
 }
 
@@ -329,7 +350,9 @@ func TestIsOngoing_AllTasksCompleted(t *testing.T) {
 }
 
 func TestIsOngoing_PendingRegularToolCall(t *testing.T) {
-	// A regular tool call (not Task) without a result should also be ongoing.
+	// A regular tool call (not Task/Agent) without a result is NOT ongoing.
+	// Missing results on regular tools mean the session was interrupted or
+	// the JSONL is incomplete — not evidence of active work.
 	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 	chunks := parser.BuildChunks([]parser.ClassifiedMsg{
 		parser.AIMsg{
@@ -358,9 +381,48 @@ func TestIsOngoing_PendingRegularToolCall(t *testing.T) {
 				{Type: "text", Text: "Bash finished."},
 			},
 		},
-		// c2 (Read) still has no result.
+		// c2 (Read) still has no result — but it's a regular tool, not an agent.
+	})
+	if parser.IsOngoing(chunks) {
+		t.Error("should not be ongoing: pending Read tool call is not an agent")
+	}
+}
+
+func TestIsOngoing_PendingAgentToolCall(t *testing.T) {
+	// An Agent tool call (not Task) without a result IS ongoing.
+	// Both "Task" and "Agent" are subagent spawners that can run for minutes.
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	agentInput := json.RawMessage(`{"subagent_type":"Explore","description":"Find stuff","prompt":"search"}`)
+	chunks := parser.BuildChunks([]parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			Blocks: []parser.ContentBlock{
+				{Type: "text", Text: "Let me search for that."},
+				{Type: "tool_use", ToolID: "a1", ToolName: "Agent", ToolInput: agentInput},
+			},
+			ToolCalls: []parser.ToolCall{{ID: "a1", Name: "Agent"}},
+		},
+		// Agent result arrives for first spawn.
+		parser.AIMsg{
+			Timestamp: t0.Add(10 * time.Second),
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "a1", Content: "Found it."},
+			},
+		},
+		// Parent spawns another Agent, still pending.
+		parser.AIMsg{
+			Timestamp: t0.Add(11 * time.Second),
+			Model:     "claude-opus-4-6",
+			Blocks: []parser.ContentBlock{
+				{Type: "text", Text: "Let me also check this."},
+				{Type: "tool_use", ToolID: "a2", ToolName: "Agent", ToolInput: agentInput},
+			},
+			ToolCalls: []parser.ToolCall{{ID: "a2", Name: "Agent"}},
+		},
 	})
 	if !parser.IsOngoing(chunks) {
-		t.Error("should be ongoing: Read tool call c2 has no result")
+		t.Error("should be ongoing: Agent tool call a2 has no result")
 	}
 }

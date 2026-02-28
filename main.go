@@ -37,13 +37,17 @@ const (
 // hasn't been touched in this long, we land on the picker instead.
 const staleSessionThreshold = 12 * time.Hour
 
-// tickMsg drives the activity indicator animation.
-type tickMsg time.Time
+// tickMsg drives the activity indicator animation. The seq field ties each
+// tick to a specific chain — when switchSession or a rising edge starts a new
+// chain, the old chain's ticks are silently dropped because their seq no
+// longer matches model.tickSeq.
+type tickMsg struct{ seq int }
 
 // tickCmd returns a Bubble Tea command that fires a tickMsg every 100ms.
-func tickCmd() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
-		return tickMsg(t)
+// The seq parameter must match model.tickSeq for the tick to be processed.
+func tickCmd(seq int) tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+		return tickMsg{seq: seq}
 	})
 }
 
@@ -183,6 +187,7 @@ type model struct {
 	tailErrc        chan error
 	sessionOngoing  bool      // whether the watched session is still in progress
 	ongoingGraceSeq int       // sequence counter for grace period timers (stale timers ignored)
+	tickSeq         int       // sequence counter for tick chains (stale ticks from old chains ignored)
 	lastTailUpdate  time.Time // when the last tailUpdateMsg arrived (ongoing staleness failsafe)
 	animFrame       int       // animation frame counter for activity indicator
 
@@ -366,7 +371,8 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 
 	cmds := []tea.Cmd{waitForTailUpdate(m.tailSub), waitForWatcherErr(m.tailErrc)}
 	if m.sessionOngoing {
-		cmds = append(cmds, tickCmd())
+		m.tickSeq++
+		cmds = append(cmds, tickCmd(m.tickSeq))
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -393,7 +399,8 @@ func (m model) Init() tea.Cmd {
 			waitForWatcherErr(m.tailErrc),
 		)
 		if m.sessionOngoing {
-			cmds = append(cmds, tickCmd())
+			m.tickSeq++
+			cmds = append(cmds, tickCmd(m.tickSeq))
 		}
 	}
 
@@ -427,20 +434,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		if m.watching && m.sessionOngoing {
-			// Failsafe: if no file activity in ongoingIdleTimeout, clear the
-			// indicator. The next tailUpdateMsg re-enables it if genuinely ongoing.
-			if !m.lastTailUpdate.IsZero() && time.Since(m.lastTailUpdate) > ongoingIdleTimeout {
-				m.sessionOngoing = false
-				return m, nil
-			}
-			m.animFrame++
-			if m.view == viewList {
-				m.layoutList()
-			}
-			return m, tickCmd()
+		if msg.seq != m.tickSeq || !m.watching || !m.sessionOngoing {
+			return m, nil
 		}
-		return m, nil
+		// Failsafe: if no file activity in ongoingIdleTimeout, clear the
+		// indicator. The next tailUpdateMsg re-enables it if genuinely ongoing.
+		if !m.lastTailUpdate.IsZero() && time.Since(m.lastTailUpdate) > ongoingIdleTimeout {
+			m.sessionOngoing = false
+			return m, nil
+		}
+		m.animFrame++
+		if m.view == viewList {
+			m.layoutList()
+		}
+		return m, tickCmd(m.tickSeq)
 
 	case ongoingGraceExpiredMsg:
 		// Grace period elapsed. If no newer timer was started (seq matches),
@@ -497,7 +504,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{waitForTailUpdate(m.tailSub)}
 		if msg.ongoing {
 			if !m.sessionOngoing {
-				cmds = append(cmds, tickCmd())
+				m.tickSeq++
+				cmds = append(cmds, tickCmd(m.tickSeq))
 			}
 			m.sessionOngoing = true
 			m.ongoingGraceSeq++ // cancel any pending grace timer

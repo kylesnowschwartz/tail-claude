@@ -9,9 +9,9 @@ import (
 
 // OngoingStalenessThreshold is the maximum time since last file modification
 // before a session is considered dead regardless of content. Claude Code writes
-// on every API response and tool call, so 5 minutes of silence means the
+// on every API response and tool call, so 2 minutes of silence means the
 // process is gone.
-const OngoingStalenessThreshold = 5 * time.Minute
+const OngoingStalenessThreshold = 2 * time.Minute
 
 // activityType classifies events for ongoing detection.
 type activityType int
@@ -81,6 +81,13 @@ func isShutdownApproval(toolName string, toolInput json.RawMessage) bool {
 func IsOngoing(chunks []Chunk) bool {
 	if len(chunks) == 0 {
 		return false
+	}
+
+	// A trailing user prompt means Claude is processing the request.
+	// Callers apply staleness thresholds to handle dead sessions where
+	// the user typed but Claude never responded.
+	if chunks[len(chunks)-1].Type == UserChunk {
+		return true
 	}
 
 	// Collect activities from structured items across all chunks.
@@ -154,11 +161,13 @@ func IsOngoing(chunks []Chunk) bool {
 		if isOngoingFromActivities(activities) {
 			return true
 		}
-		// Activity sequence says complete, but check for pending tool calls.
+		// Activity sequence says complete, but check for pending agents.
 		// This catches team sessions where the parent writes text output after
 		// receiving some agent results, masking still-running agents earlier
-		// in the activity sequence.
-		return hasPendingToolCalls(chunks)
+		// in the activity sequence. Only agent/task calls are checked — regular
+		// tools (Read, Bash, Write) can legitimately lack results after
+		// interruptions or context compaction without meaning the session is ongoing.
+		return hasPendingAgents(chunks)
 	}
 
 	// Fallback for old-style chunks without structured items:
@@ -172,28 +181,27 @@ func IsOngoing(chunks []Chunk) bool {
 	return false
 }
 
-// hasPendingToolCalls checks whether any tool call is still awaiting a result.
-// Excludes tool calls that are ending events (ExitPlanMode, shutdown approvals)
-// since those legitimately have no result when the session is done.
-func hasPendingToolCalls(chunks []Chunk) bool {
+// hasPendingAgents checks whether any agent/task tool call is still awaiting a
+// result. Only checks ItemSubagent items and ItemToolCall items where ToolName
+// is "Task" or "Agent" — regular tools (Read, Bash, Write, etc.) execute and
+// return within seconds, so a missing result means the session was interrupted
+// or the JSONL is incomplete, not evidence of ongoing work.
+func hasPendingAgents(chunks []Chunk) bool {
 	for _, chunk := range chunks {
 		if chunk.Type != AIChunk {
 			continue
 		}
 		for _, item := range chunk.Items {
-			if item.Type != ItemToolCall && item.Type != ItemSubagent {
-				continue
+			switch item.Type {
+			case ItemSubagent:
+				if item.ToolResult == "" {
+					return true
+				}
+			case ItemToolCall:
+				if (item.ToolName == "Task" || item.ToolName == "Agent") && item.ToolResult == "" {
+					return true
+				}
 			}
-			if item.ToolResult != "" {
-				continue
-			}
-			if item.ToolName == "ExitPlanMode" {
-				continue
-			}
-			if isShutdownApproval(item.ToolName, item.ToolInput) {
-				continue
-			}
-			return true
 		}
 	}
 	return false
