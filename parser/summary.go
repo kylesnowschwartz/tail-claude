@@ -38,7 +38,7 @@ func ToolSummary(name string, input json.RawMessage) string {
 		return summaryGrep(fields)
 	case "Glob":
 		return summaryGlob(fields)
-	case "Task":
+	case "Task", "Agent":
 		return summaryTask(fields)
 	case "LSP":
 		return summaryLSP(fields)

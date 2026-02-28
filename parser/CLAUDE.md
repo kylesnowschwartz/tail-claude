@@ -53,7 +53,7 @@ Five item types:
 - **ItemThinking** -- thinking block content.
 - **ItemOutput** -- text output block.
 - **ItemToolCall** -- tool invocation with matched result. Fields: `ToolName`, `ToolID`, `ToolInput`, `ToolSummary`, `ToolResult`, `ToolError`, `DurationMs`, `TokenCount`.
-- **ItemSubagent** -- Task tool invocation (detected when `ToolName == "Task"`). Extra fields: `SubagentType`, `SubagentDesc`.
+- **ItemSubagent** -- subagent spawner invocation (detected when `ToolName == "Task"` or `"Agent"`). Extra fields: `SubagentType`, `SubagentDesc`.
 - **ItemTeammateMessage** -- teammate agent message. Extra field: `TeammateID`.
 
 Tool results are matched to their originating `tool_use` via `ToolID`. Unmatched `tool_result` blocks become `ItemOutput`.

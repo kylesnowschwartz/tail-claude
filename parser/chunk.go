@@ -209,7 +209,7 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 					})
 				case "tool_use":
 					inputLen := len(b.ToolInput)
-					if b.ToolName == "Task" {
+					if b.ToolName == "Task" || b.ToolName == "Agent" {
 						info := extractSubagentInfo(b.ToolInput)
 						items = append(items, DisplayItem{
 							Type:           ItemSubagent,

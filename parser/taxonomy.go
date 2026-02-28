@@ -37,7 +37,7 @@ func CategorizeToolName(name string) ToolCategory {
 		return CategoryGrep
 	case "Glob":
 		return CategoryGlob
-	case "Task":
+	case "Task", "Agent":
 		return CategoryTask
 	case "Skill":
 		return CategoryTool
