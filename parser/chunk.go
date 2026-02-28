@@ -30,6 +30,9 @@ type DisplayItem struct {
 	DurationMs  int64 // tool_use -> tool_result timestamp delta
 	TokenCount  int   // estimated tokens: len(text)/4
 
+	// Tool categorization
+	ToolCategory ToolCategory // broad functional group (Read, Edit, Bash, etc.)
+
 	// Subagent fields (ItemSubagent only)
 	SubagentType   string // "Explore", "Plan", "general-purpose", etc.
 	SubagentDesc   string // Task description
@@ -206,6 +209,7 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 							ToolID:         b.ToolID,
 							ToolInput:      b.ToolInput,
 							ToolSummary:    ToolSummary(b.ToolName, b.ToolInput),
+							ToolCategory:   CategorizeToolName(b.ToolName),
 							SubagentType:   info.Type,
 							SubagentDesc:   info.Description,
 							TeamMemberName: info.MemberName,
@@ -213,12 +217,13 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 						})
 					} else {
 						items = append(items, DisplayItem{
-							Type:        ItemToolCall,
-							ToolName:    b.ToolName,
-							ToolID:      b.ToolID,
-							ToolInput:   b.ToolInput,
-							ToolSummary: ToolSummary(b.ToolName, b.ToolInput),
-							TokenCount:  inputLen / 4,
+							Type:         ItemToolCall,
+							ToolName:     b.ToolName,
+							ToolID:       b.ToolID,
+							ToolInput:    b.ToolInput,
+							ToolSummary:  ToolSummary(b.ToolName, b.ToolInput),
+							ToolCategory: CategorizeToolName(b.ToolName),
+							TokenCount:   inputLen / 4,
 						})
 					}
 					pending[b.ToolID] = pendingTool{

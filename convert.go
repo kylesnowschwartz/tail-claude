@@ -91,6 +91,7 @@ func displayItemFromParser(it parser.DisplayItem) displayItem {
 		text:           it.Text,
 		toolName:       it.ToolName,
 		toolSummary:    it.ToolSummary,
+		toolCategory:   it.ToolCategory,
 		toolInput:      input,
 		toolResult:     it.ToolResult,
 		toolError:      it.ToolError,

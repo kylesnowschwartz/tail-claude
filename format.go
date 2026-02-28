@@ -123,20 +123,14 @@ func formatSessionName(id string) string {
 	return parser.TruncateWord(id, 20)
 }
 
-// shortPath abbreviates a working directory path for the info bar.
-// Returns the last path component (project name).
-func shortPath(cwd string) string {
+// shortPath returns the project display name for the info bar.
+// Uses git-root resolution for worktrees and submodules, with branch
+// suffix trimming for worktree directory names.
+func shortPath(cwd, gitBranch string) string {
 	if cwd == "" {
 		return ""
 	}
-	// Show last path component as the project name.
-	parts := strings.Split(cwd, "/")
-	for i := len(parts) - 1; i >= 0; i-- {
-		if parts[i] != "" {
-			return parts[i]
-		}
-	}
-	return cwd
+	return parser.ProjectName(cwd, gitBranch)
 }
 
 // shortMode returns a human-readable label for a permission mode.

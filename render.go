@@ -475,6 +475,36 @@ func renderTraceHeader(parent displayItem) string {
 	return traceIcon + "  " + traceLabel + dot + countStr
 }
 
+// toolCategoryIcon returns the styled icon for a tool category.
+// Error tools always get the red error icon regardless of category.
+func toolCategoryIcon(cat parser.ToolCategory, isError bool) string {
+	if isError {
+		return IconToolErr.Render()
+	}
+	switch cat {
+	case parser.CategoryRead:
+		return IconToolRead.Render()
+	case parser.CategoryEdit:
+		return IconToolEdit.Render()
+	case parser.CategoryWrite:
+		return IconToolWrite.Render()
+	case parser.CategoryBash:
+		return IconToolBash.Render()
+	case parser.CategoryGrep:
+		return IconToolGrep.Render()
+	case parser.CategoryGlob:
+		return IconToolGlob.Render()
+	case parser.CategoryTask:
+		return IconToolTask.Render()
+	case parser.CategoryTool:
+		return IconToolSkill.Render()
+	case parser.CategoryWeb:
+		return IconToolWeb.Render()
+	default:
+		return IconToolMisc.Render()
+	}
+}
+
 // renderDetailItemRow renders a single item row in the detail view.
 // Format: {cursor} {indicator} {name:<12} {summary}  {tokens} {duration}
 // isExpanded controls the cursor chevron direction (down vs right).
@@ -506,17 +536,13 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 			name = item.toolName
 		}
 	case parser.ItemToolCall:
-		if item.toolError {
-			indicator = IconToolErr.Render()
-		} else {
-			indicator = IconToolOk.Render()
-		}
+		indicator = toolCategoryIcon(item.toolCategory, item.toolError)
 		name = item.toolName
 	case parser.ItemSubagent:
 		if item.teamColor != "" {
 			indicator = IconSubagent.WithColor(teamColor(item.teamColor))
 		} else {
-			indicator = IconSubagent.Render()
+			indicator = toolCategoryIcon(item.toolCategory, item.toolError)
 		}
 		// Team agents show member name ("file-counter"), others show type ("Explore").
 		if item.teamMemberName != "" {
@@ -1191,7 +1217,7 @@ func (m model) renderInfoBar() string {
 
 	// Build left metadata parts (path, branch).
 	var leftParts []string
-	if proj := shortPath(m.sessionCwd); proj != "" {
+	if proj := shortPath(m.sessionCwd, m.sessionGitBranch); proj != "" {
 		leftParts = append(leftParts, StyleSecondary.Render(proj))
 	}
 	if m.liveBranch != "" {

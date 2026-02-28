@@ -70,6 +70,18 @@ var (
 	ColorPickerMeta       = ColorTextMuted // metadata icons in picker rows
 	ColorGitBranch        = ac("5", "135") // purple: acceptEdits
 
+	// Tool category colors (per-category icons in detail view).
+	ColorToolRead  = ac("33", "33")   // blue
+	ColorToolEdit  = ac("214", "214") // amber
+	ColorToolWrite = ac("35", "35")   // green
+	ColorToolBash  = ac("196", "196") // red
+	ColorToolGrep  = ac("99", "99")   // purple
+	ColorToolGlob  = ac("37", "37")   // cyan
+	ColorToolTask  = ac("205", "205") // pink
+	ColorToolSkill = ac("245", "245") // gray
+	ColorToolWeb   = ac("33", "33")   // blue (same as read)
+	ColorToolOther = ac("245", "245") // gray
+
 	// Team member colors (matches claude-devtools teamColors.ts).
 	// 8 named colors assignable to team-spawned agents.
 	ColorTeamBlue   = ac("4", "75")

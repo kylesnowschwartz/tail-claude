@@ -98,6 +98,7 @@ type displayItem struct {
 	text            string
 	toolName        string
 	toolSummary     string
+	toolCategory    parser.ToolCategory
 	toolInput       string // formatted JSON for display
 	toolResult      string
 	toolError       bool
@@ -183,8 +184,9 @@ type model struct {
 	savedDetail *savedDetailState // parent detail state to restore on drill-back
 
 	// Session metadata (extracted once on load, displayed in info bar)
-	sessionCwd  string
-	sessionMode string
+	sessionCwd       string
+	sessionGitBranch string // git branch from session JSONL (for project name resolution)
+	sessionMode      string
 
 	// Live git context — based on where tail-claude is invoked from (os.Getwd),
 	// not the session's cwd. This correctly reflects worktrees and the user's
@@ -339,6 +341,7 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.sessionPath = result.path
 	m.sessionOngoing = result.ongoing
 	m.sessionCwd = result.meta.Cwd
+	m.sessionGitBranch = result.meta.GitBranch
 	m.liveBranch = checkGitBranch(m.gitCwd)
 	m.sessionMode = result.meta.PermissionMode
 	m.liveDirty = checkGitDirty(m.gitCwd)
@@ -950,6 +953,7 @@ Flags:
 		m.height = 1_000_000
 		m.gitCwd = invokedFrom
 		m.sessionCwd = result.meta.Cwd
+		m.sessionGitBranch = result.meta.GitBranch
 		m.liveBranch = checkGitBranch(invokedFrom)
 		m.sessionMode = result.meta.PermissionMode
 		m.liveDirty = checkGitDirty(invokedFrom)
@@ -984,6 +988,7 @@ Flags:
 	m.sessionOngoing = result.ongoing
 	m.gitCwd = invokedFrom
 	m.sessionCwd = result.meta.Cwd
+	m.sessionGitBranch = result.meta.GitBranch
 	m.liveBranch = checkGitBranch(invokedFrom)
 	m.sessionMode = result.meta.PermissionMode
 	m.liveDirty = checkGitDirty(invokedFrom)
