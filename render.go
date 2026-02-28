@@ -623,11 +623,10 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		tokStr = fmt.Sprintf("~%s tok", formatTokens(tokCount))
 	}
 	durStr := ""
-	if durMs > 0 {
-		durStr = fmt.Sprintf("%dms", durMs)
-		if durMs >= 1000 {
-			durStr = formatDuration(durMs)
-		}
+	if durMs >= 1000 {
+		durStr = formatDuration(durMs)
+	} else if durMs > 0 {
+		durStr = "<1s"
 	}
 	var rightSide string
 	if tokStr != "" || durStr != "" {

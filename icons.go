@@ -51,9 +51,9 @@ var (
 	IconUser      = StyledIcon{"", ColorTextSecondary}
 
 	// Per-category tool icons (detail view item rows).
-	IconToolRead  = StyledIcon{"", ColorToolRead}  // nf-fa-file_text_o
-	IconToolEdit  = StyledIcon{"", ColorToolEdit}  // nf-fa-pencil
-	IconToolWrite = StyledIcon{"", ColorToolWrite} // nf-oct-file_added
+	IconToolRead  = StyledIcon{"", ColorToolRead}  // nf-fa-file_text_o
+	IconToolEdit  = StyledIcon{"", ColorToolEdit}  // nf-fa-pencil
+	IconToolWrite = StyledIcon{"", ColorToolWrite} // nf-oct-file_added
 	IconToolBash  = StyledIcon{"󰯠", ColorToolBash}  // nf-oct-terminal
 	IconToolGrep  = StyledIcon{"󰥨", ColorToolGrep}  // nf-fa-search
 	IconToolGlob  = StyledIcon{"󰥨", ColorToolGlob}  // nf-md-folder_search
