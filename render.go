@@ -321,7 +321,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(bubbleBorderColor).
 		Padding(0, 2).
-		MaxWidth(maxBubbleWidth)
+		Width(maxBubbleWidth)
 
 	bubble := bubbleStyle.Render(rendered)
 
