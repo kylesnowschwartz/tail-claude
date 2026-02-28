@@ -51,16 +51,16 @@ var (
 	IconUser      = StyledIcon{"", ColorTextSecondary}
 
 	// Per-category tool icons (detail view item rows).
-	IconToolRead  = StyledIcon{"", ColorToolRead}   // nf-fa-file_text_o
-	IconToolEdit  = StyledIcon{"", ColorToolEdit}   // nf-fa-pencil
-	IconToolWrite = StyledIcon{"", ColorToolWrite}  // nf-oct-file_added
-	IconToolBash  = StyledIcon{"", ColorToolBash}   // nf-oct-terminal
-	IconToolGrep  = StyledIcon{"", ColorToolGrep}   // nf-fa-search
+	IconToolRead  = StyledIcon{"", ColorToolRead}  // nf-fa-file_text_o
+	IconToolEdit  = StyledIcon{"", ColorToolEdit}  // nf-fa-pencil
+	IconToolWrite = StyledIcon{"", ColorToolWrite} // nf-oct-file_added
+	IconToolBash  = StyledIcon{"󰯠", ColorToolBash}  // nf-oct-terminal
+	IconToolGrep  = StyledIcon{"󰥨", ColorToolGrep}  // nf-fa-search
 	IconToolGlob  = StyledIcon{"󰥨", ColorToolGlob}  // nf-md-folder_search
 	IconToolTask  = StyledIcon{"󱙺", ColorToolTask}  // reuse subagent glyph
-	IconToolSkill = StyledIcon{"", ColorToolSkill}  // nf-fa-wrench
-	IconToolWeb   = StyledIcon{"", ColorToolWeb}    // nf-fa-globe
-	IconToolMisc  = StyledIcon{"", ColorToolOther}  // nf-fa-puzzle_piece
+	IconToolSkill = StyledIcon{"󰯠", ColorToolSkill} // nf-fa-wrench
+	IconToolWeb   = StyledIcon{"󰖟", ColorToolWeb}   // nf-fa-globe
+	IconToolMisc  = StyledIcon{"󰯠", ColorToolOther} // nf-fa-puzzle_piece
 
 	// Picker metadata icons -- carry ColorPickerMeta so call sites
 	// use .Render() instead of .WithColor(metaColor) everywhere.
