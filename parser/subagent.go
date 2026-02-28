@@ -485,15 +485,16 @@ func scanAgentLinks(sessionPath string) agentLinkData {
 		if !ok {
 			continue
 		}
-		if len(entry.ToolUseResult) == 0 {
+		resultMap := entry.ToolUseResultMap()
+		if resultMap == nil {
 			continue
 		}
 
 		// Check both camelCase and snake_case field names, matching
 		// claude-devtools: result.agentId ?? result.agent_id
-		agentID := getString(entry.ToolUseResult, "agentId")
+		agentID := getString(resultMap, "agentId")
 		if agentID == "" {
-			agentID = getString(entry.ToolUseResult, "agent_id")
+			agentID = getString(resultMap, "agent_id")
 		}
 		if agentID == "" {
 			continue
@@ -514,7 +515,7 @@ func scanAgentLinks(sessionPath string) agentLinkData {
 		data.agentToToolID[agentID] = toolUseID
 
 		// Extract team color from teammate_spawned results.
-		if color := getString(entry.ToolUseResult, "color"); color != "" {
+		if color := getString(resultMap, "color"); color != "" {
 			data.toolIDToColor[toolUseID] = color
 		}
 	}

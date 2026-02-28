@@ -29,16 +29,32 @@ type Entry struct {
 	PermissionMode string `json:"permissionMode"` // "default", "acceptEdits", "bypassPermissions", "plan"
 
 	// Tool result metadata (present on isMeta user entries for tool results).
-	// ToolUseResult holds structured output from the tool execution (agentId,
-	// status, usage, etc.). SourceToolUseID links back to the originating
-	// tool_use block.
-	ToolUseResult   map[string]json.RawMessage `json:"toolUseResult"`
-	SourceToolUseID string                     `json:"sourceToolUseID"`
+	// ToolUseResult holds structured output from the tool execution. For
+	// regular tools this is a JSON object (agentId, status, usage, etc.);
+	// for MCP tools it can be a JSON array (the raw tool output).
+	// Stored as RawMessage to tolerate both shapes without breaking ParseEntry.
+	// Use ToolUseResultMap() to access it as key-value pairs when needed.
+	ToolUseResult   json.RawMessage `json:"toolUseResult"`
+	SourceToolUseID string          `json:"sourceToolUseID"`
 
 	// Summary entries (type=summary) use leafUuid instead of uuid and carry
 	// the compression title in Summary rather than message.content.
 	LeafUUID string `json:"leafUuid"`
 	Summary  string `json:"summary"`
+}
+
+// ToolUseResultMap attempts to parse ToolUseResult as a JSON object.
+// Returns nil if ToolUseResult is absent, empty, or a non-object type (e.g.
+// the JSON array that MCP tools produce).
+func (e Entry) ToolUseResultMap() map[string]json.RawMessage {
+	if len(e.ToolUseResult) == 0 || e.ToolUseResult[0] != '{' {
+		return nil
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(e.ToolUseResult, &m) != nil {
+		return nil
+	}
+	return m
 }
 
 // ParseEntry parses a single JSONL line into an Entry.
