@@ -83,7 +83,7 @@ var (
 // Plain glyphs -- used as raw strings (never styled via StyledIcon).
 const (
 	GlyphHRule    = "\u2500" // box drawing horizontal (compact separators)
-	GlyphBeadFull = ""       // black circle (activity indicator bead, bright)
+	GlyphBeadFull = "\uEABC" // nf-cod-circle_filled (activity indicator bead)
 )
 
 // SpinnerFrames is a 10-frame braille spinner used for ongoing indicators.
@@ -91,45 +91,49 @@ var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 // initIcons builds all StyledIcon values from resolved theme colors.
 // Must be called after initTheme().
+//
+// All glyphs use explicit Unicode escapes (\uXXXX / \U000XXXXX) to prevent
+// silent corruption when LLM tools round-trip the file. Nerd Font codepoints
+// in the Private Use Area are particularly vulnerable to being dropped.
 func initIcons() {
-	IconBranch = StyledIcon{"\uE0A0", ColorGitBranch}
-	IconChat = StyledIcon{"\uF086", ColorTextDim}
-	IconClaude = StyledIcon{"󱙺", ColorInfo}
-	IconClock = StyledIcon{"", ColorTextDim}
-	IconCollapsed = StyledIcon{"", ColorTextDim}
-	IconDot = StyledIcon{"\u00B7", ColorTextMuted}
-	IconDrillDown = StyledIcon{"", ColorAccent}
-	IconEllipsis = StyledIcon{"\u2026", ColorTextDim}
-	IconExpanded = StyledIcon{"", ColorTextPrimary}
-	IconOutput = StyledIcon{"󰆂", ColorAccent}
-	IconSelected = StyledIcon{"\u2502", ColorAccent}
-	IconSession = StyledIcon{"󰈷", ColorTextDim}
-	IconSubagent = StyledIcon{"󱙺", ColorAccent}
-	IconSystem = StyledIcon{"", ColorTextMuted}
-	IconSystemErr = StyledIcon{"", ColorError}
-	IconTeammate = StyledIcon{"󱙺", ColorAccent}
-	IconThinking = StyledIcon{"", ColorTextDim}
-	IconToken = StyledIcon{"", ColorTextDim}
-	IconToolErr = StyledIcon{"󰯠", ColorError}
-	IconToolOk = StyledIcon{"󰯠", ColorTextDim}
-	IconUser = StyledIcon{"", ColorTextSecondary}
+	IconBranch = StyledIcon{"\uE0A0", ColorGitBranch}     // nf-pl-branch
+	IconChat = StyledIcon{"\uF086", ColorTextDim}         // nf-fa-comments
+	IconClaude = StyledIcon{"\U000F167A", ColorInfo}      // nf-md-robot_outline
+	IconClock = StyledIcon{"\uF017", ColorTextDim}        // nf-fa-clock_o
+	IconCollapsed = StyledIcon{"\uF054", ColorTextDim}    // nf-fa-chevron_right
+	IconDot = StyledIcon{"\u00B7", ColorTextMuted}        // middle dot
+	IconDrillDown = StyledIcon{"\uF061", ColorAccent}     // nf-fa-arrow_right
+	IconEllipsis = StyledIcon{"\u2026", ColorTextDim}     // horizontal ellipsis
+	IconExpanded = StyledIcon{"\uF078", ColorTextPrimary} // nf-fa-chevron_down
+	IconOutput = StyledIcon{"\U000F0182", ColorAccent}    // nf-md-code_tags
+	IconSelected = StyledIcon{"\u2502", ColorAccent}      // box drawing vertical
+	IconSession = StyledIcon{"\U000F0237", ColorTextDim}  // nf-md-file_document
+	IconSubagent = StyledIcon{"\U000F167A", ColorAccent}  // nf-md-robot_outline
+	IconSystem = StyledIcon{"\uF120", ColorTextMuted}     // nf-fa-terminal
+	IconSystemErr = StyledIcon{"\uF06A", ColorError}      // nf-fa-exclamation_circle
+	IconTeammate = StyledIcon{"\U000F167A", ColorAccent}  // nf-md-robot_outline
+	IconThinking = StyledIcon{"\uF0EB", ColorTextDim}     // nf-fa-lightbulb_o
+	IconToken = StyledIcon{"\uEDE8", ColorTextDim}        // nf-cod-symbol_numeric
+	IconToolErr = StyledIcon{"\U000F0BE0", ColorError}    // nf-md-console
+	IconToolOk = StyledIcon{"\U000F0BE0", ColorTextDim}   // nf-md-console
+	IconUser = StyledIcon{"\uF007", ColorTextSecondary}   // nf-fa-user
 
-	IconToolRead = StyledIcon{"", ColorToolRead}
-	IconToolEdit = StyledIcon{"", ColorToolEdit}
-	IconToolWrite = StyledIcon{"", ColorToolWrite}
-	IconToolBash = StyledIcon{"󰯠", ColorToolBash}
-	IconToolGrep = StyledIcon{"󰥨", ColorToolGrep}
-	IconToolGlob = StyledIcon{"󰥨", ColorToolGlob}
-	IconToolTask = StyledIcon{"󱙺", ColorToolTask}
-	IconToolSkill = StyledIcon{"󰯠", ColorToolSkill}
-	IconToolWeb = StyledIcon{"󰖟", ColorToolWeb}
-	IconToolMisc = StyledIcon{"󰯠", ColorToolOther}
+	IconToolRead = StyledIcon{"\uE28B", ColorToolRead}       // nf-custom-file
+	IconToolEdit = StyledIcon{"\uEE75", ColorToolEdit}       // nf-cod-edit
+	IconToolWrite = StyledIcon{"\uEE75", ColorToolWrite}     // nf-cod-new_file
+	IconToolBash = StyledIcon{"\U000F0BE0", ColorToolBash}   // nf-md-console
+	IconToolGrep = StyledIcon{"\U000F0968", ColorToolGrep}   // nf-md-text_search
+	IconToolGlob = StyledIcon{"\U000F0968", ColorToolGlob}   // nf-md-folder_search
+	IconToolTask = StyledIcon{"\U000F167A", ColorToolTask}   // nf-md-robot_outline
+	IconToolSkill = StyledIcon{"\U000F0BE0", ColorToolSkill} // nf-md-console
+	IconToolWeb = StyledIcon{"\U000F059F", ColorToolWeb}     // nf-md-web
+	IconToolMisc = StyledIcon{"\U000F0BE0", ColorToolOther}  // nf-md-console
 
 	IconPickerBranch = StyledIcon{IconBranch.Glyph, ColorPickerMeta}
 	IconPickerChat = StyledIcon{IconChat.Glyph, ColorPickerMeta}
 	IconPickerSession = StyledIcon{IconSession.Glyph, ColorPickerMeta}
 
-	IconTaskDone = StyledIcon{"\u2713", ColorOngoing}
-	IconTaskActive = StyledIcon{"\u27F3", ColorAccent}
-	IconTaskPending = StyledIcon{"\u25CB", ColorTextMuted}
+	IconTaskDone = StyledIcon{"\u2713", ColorOngoing}      // check mark
+	IconTaskActive = StyledIcon{"\u27F3", ColorAccent}     // clockwise arrow
+	IconTaskPending = StyledIcon{"\u25CB", ColorTextMuted} // white circle
 }
