@@ -52,6 +52,13 @@ func tickCmd() tea.Cmd {
 // Claude is thinking but hasn't written new content yet.
 const ongoingGracePeriod = 5 * time.Second
 
+// ongoingIdleTimeout is a failsafe: if no tailUpdateMsg arrives within this
+// window while the indicator is showing, assume the session is idle. This
+// catches cases where every watcher update reports ongoing=true (e.g. pending
+// tool calls from context compaction or the active session's own writes) but
+// the session is actually between turns with no real activity.
+const ongoingIdleTimeout = 15 * time.Second
+
 // ongoingGraceExpiredMsg fires when the grace period elapses without new
 // file activity. The seq field matches model.ongoingGraceSeq so stale
 // timers (superseded by newer writes) are silently ignored.
@@ -174,9 +181,10 @@ type model struct {
 	watcher         *sessionWatcher
 	tailSub         chan tailUpdateMsg
 	tailErrc        chan error
-	sessionOngoing  bool // whether the watched session is still in progress
-	ongoingGraceSeq int  // sequence counter for grace period timers (stale timers ignored)
-	animFrame       int  // animation frame counter for activity indicator
+	sessionOngoing  bool      // whether the watched session is still in progress
+	ongoingGraceSeq int       // sequence counter for grace period timers (stale timers ignored)
+	lastTailUpdate  time.Time // when the last tailUpdateMsg arrived (ongoing staleness failsafe)
+	animFrame       int       // animation frame counter for activity indicator
 
 	// Subagent trace drill-down state
 	traceMsg    *message          // non-nil when viewing a subagent's execution trace
@@ -420,6 +428,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		if m.watching && m.sessionOngoing {
+			// Failsafe: if no file activity in ongoingIdleTimeout, clear the
+			// indicator. The next tailUpdateMsg re-enables it if genuinely ongoing.
+			if !m.lastTailUpdate.IsZero() && time.Since(m.lastTailUpdate) > ongoingIdleTimeout {
+				m.sessionOngoing = false
+				return m, nil
+			}
 			m.animFrame++
 			if m.view == viewList {
 				m.layoutList()
@@ -441,6 +455,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, gitDirtyTickCmd()
 
 	case tailUpdateMsg:
+		m.lastTailUpdate = time.Now()
+
 		// Auto-follow only when the user is in the list view AND the cursor
 		// is already on the last message. Other views (detail, picker) should
 		// receive fresh data but not have their cursor or scroll disturbed.
