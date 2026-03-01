@@ -905,15 +905,24 @@ func debugFilterLabel(level parser.DebugLevel) string {
 func (m model) viewDebugLog() string {
 	width := m.clampWidth()
 
+	// Filter input prompt takes 1 line above the footer when active.
+	filterPromptHeight := 0
+	if m.debugFilterMode {
+		filterPromptHeight = 1
+	}
+
 	if len(m.debugFiltered) == 0 {
-		empty := StyleDim.Render("No debug entries" + " (filter: " + debugFilterLabel(m.debugMinLevel) + ")")
-		footer := m.renderFooter(
-			"f", "filter:"+debugFilterLabel(m.debugMinLevel),
-			"q/esc", "back",
-			"?", "keys",
-		)
-		padding := strings.Repeat("\n", max(m.debugViewHeight()-1, 0))
+		filterInfo := debugFilterLabel(m.debugMinLevel)
+		if m.debugFilterText != "" {
+			filterInfo += " \"" + m.debugFilterText + "\""
+		}
+		empty := StyleDim.Render("No debug entries (filter: " + filterInfo + ")")
+		footer := m.renderDebugFooter("")
+		padding := strings.Repeat("\n", max(m.debugViewHeight()-filterPromptHeight-1, 0))
 		output := centerBlock(empty+padding, width, m.width)
+		if m.debugFilterMode {
+			output += "\n" + m.renderDebugFilterPrompt(width)
+		}
 		return output + "\n" + footer
 	}
 
@@ -935,7 +944,7 @@ func (m model) viewDebugLog() string {
 	allLines := strings.Split(content, "\n")
 	totalLines := len(allLines)
 
-	viewHeight := m.debugViewHeight()
+	viewHeight := m.debugViewHeight() - filterPromptHeight
 
 	// Apply scroll offset.
 	scroll := m.debugScroll
@@ -966,18 +975,45 @@ func (m model) viewDebugLog() string {
 		scrollInfo = fmt.Sprintf("  %d%%", pct)
 	}
 
-	// Footer
-	footer := m.renderFooter(
+	// Filter prompt (shown above footer when / is active).
+	if m.debugFilterMode {
+		output += "\n" + m.renderDebugFilterPrompt(width)
+	}
+
+	footer := m.renderDebugFooter(scrollInfo)
+	return output + "\n" + footer
+}
+
+// renderDebugFooter builds the footer for the debug view, including
+// text filter state and the standard keybind pairs.
+func (m model) renderDebugFooter(scrollInfo string) string {
+	filterLabel := "filter:" + debugFilterLabel(m.debugMinLevel)
+	if m.debugFilterText != "" {
+		filterLabel += "+\"" + m.debugFilterText + "\""
+	}
+	return m.renderFooter(
 		"j/k", "nav",
-		"↑/↓", "scroll",
-		"G/g", "jump",
 		"tab", "expand",
-		"f", "filter:"+debugFilterLabel(m.debugMinLevel),
+		"/", "search",
+		"f", filterLabel,
+		"y", "copy path",
+		"O", "editor",
 		"q/esc", "back"+scrollInfo,
 		"?", "keys",
 	)
+}
 
-	return output + "\n" + footer
+// renderDebugFilterPrompt renders the interactive / filter input line.
+func (m model) renderDebugFilterPrompt(width int) string {
+	prompt := StyleAccentBold.Render("/") + " " + m.debugFilterText
+	cursor := StyleAccentBold.Render("\u2588") // block cursor
+	countInfo := StyleDim.Render(fmt.Sprintf(" (%d matches)", len(m.debugFiltered)))
+	line := prompt + cursor + countInfo
+	// Pad to full width so it visually spans the viewport.
+	if pad := width - lipgloss.Width(line); pad > 0 {
+		line += strings.Repeat(" ", pad)
+	}
+	return centerBlock(line, width, m.width)
 }
 
 // renderDebugEntry renders a single collapsed debug entry line.
@@ -1039,22 +1075,59 @@ func (m model) renderDebugEntry(entry parser.DebugEntry, index int, isCursor boo
 		msg = parser.Truncate(msg, msgSpace)
 	}
 
-	// Style message based on level.
-	var msgRendered string
-	switch entry.Level {
-	case parser.LevelError:
-		msgRendered = lipgloss.NewStyle().Foreground(ColorError).Render(msg)
-	case parser.LevelWarn:
-		msgRendered = lipgloss.NewStyle().Foreground(ColorContextWarn).Render(msg)
-	default:
-		msgRendered = StyleDim.Render(msg)
-	}
+	// Style message based on level, with optional match highlighting.
+	msgRendered := m.styleDebugMessage(msg, entry.Level)
 
 	leftPart := prefix + msgRendered
 	if right != "" {
 		return spaceBetween(leftPart, right, width)
 	}
 	return leftPart
+}
+
+// styleDebugMessage styles a debug message string by level, then highlights
+// any text filter matches with a reverse-video accent.
+func (m model) styleDebugMessage(msg string, level parser.DebugLevel) string {
+	if m.debugFilterText == "" {
+		// No filter active: plain level-based styling.
+		return debugLevelStyle(msg, level)
+	}
+
+	// Highlight matched substrings. Case-insensitive scan, preserving original case.
+	query := strings.ToLower(m.debugFilterText)
+	lower := strings.ToLower(msg)
+	hlStyle := lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(ColorAccent)
+
+	var out strings.Builder
+	pos := 0
+	for {
+		idx := strings.Index(lower[pos:], query)
+		if idx < 0 {
+			out.WriteString(debugLevelStyle(msg[pos:], level))
+			break
+		}
+		// Text before the match.
+		if idx > 0 {
+			out.WriteString(debugLevelStyle(msg[pos:pos+idx], level))
+		}
+		// The matched substring, highlighted.
+		matchEnd := pos + idx + len(query)
+		out.WriteString(hlStyle.Render(msg[pos+idx : matchEnd]))
+		pos = matchEnd
+	}
+	return out.String()
+}
+
+// debugLevelStyle applies the standard level-based foreground color to text.
+func debugLevelStyle(text string, level parser.DebugLevel) string {
+	switch level {
+	case parser.LevelError:
+		return lipgloss.NewStyle().Foreground(ColorError).Render(text)
+	case parser.LevelWarn:
+		return lipgloss.NewStyle().Foreground(ColorContextWarn).Render(text)
+	default:
+		return StyleDim.Render(text)
+	}
 }
 
 // -- Activity indicator --------------------------------------------------------
@@ -1179,10 +1252,16 @@ func renderModeBadge(mode string) string {
 
 // renderInfoBar renders the session metadata bar.
 //
+// When a flash status is active, it replaces the normal info bar content.
 // When a colored mode badge is active the bar is 3 lines: a RoundedBorder chip
 // on the left, with project/branch/context% vertically centered on the middle
 // row beside it. Otherwise it collapses to a single line.
 func (m model) renderInfoBar() string {
+	// Flash status overrides the normal info bar.
+	if m.flashStatus != "" {
+		return " " + StyleAccentBold.Render(m.flashStatus)
+	}
+
 	sep := " " + Icon.Dot.Render() + " "
 
 	// Build left metadata parts (path, branch).

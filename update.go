@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
@@ -134,6 +136,23 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		go dw.run()
 		m.debugWatcher = dw
 		return m, waitForDebugUpdate(dw.sub)
+	case "y":
+		// Copy session JSONL path to clipboard.
+		if m.sessionPath != "" {
+			m.flashStatus = "Copied: " + m.sessionPath
+			return m, tea.Batch(tea.SetClipboard(m.sessionPath), flashClearCmd())
+		}
+	case "O":
+		// Open session JSONL in $EDITOR.
+		if cmd := editorCmd(m.sessionPath); cmd != nil {
+			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return editorFinishedMsg{err}
+			})
+		}
+		if m.sessionPath != "" {
+			m.flashStatus = "No $EDITOR set"
+			return m, flashClearCmd()
+		}
 	case "?":
 		m.showKeybinds = !m.showKeybinds
 		m.layoutList()
@@ -313,10 +332,23 @@ func (m model) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // updateDebug handles key events in the debug log viewer.
 func (m model) updateDebug(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// When the text filter input is active, route all keys there.
+	if m.debugFilterMode {
+		return m.updateDebugFilter(msg)
+	}
+
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "q", "esc", "escape", "backspace":
+		if m.debugFilterText != "" {
+			// First press clears the active text filter; second press exits.
+			m.debugFilterText = ""
+			m.debugExpanded = make(map[int]bool)
+			m.applyDebugFilters()
+			m.debugScroll = 0
+			return m, nil
+		}
 		m.stopDebugWatcher()
 		m.view = viewList
 	case "j":
@@ -371,10 +403,89 @@ func (m model) updateDebug(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.debugExpanded = make(map[int]bool)
 		m.applyDebugFilters()
 		m.debugScroll = 0
+	case "/":
+		// Enter text filter input mode.
+		m.debugFilterMode = true
+		m.debugFilterText = ""
+	case "y":
+		// Copy debug log path to clipboard.
+		if m.debugPath != "" {
+			m.flashStatus = "Copied: " + m.debugPath
+			return m, tea.Batch(tea.SetClipboard(m.debugPath), flashClearCmd())
+		}
+	case "O":
+		// Open debug log in $EDITOR.
+		if cmd := editorCmd(m.debugPath); cmd != nil {
+			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return editorFinishedMsg{err}
+			})
+		}
+		if m.debugPath != "" {
+			m.flashStatus = "No $EDITOR set"
+			return m, flashClearCmd()
+		}
 	case "?":
 		m.showKeybinds = !m.showKeybinds
 	}
 	return m, nil
+}
+
+// updateDebugFilter handles key events while the / text filter input is active.
+func (m model) updateDebugFilter(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "enter":
+		// Commit filter and exit input mode.
+		m.debugFilterMode = false
+		m.debugExpanded = make(map[int]bool)
+		m.applyDebugFilters()
+		m.debugCursor = 0
+		m.debugScroll = 0
+	case "esc", "escape":
+		// Cancel: discard any typed text, exit input mode.
+		m.debugFilterMode = false
+		m.debugFilterText = ""
+		m.debugExpanded = make(map[int]bool)
+		m.applyDebugFilters()
+		m.debugCursor = 0
+		m.debugScroll = 0
+	case "backspace":
+		if len(m.debugFilterText) > 0 {
+			m.debugFilterText = m.debugFilterText[:len(m.debugFilterText)-1]
+			m.debugExpanded = make(map[int]bool)
+			m.applyDebugFilters()
+			m.debugCursor = 0
+			m.debugScroll = 0
+		}
+	case "ctrl+c":
+		return m, tea.Quit
+	default:
+		// Append printable characters.
+		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
+			m.debugFilterText += key
+			m.debugExpanded = make(map[int]bool)
+			m.applyDebugFilters()
+			m.debugCursor = 0
+			m.debugScroll = 0
+		}
+	}
+	return m, nil
+}
+
+// editorCmd returns an *exec.Cmd to open filePath in the user's $EDITOR.
+// Returns nil if no editor is configured or filePath is empty.
+func editorCmd(filePath string) *exec.Cmd {
+	if filePath == "" {
+		return nil
+	}
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = os.Getenv("VISUAL")
+	}
+	if editor == "" {
+		return nil
+	}
+	return exec.Command(editor, filePath)
 }
 
 // debugTotalLines returns the total rendered lines in the debug view.

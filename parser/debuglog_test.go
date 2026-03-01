@@ -297,6 +297,46 @@ func TestFilterByLevel(t *testing.T) {
 	}
 }
 
+func TestFilterByText(t *testing.T) {
+	entries := []DebugEntry{
+		{Level: LevelDebug, Category: "init", Message: "starting up"},
+		{Level: LevelWarn, Category: "MCP", Message: "server timeout"},
+		{Level: LevelDebug, Category: "API", Message: "request sent"},
+		{Level: LevelError, Category: "", Message: "connection refused"},
+		{Level: LevelDebug, Category: "init", Message: "loading config", Extra: "key=value\nfoo=bar"},
+	}
+
+	// Empty query returns all.
+	all := FilterByText(entries, "")
+	if len(all) != 5 {
+		t.Errorf("empty query: got %d, want 5", len(all))
+	}
+
+	// Match message substring (case-insensitive).
+	got := FilterByText(entries, "TIMEOUT")
+	if len(got) != 1 || got[0].Message != "server timeout" {
+		t.Errorf("'TIMEOUT' filter: got %v", got)
+	}
+
+	// Match category.
+	got = FilterByText(entries, "init")
+	if len(got) != 2 {
+		t.Errorf("'init' category filter: got %d, want 2", len(got))
+	}
+
+	// Match within Extra content.
+	got = FilterByText(entries, "foo=bar")
+	if len(got) != 1 || got[0].Message != "loading config" {
+		t.Errorf("'foo=bar' extra filter: got %v", got)
+	}
+
+	// No matches.
+	got = FilterByText(entries, "zzzzz")
+	if len(got) != 0 {
+		t.Errorf("no-match filter: got %d, want 0", len(got))
+	}
+}
+
 func TestDebugLogPath(t *testing.T) {
 	// Create a temp debug file to test existence check.
 	tmpDir := t.TempDir()

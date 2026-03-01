@@ -199,6 +199,24 @@ func FilterByLevel(entries []DebugEntry, minLevel DebugLevel) []DebugEntry {
 	return result
 }
 
+// FilterByText returns entries whose Message or Category contains the given
+// substring (case-insensitive). Empty query returns all entries unchanged.
+func FilterByText(entries []DebugEntry, query string) []DebugEntry {
+	if query == "" {
+		return entries
+	}
+	q := strings.ToLower(query)
+	result := make([]DebugEntry, 0, len(entries)/2)
+	for _, e := range entries {
+		if strings.Contains(strings.ToLower(e.Message), q) ||
+			strings.Contains(strings.ToLower(e.Category), q) ||
+			strings.Contains(strings.ToLower(e.Extra), q) {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
 // DebugLogPath returns the debug log file path for a given session JSONL path.
 // Claude Code stores debug logs at ~/.claude/debug/{session-uuid}.txt.
 // Returns empty string if the debug file doesn't exist.

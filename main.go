@@ -101,6 +101,19 @@ type debugUpdateMsg struct {
 	entries []parser.DebugEntry
 }
 
+// flashClearMsg fires after a delay to clear the ephemeral flash status.
+type flashClearMsg struct{}
+
+// flashClearCmd returns a command that clears the flash status after 2 seconds.
+func flashClearCmd() tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+		return flashClearMsg{}
+	})
+}
+
+// editorFinishedMsg is sent when the external $EDITOR process exits.
+type editorFinishedMsg struct{ err error }
+
 // displayItem is a structured element within an AI message's detail view.
 // Mirrors parser.DisplayItem but with pre-formatted fields for rendering.
 type displayItem struct {
@@ -239,20 +252,26 @@ type model struct {
 	teamScroll int
 
 	// Debug log viewer state
-	debugEntries  []parser.DebugEntry // raw parsed entries (before filter/collapse)
-	debugFiltered []parser.DebugEntry // after level filter + duplicate collapse
-	debugCursor   int
-	debugScroll   int
-	debugExpanded map[int]bool      // which multi-line entries are expanded
-	debugMinLevel parser.DebugLevel // current filter: LevelDebug (all), LevelWarn, LevelError
-	debugPath     string            // path to the debug .txt file
-	debugWatcher  *debugLogWatcher  // live tailing watcher for debug file
+	debugEntries    []parser.DebugEntry // raw parsed entries (before filter/collapse)
+	debugFiltered   []parser.DebugEntry // after level filter + duplicate collapse
+	debugCursor     int
+	debugScroll     int
+	debugExpanded   map[int]bool      // which multi-line entries are expanded
+	debugMinLevel   parser.DebugLevel // current filter: LevelDebug (all), LevelWarn, LevelError
+	debugPath       string            // path to the debug .txt file
+	debugWatcher    *debugLogWatcher  // live tailing watcher for debug file
+	debugFilterText string            // text search query (stacks with level filter)
+	debugFilterMode bool              // true when the / input prompt is active
+
+	// Flash status (ephemeral notification in the info bar, e.g. "Copied: /path/to/file").
+	flashStatus string
 }
 
 // applyDebugFilters rebuilds debugFiltered from debugEntries using the current
-// level filter and duplicate collapsing. Clamps cursor to valid range.
+// level filter, text filter, and duplicate collapsing. Clamps cursor to valid range.
 func (m *model) applyDebugFilters() {
 	filtered := parser.FilterByLevel(m.debugEntries, m.debugMinLevel)
+	filtered = parser.FilterByText(filtered, m.debugFilterText)
 	m.debugFiltered = parser.CollapseDuplicates(filtered)
 	if m.debugCursor >= len(m.debugFiltered) {
 		m.debugCursor = max(len(m.debugFiltered)-1, 0)
@@ -624,6 +643,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case flashClearMsg:
+		m.flashStatus = ""
+		return m, nil
+
+	case editorFinishedMsg:
+		// Re-layout after returning from external editor.
+		m.layoutList()
+		if m.view == viewDetail {
+			m.computeDetailMaxScroll()
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		// Suspend on ctrl+z before dispatching to per-view handlers.
 		if msg.String() == "ctrl+z" {
@@ -740,6 +771,8 @@ func (m model) viewList() string {
 	}
 	footerPairs = append(footerPairs,
 		"e/c", "expand/collapse",
+		"y", "copy path",
+		"O", "editor",
 		"q/esc", "sessions",
 		"?", "keys",
 	)
