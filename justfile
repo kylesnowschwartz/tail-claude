@@ -63,8 +63,8 @@ bump version:
 
     echo "Version bumped to $new. Changes staged and ready. Run 'just release' to commit, tag, and push."
 
-# Commit, tag, and push the release
-release:
+# Commit, tag, and push the release. Pass a notes file for custom release notes.
+release notes="":
     #!/usr/bin/env zsh
     set -e
 
@@ -96,10 +96,15 @@ release:
     git tag "$v"
     git push && git push --tags
 
-    # Create GitHub Release with auto-generated notes from commits
-    gh release create "$v" --title "$v" --generate-notes --latest
+    # Create GitHub Release — use notes file if provided, otherwise auto-generate.
+    notes="{{notes}}"
+    if [[ -n "$notes" && -f "$notes" ]]; then
+        gh release create "$v" --title "$v" --notes-file "$notes" --latest
+    else
+        gh release create "$v" --title "$v" --generate-notes --latest
+    fi
 
     # Prime the Go module proxy cache so `go install ...@latest` resolves immediately
-    GOPROXY=https://proxy.golang.org go list -m "github.com/kylesnowschwartz/tail-claude@$v"
+    GOPROXY=https://proxy.golang.org go list -m "github.com/kylesnowschwartz/tail-claude@$v" || true
 
     echo "Released $v"
