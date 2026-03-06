@@ -104,7 +104,9 @@ release notes="":
         gh release create "$v" --title "$v" --generate-notes --latest
     fi
 
-    # Prime the Go module proxy cache so `go install ...@latest` resolves immediately
+    # Prime the Go module proxy cache so `go install ...@latest` resolves immediately.
+    # Both the explicit version AND @latest must be primed — they have separate caches.
     GOPROXY=https://proxy.golang.org go list -m "github.com/kylesnowschwartz/tail-claude@$v" || true
+    GOPROXY=https://proxy.golang.org go list -m "github.com/kylesnowschwartz/tail-claude@latest" || true
 
     echo "Released $v"
