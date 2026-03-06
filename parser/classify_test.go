@@ -836,6 +836,77 @@ func TestClassify_TaskNotificationKilled(t *testing.T) {
 	}
 }
 
+// --- ToolSearch result tests ---
+
+func withToolUseResult(raw json.RawMessage) func(*parser.Entry) {
+	return func(e *parser.Entry) { e.ToolUseResult = raw }
+}
+
+func TestClassify_ToolSearchSingleTool(t *testing.T) {
+	// Real JSONL shape: content array with tool_result + "Tool loaded." text,
+	// toolUseResult has matches array.
+	content := json.RawMessage(`[
+		{"type":"tool_result","tool_use_id":"toolu_abc","content":[{"type":"tool_reference","tool_name":"Grep"}]},
+		{"type":"text","text":"Tool loaded."}
+	]`)
+	toolResult := json.RawMessage(`{"matches":["Grep"],"query":"select:Grep","total_deferred_tools":116}`)
+
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", content,
+		withToolUseResult(toolResult))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed for ToolSearch result")
+	}
+	sys, isSys := msg.(parser.SystemMsg)
+	if !isSys {
+		t.Fatalf("expected SystemMsg, got %T", msg)
+	}
+	if sys.Output != "Loaded: Grep" {
+		t.Errorf("Output = %q, want %q", sys.Output, "Loaded: Grep")
+	}
+}
+
+func TestClassify_ToolSearchMultipleTools(t *testing.T) {
+	content := json.RawMessage(`[
+		{"type":"tool_result","tool_use_id":"toolu_abc","content":[
+			{"type":"tool_reference","tool_name":"Bash"},
+			{"type":"tool_reference","tool_name":"Glob"},
+			{"type":"tool_reference","tool_name":"Read"}
+		]},
+		{"type":"text","text":"Tool loaded."}
+	]`)
+	toolResult := json.RawMessage(`{"matches":["Bash","Glob","Read"],"query":"select:Bash,Glob,Read","total_deferred_tools":116}`)
+
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", content,
+		withToolUseResult(toolResult))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed")
+	}
+	sys := msg.(parser.SystemMsg)
+	if sys.Output != "Loaded: Bash, Glob, Read" {
+		t.Errorf("Output = %q, want %q", sys.Output, "Loaded: Bash, Glob, Read")
+	}
+}
+
+func TestClassify_ToolSearchWithoutMatches_FallsThrough(t *testing.T) {
+	// If toolUseResult doesn't have matches, it should fall through to UserMsg.
+	content := json.RawMessage(`"Tool loaded."`)
+
+	e := makeEntry("user", "u1", "2025-01-15T10:00:00Z", content)
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed")
+	}
+	_, isUser := msg.(parser.UserMsg)
+	if !isUser {
+		t.Fatalf("expected UserMsg (fallthrough), got %T", msg)
+	}
+}
+
 func TestClassify_BashInputStrippedInUserMsg(t *testing.T) {
 	content := json.RawMessage(`"<bash-input>git push</bash-input>"`)
 	e := makeEntry("user", "bi1", "2025-01-15T10:00:00Z", content)

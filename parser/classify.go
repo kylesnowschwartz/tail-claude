@@ -227,6 +227,19 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 		}
 	}
 
+	// ToolSearch results: deferred tool loading responses.
+	// These entries have text "Tool loaded." plus a toolUseResult with a
+	// matches array listing which tools were loaded. Without this check they
+	// appear as UserMsg("Tool loaded.") which starts a spurious user chunk.
+	if e.Type == "user" && strings.TrimSpace(contentStr) == "Tool loaded." {
+		if names := extractToolSearchMatches(e.ToolUseResult); len(names) > 0 {
+			return SystemMsg{
+				Timestamp: ts,
+				Output:    "Loaded: " + strings.Join(names, ", "),
+			}, true
+		}
+	}
+
 	// 3. User message: type=user, not isMeta, has real content, not system output.
 	if e.Type == "user" && !e.IsMeta {
 		trimmed := strings.TrimSpace(contentStr)
@@ -374,6 +387,22 @@ func isUserNoise(raw json.RawMessage, contentStr string) bool {
 		return true
 	}
 	return isArrayInterruption(raw)
+}
+
+// extractToolSearchMatches parses the toolUseResult field for ToolSearch
+// responses, returning the list of loaded tool names. Returns nil if the
+// field is absent or doesn't contain a matches array.
+func extractToolSearchMatches(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var result struct {
+		Matches []string `json:"matches"`
+	}
+	if json.Unmarshal(raw, &result) != nil {
+		return nil
+	}
+	return result.Matches
 }
 
 // isArrayInterruption checks if content is an array with a single text block

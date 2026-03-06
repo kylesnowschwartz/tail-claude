@@ -56,6 +56,8 @@ func ToolSummary(name string, input json.RawMessage) string {
 		return summaryTaskUpdate(fields)
 	case "SendMessage":
 		return summarySendMessage(fields)
+	case "ToolSearch":
+		return summaryToolSearch(fields)
 	default:
 		return summaryDefault(name, fields)
 	}
@@ -286,6 +288,14 @@ func summarySendMessage(f map[string]json.RawMessage) string {
 		return "To " + recipient + ": " + Truncate(summary, 30)
 	}
 	return "Send message"
+}
+
+func summaryToolSearch(f map[string]json.RawMessage) string {
+	q := getString(f, "query")
+	if q == "" {
+		return "ToolSearch"
+	}
+	return Truncate(q, 50)
 }
 
 func summaryDefault(name string, f map[string]json.RawMessage) string {
