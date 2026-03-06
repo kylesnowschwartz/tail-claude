@@ -151,6 +151,22 @@ func formatToolResultPreview(lo *parser.LastOutput) string {
 	return icon.Render() + " " + nameStyle.Render(lo.ToolName) + " " + resultStyle.Render(parser.Truncate(result, 80))
 }
 
+// formatToolCallsPreview renders tool names for turns with no output or results.
+// Shows up to maxToolCalls tools with their one-line summaries.
+func formatToolCallsPreview(lo *parser.LastOutput) string {
+	nameStyle := StylePrimaryBold
+	summaryStyle := StyleDim
+	var parts []string
+	for _, tc := range lo.ToolCalls {
+		entry := Icon.Tool.Misc.Render() + " " + nameStyle.Render(tc.Name)
+		if tc.Summary != "" {
+			entry += " " + summaryStyle.Render(parser.Truncate(tc.Summary, 60))
+		}
+		parts = append(parts, entry)
+	}
+	return strings.Join(parts, "\n")
+}
+
 // -- Message rendering --------------------------------------------------------
 
 func (m model) renderMessage(msg message, containerWidth int, isSelected, isExpanded bool) rendered {
@@ -265,6 +281,8 @@ func (m model) claudeCollapsedContent(msg message, isExpanded bool) (string, int
 			return content, 0
 		case parser.LastOutputToolResult:
 			return formatToolResultPreview(msg.lastOutput), 0
+		case parser.LastOutputToolCalls:
+			return formatToolCallsPreview(msg.lastOutput), 0
 		}
 	}
 

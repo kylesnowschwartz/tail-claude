@@ -76,11 +76,10 @@ func TestFindLastOutput(t *testing.T) {
 			wantText: "final answer",
 		},
 		{
-			name: "tool call with empty ToolResult is skipped",
-			items: []DisplayItem{
-				{Type: ItemToolCall, ToolName: "Write", ToolResult: ""},
-			},
-			wantNil: true,
+			name:     "tool call with empty ToolResult falls back to tool calls",
+			items:    []DisplayItem{{Type: ItemToolCall, ToolName: "Write", ToolResult: ""}},
+			wantType: LastOutputToolCalls,
+			wantTool: "Write",
 		},
 		{
 			name: "output with empty text is skipped",
@@ -125,6 +124,13 @@ func TestFindLastOutput(t *testing.T) {
 				}
 				if got.IsError != tt.wantErr {
 					t.Errorf("IsError = %v, want %v", got.IsError, tt.wantErr)
+				}
+			case LastOutputToolCalls:
+				if len(got.ToolCalls) == 0 {
+					t.Fatal("expected non-empty ToolCalls")
+				}
+				if got.ToolCalls[0].Name != tt.wantTool {
+					t.Errorf("ToolCalls[0].Name = %q, want %q", got.ToolCalls[0].Name, tt.wantTool)
 				}
 			}
 		})
