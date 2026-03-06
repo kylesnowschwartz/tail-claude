@@ -27,6 +27,18 @@ cd tail-claude
 go build -o tail-claude .
 ```
 
+## Update
+
+```bash
+tail-claude --update
+```
+
+Or manually:
+
+```bash
+go install github.com/kylesnowschwartz/tail-claude@latest
+```
+
 ## Usage
 
 Run `tail-claude` to open the most recent session. If the session is stale (>12 hours), the session picker opens instead.
@@ -44,6 +56,7 @@ tail-claude [flags] [session.jsonl]
   --dump          Print rendered output to stdout (no interactive TUI)
   --expand        Expand all messages (use with --dump)
   --width N       Set terminal width for --dump output (default 160, min 40)
+  --update        Update to the latest version via go install
 ```
 
 ### Keybindings

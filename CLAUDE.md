@@ -147,6 +147,7 @@ tail-claude [flags] [session.jsonl]
   --dump          Print rendered output to stdout (no interactive TUI)
   --expand        Expand all messages (use with --dump)
   --width N       Set terminal width for --dump output (default 160, min 40)
+  --update        Update to the latest version via go install
   -h, --help      Show this help
 ```
 

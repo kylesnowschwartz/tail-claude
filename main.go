@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -895,6 +896,7 @@ Flags:
   --dump          Print rendered output to stdout (no interactive TUI)
   --expand        Expand all messages (use with --dump)
   --width N       Set terminal width for --dump output (default 160, min 40)
+  --update        Update to the latest version via go install
   -h, --help      Show this help
 `)
 			os.Exit(0)
@@ -914,6 +916,17 @@ Flags:
 				os.Exit(1)
 			}
 			dumpWidth = n
+		case arg == "--update":
+			fmt.Println("Updating tail-claude...")
+			cmd := exec.Command("go", "install", "github.com/kylesnowschwartz/tail-claude@latest")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintln(os.Stderr, "Update failed:", err)
+				os.Exit(1)
+			}
+			fmt.Println("Updated to latest version.")
+			os.Exit(0)
 		case strings.HasPrefix(arg, "-"):
 			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", arg)
 			os.Exit(1)
