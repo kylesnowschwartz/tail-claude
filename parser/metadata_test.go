@@ -134,6 +134,16 @@ func TestScanSessionMetadata_NotOngoingInterruptedPending(t *testing.T) {
 	}
 }
 
+func TestScanSessionMetadata_StreamingDedup(t *testing.T) {
+	meta := scanSessionMetadata(filepath.Join("testdata", "streaming_dedup.jsonl"))
+	// Two assistant entries share requestId "req_001". The first has output_tokens=5,
+	// the second has output_tokens=30. Only the last should count.
+	// Expected: 100 + 30 + 50 + 0 = 180 (not 100+5+50+0 + 100+30+50+0 = 335)
+	if meta.totalTokens != 180 {
+		t.Errorf("totalTokens = %d, want 180 (streaming entries should be deduplicated)", meta.totalTokens)
+	}
+}
+
 // --- ResolveGitRoot tests ---
 
 func TestResolveGitRoot_NormalRepo(t *testing.T) {

@@ -299,6 +299,16 @@ func scanSessionMetadata(path string) sessionMetadata {
 	// Turn counting: user message increments, then first qualifying AI response increments.
 	awaitingAIGroup := false
 
+	// Token deduplication: Claude Code writes multiple JSONL entries per API
+	// response during streaming, each with the same requestId but incrementally
+	// increasing output_tokens. Only the last entry per requestId has the final
+	// counts. We track per-requestId usage and sum once at the end.
+	// Ported from claude-devtools' deduplicateByRequestId (jsonl.ts).
+	type tokenSnapshot struct {
+		input, output, cacheRead, cacheCreate int
+	}
+	requestTokens := make(map[string]tokenSnapshot)
+
 	// Ongoing detection state (one-pass, ported from jsonl.ts:437-499).
 	var activityIndex int
 	lastEndingIndex := -1
@@ -355,10 +365,18 @@ func scanSessionMetadata(path string) sessionMetadata {
 			awaitingAIGroup = false
 		}
 
-		// --- Token accumulation ---
+		// --- Token accumulation (dedup streaming entries by requestId) ---
 		if raw.Type == "assistant" && !raw.IsSidechain && raw.Message.Model != "<synthetic>" {
 			u := raw.Message.Usage
-			meta.totalTokens += u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+			snap := tokenSnapshot{u.InputTokens, u.OutputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens}
+			if raw.RequestID != "" {
+				// Last-entry-wins: streaming entries share a requestId,
+				// each with incrementally larger counts. Overwrite previous.
+				requestTokens[raw.RequestID] = snap
+			} else {
+				// No requestId (older Claude Code versions): sum directly.
+				meta.totalTokens += snap.input + snap.output + snap.cacheRead + snap.cacheCreate
+			}
 		}
 
 		// --- Model extraction (first real assistant entry) ---
@@ -427,6 +445,11 @@ func scanSessionMetadata(path string) sessionMetadata {
 		meta.permissionMode = "default"
 	}
 
+	// Finalize token totals: sum the last-seen usage per requestId.
+	for _, snap := range requestTokens {
+		meta.totalTokens += snap.input + snap.output + snap.cacheRead + snap.cacheCreate
+	}
+
 	// Finalize ongoing detection.
 	// Activity-based: is there AI activity after the last ending event?
 	if lastEndingIndex == -1 {
@@ -460,6 +483,7 @@ type metadataScanEntry struct {
 	Cwd            string          `json:"cwd"`
 	GitBranch      string          `json:"gitBranch"`
 	PermissionMode string          `json:"permissionMode"`
+	RequestID      string          `json:"requestId"`
 	ToolResult     json.RawMessage `json:"toolUseResult"`
 	Message        struct {
 		Role    string          `json:"role"`
