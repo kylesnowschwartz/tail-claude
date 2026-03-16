@@ -151,12 +151,11 @@ func shortMode(mode string) string {
 // contextPercent returns the context window usage percentage (0-100) based on
 // the last AI message's input tokens. Returns -1 if no usage data is available.
 func contextPercent(msgs []message) int {
-	// All current Claude models share a 200k context window.
-	const contextWindowSize = 200_000
+	windowSize := inferContextWindow(msgs)
 
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].role == RoleClaude && msgs[i].contextTokens > 0 {
-			pct := msgs[i].contextTokens * 100 / contextWindowSize
+			pct := msgs[i].contextTokens * 100 / windowSize
 			if pct > 100 {
 				pct = 100
 			}
@@ -164,6 +163,18 @@ func contextPercent(msgs []message) int {
 		}
 	}
 	return -1
+}
+
+// inferContextWindow returns the context window size for a session.
+// JSONL files don't record this, so we infer from token counts:
+// if any message exceeds 200k input tokens, it must be a 1M session.
+func inferContextWindow(msgs []message) int {
+	for i := range msgs {
+		if msgs[i].contextTokens > 200_000 {
+			return 1_000_000
+		}
+	}
+	return 200_000
 }
 
 // hasTeamTaskItems checks if any chunk contains team Task items (Task calls

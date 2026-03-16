@@ -261,3 +261,28 @@ func TestHasTeamTaskItems(t *testing.T) {
 		})
 	}
 }
+
+func TestContextPercent(t *testing.T) {
+	tests := []struct {
+		name   string
+		tokens []int // contextTokens per AI message
+		want   int
+	}{
+		{"no messages", nil, -1},
+		{"50% of 200k", []int{100_000}, 50},
+		{"90% of 200k", []int{180_000}, 90},
+		{"exceeds 200k infers 1M window", []int{300_000}, 30},
+		{"earlier msg exceeds 200k sets 1M for all", []int{250_000, 100_000}, 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var msgs []message
+			for _, tok := range tt.tokens {
+				msgs = append(msgs, message{role: RoleClaude, contextTokens: tok})
+			}
+			if got := contextPercent(msgs); got != tt.want {
+				t.Errorf("contextPercent() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
