@@ -356,6 +356,7 @@ func TestBuildSubagentMessage(t *testing.T) {
 		StartTime:  ts,
 		Usage:      parser.Usage{InputTokens: 200, OutputTokens: 100},
 		DurationMs: 5000,
+		Model:      "claude-opus-4-6",
 		Chunks: []parser.Chunk{
 			{
 				Type:     parser.UserChunk,

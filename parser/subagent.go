@@ -10,7 +10,7 @@ import (
 )
 
 // SubagentProcess holds a parsed subagent and its computed metadata.
-// Discovery fills ID, FilePath, Chunks, timing, and usage.
+// Discovery fills ID, FilePath, Chunks, timing, usage, and Model.
 // Linking (Phase 5B) fills Description, SubagentType, and ParentTaskID.
 type SubagentProcess struct {
 	ID            string    // agentId from filename (agent-{id}.jsonl)
@@ -20,7 +20,8 @@ type SubagentProcess struct {
 	StartTime     time.Time // first message timestamp
 	EndTime       time.Time // last message timestamp
 	DurationMs    int64
-	Usage         Usage // aggregated from all AI chunks
+	Usage         Usage  // aggregated from all AI chunks
+	Model         string // model from first AI chunk (e.g. "claude-opus-4-6")
 	Description   string
 	SubagentType  string
 	ParentTaskID  string // tool_use_id of spawning Task call
@@ -106,6 +107,7 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 			EndTime:       endTime,
 			DurationMs:    durationMs,
 			Usage:         usage,
+			Model:         extractModel(chunks),
 			TeamSummary:   teamSummary,
 			TeammateColor: teamColor,
 		})
@@ -243,6 +245,16 @@ func readSubagentSession(path string) ([]Chunk, string, string, error) {
 	}
 
 	return BuildChunks(msgs), teamSummary, teamColor, nil
+}
+
+// extractModel returns the model string from the first AI chunk, or "".
+func extractModel(chunks []Chunk) string {
+	for _, c := range chunks {
+		if c.Type == AIChunk && c.Model != "" {
+			return c.Model
+		}
+	}
+	return ""
 }
 
 // aggregateUsage returns the last AI chunk's usage snapshot. Each chunk already
@@ -688,6 +700,7 @@ func DiscoverTeamSessions(sessionPath string, parentChunks []Chunk) ([]SubagentP
 			EndTime:       endTime,
 			DurationMs:    durationMs,
 			Usage:         usage,
+			Model:         extractModel(chunks),
 			TeammateColor: teamColor,
 		})
 	}

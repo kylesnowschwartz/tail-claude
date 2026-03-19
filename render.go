@@ -491,7 +491,14 @@ func renderTraceHeader(parent displayItem) string {
 	dot := dimStyle.Render(" " + Icon.Dot.Glyph + " ")
 	countStr := dimStyle.Render(fmt.Sprintf("%d tool calls, %d messages", toolCount, msgCount))
 
-	return traceIcon + "  " + traceLabel + dot + countStr
+	// Show model in the trace header when available.
+	modelStr := ""
+	if parent.subagentProcess != nil && parent.subagentProcess.Model != "" {
+		mdl := shortModel(parent.subagentProcess.Model)
+		modelStr = dot + lipgloss.NewStyle().Foreground(modelColor(mdl)).Render(mdl)
+	}
+
+	return traceIcon + "  " + traceLabel + dot + countStr + modelStr
 }
 
 // renderDetailItemRow renders a single item row in the detail view.
@@ -604,9 +611,13 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 			durMs = d
 		}
 	}
-	// Build fixed-width right side so tok and dur columns align across all rows.
-	// "%*s  %-*s": tok right-aligned in detailItemTokWidth, dur left-aligned in detailItemDurWidth.
-	// Empty strings produce spaces, keeping the total width constant.
+	// Build fixed-width right side so model, tok, and dur columns align across all rows.
+	// Model is right-aligned in detailItemModelWidth, tok in detailItemTokWidth,
+	// dur left-aligned in detailItemDurWidth. Empty strings produce spaces.
+	mdlStr := ""
+	if item.subagentProcess != nil && item.subagentProcess.Model != "" {
+		mdlStr = shortModel(item.subagentProcess.Model)
+	}
 	tokStr := ""
 	if tokCount > 0 {
 		tokStr = fmt.Sprintf("~%s tok", formatTokens(tokCount))
@@ -618,16 +629,21 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		durStr = "<1s"
 	}
 	var rightSide string
-	if tokStr != "" || durStr != "" {
+	if mdlStr != "" || tokStr != "" || durStr != "" {
+		// Model tag: color-coded, only present on subagent rows.
+		mdlPart := ""
+		if mdlStr != "" {
+			mdlPart = lipgloss.NewStyle().Foreground(modelColor(mdlStr)).Render(mdlStr) + "  "
+		}
 		tokPart := StyleDim.Render(fmt.Sprintf("%*s", detailItemTokWidth, tokStr))
 		durPart := StyleDim.Render(fmt.Sprintf("%-*s", detailItemDurWidth, durStr))
-		// When both present, prefix duration with a green dot separator.
+		// When both tok and dur present, prefix duration with a green dot separator.
 		// The dot + space adds 2 visible chars; pad the else branch to match.
 		if tokStr != "" && durStr != "" {
 			dot := lipgloss.NewStyle().Foreground(ColorOngoing).Render(Icon.Dot.Glyph)
-			rightSide = tokPart + "  " + dot + " " + durPart
+			rightSide = mdlPart + tokPart + "  " + dot + " " + durPart
 		} else {
-			rightSide = tokPart + "    " + durPart
+			rightSide = mdlPart + tokPart + "    " + durPart
 		}
 	}
 

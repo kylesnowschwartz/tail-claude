@@ -223,11 +223,8 @@ func buildSubagentMessage(proc *parser.SubagentProcess, subagentType string) mes
 	}
 
 	mdl := ""
-	for _, c := range proc.Chunks {
-		if c.Type == parser.AIChunk && c.Model != "" {
-			mdl = shortModel(c.Model)
-			break
-		}
+	if proc.Model != "" {
+		mdl = shortModel(proc.Model)
 	}
 
 	return message{
