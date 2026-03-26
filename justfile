@@ -63,7 +63,9 @@ bump version:
 
     echo "Version bumped to $new. Changes staged and ready. Run 'just release' to commit, tag, and push."
 
-# Commit, tag, and push the release. Pass a notes file for custom release notes.
+# Commit, tag, and push the release.
+# Pass a release notes file or omit for auto-generated notes.
+# Example: just release notes.md
 release notes="":
     #!/usr/bin/env zsh
     set -e
@@ -91,13 +93,22 @@ release notes="":
         exit 1
     fi
 
+    notes="{{notes}}"
+
+    # Update CHANGELOG.md: replace "## Unreleased" with the version + date,
+    # then add a fresh "## Unreleased" section above it.
+    if [[ -f CHANGELOG.md ]]; then
+        date=$(date +%Y-%m-%d)
+        sed -i '' "s/^## Unreleased$/## Unreleased\n\n## $v ($date)/" CHANGELOG.md
+        git add CHANGELOG.md
+    fi
+
     # Commit, tag, push, release
     git commit -m "chore: Bump version to $v"
     git tag "$v"
     git push && git push --tags
 
-    # Create GitHub Release — use notes file if provided, otherwise auto-generate.
-    notes="{{notes}}"
+    # Create GitHub Release with notes file or auto-generated.
     if [[ -n "$notes" && -f "$notes" ]]; then
         gh release create "$v" --title "$v" --notes-file "$notes" --latest
     else
