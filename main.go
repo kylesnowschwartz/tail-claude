@@ -832,16 +832,6 @@ func (m model) viewDetail() string {
 		lines = lines[:viewHeight]
 	}
 
-	// Scroll position indicator
-	scrollInfo := ""
-	if totalLines > viewHeight {
-		pct := 0
-		if maxScroll > 0 {
-			pct = scroll * 100 / maxScroll
-		}
-		scrollInfo = fmt.Sprintf("  %d%% (%d/%d)", pct, scroll+viewHeight, totalLines)
-	}
-
 	// Footer varies by message type
 	hasItems := msg.role == RoleClaude && len(msg.items) > 0
 	var footer string
@@ -853,7 +843,7 @@ func (m model) viewDetail() string {
 			"↑/↓", "scroll",
 			"J/K", "page",
 			"G/g", "jump",
-			"q/esc", "back"+scrollInfo,
+			"q/esc", "back",
 			"?", "keys",
 		)
 	} else {
@@ -861,7 +851,7 @@ func (m model) viewDetail() string {
 			"j/k", "scroll",
 			"↑/↓", "scroll",
 			"G/g", "jump",
-			"q/esc", "back"+scrollInfo,
+			"q/esc", "back",
 			"?", "keys",
 		)
 	}

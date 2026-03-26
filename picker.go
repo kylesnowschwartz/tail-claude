@@ -518,9 +518,6 @@ func (m model) viewPicker() string {
 	allLines := m.renderPickerItems(width)
 	visible := scrollWindow(allLines, m.contentHeight(1, 0), m.pickerScroll)
 
-	// Scroll position indicator.
-	scrollInfo := m.pickerScrollInfo()
-
 	footerPairs := []string{
 		"j/k", "nav",
 		"tab", "preview",
@@ -537,7 +534,7 @@ func (m model) viewPicker() string {
 		"y", "copy path",
 		"D", "delete",
 		"G/g", "jump",
-		"q/esc", "back"+scrollInfo,
+		"q/esc", "back",
 		"?", "keys",
 	)
 
@@ -581,24 +578,6 @@ func scrollWindow(lines []string, viewHeight, scroll int) []string {
 		visible = visible[:viewHeight]
 	}
 	return visible
-}
-
-// pickerScrollInfo returns a scroll percentage string, or "" if all content fits.
-func (m model) pickerScrollInfo() string {
-	viewHeight := m.contentHeight(1, 0)
-	totalLines := m.pickerTotalLines()
-	if totalLines <= viewHeight {
-		return ""
-	}
-	maxScroll := totalLines - viewHeight
-	if maxScroll <= 0 {
-		return ""
-	}
-	pct := m.pickerScroll * 100 / maxScroll
-	if pct > 100 {
-		pct = 100
-	}
-	return fmt.Sprintf("  %d%%", pct)
 }
 
 // renderPickerHeader renders a date group header with underline rule.

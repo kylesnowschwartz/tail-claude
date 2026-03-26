@@ -957,7 +957,7 @@ func (m model) viewDebugLog() string {
 		if m.debugFilterMode {
 			middle = m.renderDebugFilterPrompt(width)
 		}
-		footer := m.renderDebugFooter("")
+		footer := m.renderDebugFooter()
 		return (screenLayout{
 			lines:   []string{empty},
 			middle:  middle,
@@ -1004,18 +1004,11 @@ func (m model) viewDebugLog() string {
 		allLines = allLines[:viewHeight]
 	}
 
-	// Scroll position indicator.
-	scrollInfo := ""
-	if totalLines > viewHeight && maxScroll > 0 {
-		pct := scroll * 100 / maxScroll
-		scrollInfo = fmt.Sprintf("  %d%%", pct)
-	}
-
 	var middle string
 	if m.debugFilterMode {
 		middle = m.renderDebugFilterPrompt(width)
 	}
-	footer := m.renderDebugFooter(scrollInfo)
+	footer := m.renderDebugFooter()
 	return (screenLayout{
 		lines:   allLines,
 		middle:  middle,
@@ -1028,7 +1021,7 @@ func (m model) viewDebugLog() string {
 
 // renderDebugFooter builds the footer for the debug view, including
 // text filter state and the standard keybind pairs.
-func (m model) renderDebugFooter(scrollInfo string) string {
+func (m model) renderDebugFooter() string {
 	filterLabel := "filter:" + debugFilterLabel(m.debugMinLevel)
 	if m.debugFilterText != "" {
 		filterLabel += "+\"" + m.debugFilterText + "\""
@@ -1040,7 +1033,7 @@ func (m model) renderDebugFooter(scrollInfo string) string {
 		"f", filterLabel,
 		"y", "copy path",
 		"O", "editor",
-		"q/esc", "back"+scrollInfo,
+		"q/esc", "back",
 		"?", "keys",
 	)
 }
@@ -1476,18 +1469,11 @@ func (m model) viewTeamBoard() string {
 		lines = lines[:viewHeight]
 	}
 
-	// Scroll indicator
-	scrollInfo := ""
-	if totalLines > viewHeight && maxScroll > 0 {
-		pct := scroll * 100 / maxScroll
-		scrollInfo = fmt.Sprintf("  %d%%", pct)
-	}
-
 	footer := m.renderFooter(
 		"j/k", "scroll",
 		"↑/↓", "scroll",
 		"G/g", "jump",
-		"q/esc", "back"+scrollInfo,
+		"q/esc", "back",
 		"?", "keys",
 	)
 
