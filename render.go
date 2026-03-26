@@ -1259,20 +1259,9 @@ func (m model) contentHeight(headerLines, middleLines int) int {
 }
 
 // -- Viewport height ----------------------------------------------------------
-// Named methods for the three viewport height formulas. Each includes a <= 0
-// guard returning 1 so callers never divide by zero or produce negative slices.
-//
-// The -1 in list view accounts for the blank line between the last message and
-// the footer area. Picker's -2 accounts for the 2-line header.
-
-// listViewHeight returns the visible content lines in the message list view.
-func (m model) listViewHeight() int {
-	h := m.height - m.footerHeight() - m.activityIndicatorHeight() - 1
-	if h <= 0 {
-		return 1
-	}
-	return h
-}
+// Named methods for viewport height formulas. Each includes a <= 0 guard
+// returning 1 so callers never divide by zero or produce negative slices.
+// Picker's -2 accounts for the 2-line header.
 
 // pickerViewHeight returns the visible content lines in the session picker.
 func (m model) pickerViewHeight() int {

@@ -34,7 +34,7 @@ func TestClampListScroll(t *testing.T) {
 		m.scroll = 200
 		m.clampListScroll()
 
-		viewH := m.listViewHeight() // 40 - 3 - 0 - 1 = 36
+		viewH := m.contentHeight(0, 0) // 40 - 3 - 0 = 37
 		want := 100 - viewH
 		if m.scroll != want {
 			t.Errorf("scroll = %d, want %d (max)", m.scroll, want)
@@ -86,16 +86,16 @@ func TestEnsureCursorVisible(t *testing.T) {
 	t.Run("cursor below viewport — scroll down", func(t *testing.T) {
 		// Tiny viewport height so cursor at message 2 (line 12..16) is below
 		m := scrollModel(20, 10)
-		// listViewHeight = 10 - 3 - 0 - 1 = 6
+		// contentHeight(0, 0) = 10 - 3 - 0 = 7
 		// cursor at message 2: lines 12..16, end at line 16
-		// viewport shows lines [0..5] → cursor end (16) is beyond
+		// viewport shows lines [0..6] → cursor end (16) is beyond
 		m.cursor = 2
 		m.scroll = 0
 		m.ensureCursorVisible()
 		// scroll should move so cursorEnd (16) is at the bottom of viewport
-		viewH := m.listViewHeight()                           // 6
+		viewH := m.contentHeight(0, 0)                        // 7
 		cursorEnd := m.lineOffsets[2] + m.messageLines[2] - 1 // 12 + 5 - 1 = 16
-		want := cursorEnd - viewH + 1                         // 16 - 6 + 1 = 11
+		want := cursorEnd - viewH + 1                         // 16 - 7 + 1 = 10
 		if m.scroll != want {
 			t.Errorf("scroll = %d, want %d (scrolled to show cursor)", m.scroll, want)
 		}
@@ -119,12 +119,12 @@ func TestViewHeights(t *testing.T) {
 	// Width must be set so renderKeybindBox can measure wrapping correctly.
 	// At width 200, all views fit in one content line (border top + content + border bottom = 3).
 
-	t.Run("listViewHeight normal", func(t *testing.T) {
+	t.Run("contentHeight for list (no activity)", func(t *testing.T) {
 		m := model{height: 40, width: 200, showKeybinds: true}
-		// 40 - footerHeight(4) - activityIndicatorHeight(0) - 1 = 35
-		got := m.listViewHeight()
-		if got != 35 {
-			t.Errorf("listViewHeight = %d, want 35", got)
+		// 40 - footerHeight(4) - 0 = 36
+		got := m.contentHeight(0, m.activityIndicatorHeight())
+		if got != 36 {
+			t.Errorf("contentHeight(0, activity) = %d, want 36", got)
 		}
 	})
 
@@ -146,12 +146,12 @@ func TestViewHeights(t *testing.T) {
 		}
 	})
 
-	t.Run("tiny height — listViewHeight guards against zero/negative", func(t *testing.T) {
+	t.Run("tiny height — contentHeight for list guards against zero/negative", func(t *testing.T) {
 		m := model{height: 4, width: 200, showKeybinds: true}
-		// 4 - 4 - 0 - 1 = -1 → returns 1
-		got := m.listViewHeight()
+		// 4 - 4 - 0 = 0 → returns 1
+		got := m.contentHeight(0, m.activityIndicatorHeight())
 		if got != 1 {
-			t.Errorf("listViewHeight(%d) = %d, want 1 (guard)", m.height, got)
+			t.Errorf("contentHeight(%d) = %d, want 1 (guard)", m.height, got)
 		}
 	})
 
@@ -182,20 +182,20 @@ func TestViewHeights(t *testing.T) {
 			sessionOngoing: true,
 		}
 		// activityIndicatorHeight returns 1 when watching && ongoing
-		// 40 - 4 - 1 - 1 = 34
-		got := m.listViewHeight()
-		if got != 34 {
-			t.Errorf("listViewHeight with indicator = %d, want 34", got)
+		// 40 - 4 - 1 = 35
+		got := m.contentHeight(0, m.activityIndicatorHeight())
+		if got != 35 {
+			t.Errorf("contentHeight with indicator = %d, want 35", got)
 		}
 	})
 
 	t.Run("keybinds hidden — footer shrinks to info bar only", func(t *testing.T) {
 		m := model{height: 40, showKeybinds: false}
 		// footerHeight with showKeybinds=false: infoBarHeight(1) = 1
-		// 40 - 1 - 0 - 1 = 38
-		got := m.listViewHeight()
-		if got != 38 {
-			t.Errorf("listViewHeight (keybinds hidden) = %d, want 38", got)
+		// 40 - 1 - 0 = 39
+		got := m.contentHeight(0, m.activityIndicatorHeight())
+		if got != 39 {
+			t.Errorf("contentHeight (keybinds hidden) = %d, want 39", got)
 		}
 	})
 
@@ -208,8 +208,10 @@ func TestViewHeights(t *testing.T) {
 			t.Errorf("narrow footerHeight (%d) should exceed wide footerHeight (%d) due to wrapping", narrowH, wideH)
 		}
 		// Narrow terminal should give less viewport space.
-		if narrow.listViewHeight() >= wide.listViewHeight() {
-			t.Errorf("narrow listViewHeight (%d) should be less than wide (%d)", narrow.listViewHeight(), wide.listViewHeight())
+		wideContent := wide.contentHeight(0, 0)
+		narrowContent := narrow.contentHeight(0, 0)
+		if narrowContent >= wideContent {
+			t.Errorf("narrow contentHeight (%d) should be less than wide (%d)", narrowContent, wideContent)
 		}
 	})
 }

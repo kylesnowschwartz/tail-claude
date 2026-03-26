@@ -763,27 +763,10 @@ func (m model) viewList() string {
 		lines = lines[m.scroll:]
 	}
 
-	// Truncate to viewport height; pad to (viewport+1) so the total output
-	// fills exactly m.height lines and the footer anchors to the screen bottom.
-	// The +1 offsets the -1 built into listViewHeight.
-	viewHeight := m.listViewHeight()
-	padTarget := viewHeight + 1
+	// Truncate to viewport height to avoid building a full string we'd discard.
+	viewHeight := m.contentHeight(0, m.activityIndicatorHeight())
 	if len(lines) > viewHeight {
 		lines = lines[:viewHeight]
-	}
-	for len(lines) < padTarget {
-		lines = append(lines, "")
-	}
-
-	output := strings.Join(lines, "\n")
-
-	// Center content within the terminal when wider than the content cap.
-	output = centerBlock(output, m.clampWidth(), m.width)
-
-	// Activity indicator (above status bar, only when ongoing)
-	indicator := m.renderActivityIndicator(m.width)
-	if indicator != "" {
-		output += "\n" + indicator
 	}
 
 	// Footer: info bar + optional keybind hints
@@ -805,9 +788,15 @@ func (m model) viewList() string {
 		"q/esc", "sessions",
 		"?", "keys",
 	)
-	footer := m.renderFooter(footerPairs...)
 
-	return output + "\n" + footer
+	return (screenLayout{
+		lines:   lines,
+		middle:  m.renderActivityIndicator(m.width),
+		footer:  m.renderFooter(footerPairs...),
+		screenH: m.height,
+		width:   m.width,
+		cw:      m.clampWidth(),
+	}).assemble()
 }
 
 // viewDetail renders a single message full-screen with scrolling.

@@ -49,7 +49,7 @@ func (m *model) ensureCursorVisible() {
 	if len(m.lineOffsets) == 0 || m.height == 0 {
 		return
 	}
-	viewHeight := m.listViewHeight()
+	viewHeight := m.contentHeight(0, m.activityIndicatorHeight())
 
 	cursorStart := m.lineOffsets[m.cursor]
 	cursorEnd := cursorStart + m.messageLines[m.cursor] - 1
@@ -67,7 +67,7 @@ func (m *model) ensureCursorVisible() {
 
 // clampListScroll caps the list scroll offset so it can't exceed the content.
 func (m *model) clampListScroll() {
-	maxScroll := m.totalRenderedLines - m.listViewHeight()
+	maxScroll := m.totalRenderedLines - m.contentHeight(0, m.activityIndicatorHeight())
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
