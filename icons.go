@@ -110,7 +110,7 @@ var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // in the Private Use Area are particularly vulnerable to being dropped.
 func initIcons() {
 	Icon = iconSet{
-		Branch:    StyledIcon{"\uE0A0", ColorGitBranch}, // nf-pl-branch
+		Branch:    StyledIcon{"\uF418", ColorGitBranch}, // nf-pl-branch
 		Chat:      StyledIcon{"\uF086", ColorTextDim},   // nf-fa-comments
 		Claude:    StyledIcon{glyphRobot, ColorInfo},
 		Clock:     StyledIcon{"\uF017", ColorTextDim},     // nf-fa-clock
@@ -121,7 +121,7 @@ func initIcons() {
 		Expanded:  StyledIcon{"\uF078", ColorTextPrimary}, // nf-fa-chevron_down
 		Output:    StyledIcon{"\U000F0182", ColorAccent},  // nf-md-comment_outline
 		Selected:  StyledIcon{"\u2502", ColorAccent},      // box drawing vertical
-		Help:      StyledIcon{"\uF059", ColorAccent},      // nf-fa-circle_question
+		Help:      StyledIcon{"󰘥", ColorAccent},           // nf-fa-circle_question
 		Session:   StyledIcon{"\U000F0237", ColorTextDim}, // nf-md-fingerprint
 		Subagent:  StyledIcon{glyphRobot, ColorAccent},
 		System:    StyledIcon{"\uF120", ColorTextMuted}, // nf-fa-terminal

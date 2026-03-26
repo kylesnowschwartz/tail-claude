@@ -508,7 +508,8 @@ func (m model) viewPicker() string {
 	content = centerBlock(content, width, m.width)
 
 	// Pad to fill viewport so footer stays at bottom.
-	targetLines := m.height - m.footerHeight()
+	// The -1 accounts for the "\n" separator before the footer.
+	targetLines := m.height - m.footerHeight() - 1
 	renderedLines := strings.Count(content, "\n") + 1
 	if renderedLines < targetLines {
 		content += strings.Repeat("\n", targetLines-renderedLines)
@@ -677,12 +678,12 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 			branchName = branchName[:17] + "..."
 		}
 		branchStr := lipgloss.NewStyle().Foreground(metaColor).Render(branchName)
-		metaParts = append(metaParts, branchIcon+" "+branchStr)
+		metaParts = append(metaParts, branchIcon+branchStr)
 	}
 
 	if s.TurnCount > 0 {
 		chatIcon := Icon.Chat.WithColor(ColorPickerMeta)
-		countStr := lipgloss.NewStyle().Foreground(metaColor).Render(fmt.Sprintf("%3d", s.TurnCount))
+		countStr := lipgloss.NewStyle().Foreground(metaColor).Render(fmt.Sprintf("%d", s.TurnCount))
 		metaParts = append(metaParts, chatIcon+" "+countStr)
 	}
 

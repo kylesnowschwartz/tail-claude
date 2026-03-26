@@ -115,10 +115,12 @@ func TestEnsureCursorVisible(t *testing.T) {
 // --- view height methods --------------------------------------------------
 
 func TestViewHeights(t *testing.T) {
-	// footerHeight with showKeybinds=true: infoBarHeight(1) + keybindBarHeight(3) = 4
+	// footerHeight with showKeybinds=true at width 200: infoBarHeight(1) + keybindBar(3) = 4.
+	// Width must be set so renderKeybindBox can measure wrapping correctly.
+	// At width 200, all views fit in one content line (border top + content + border bottom = 3).
 
 	t.Run("listViewHeight normal", func(t *testing.T) {
-		m := model{height: 40, showKeybinds: true}
+		m := model{height: 40, width: 200, showKeybinds: true}
 		// 40 - footerHeight(4) - activityIndicatorHeight(0) - 1 = 35
 		got := m.listViewHeight()
 		if got != 35 {
@@ -127,7 +129,7 @@ func TestViewHeights(t *testing.T) {
 	})
 
 	t.Run("detailViewHeight normal", func(t *testing.T) {
-		m := model{height: 40, showKeybinds: true}
+		m := model{height: 40, width: 200, showKeybinds: true}
 		// 40 - 4 - 0 = 36
 		got := m.detailViewHeight()
 		if got != 36 {
@@ -136,7 +138,7 @@ func TestViewHeights(t *testing.T) {
 	})
 
 	t.Run("pickerViewHeight normal", func(t *testing.T) {
-		m := model{height: 40, showKeybinds: true}
+		m := model{height: 40, width: 200, showKeybinds: true, view: viewPicker}
 		// 40 - 2 - 4 = 34
 		got := m.pickerViewHeight()
 		if got != 34 {
@@ -145,7 +147,7 @@ func TestViewHeights(t *testing.T) {
 	})
 
 	t.Run("tiny height — listViewHeight guards against zero/negative", func(t *testing.T) {
-		m := model{height: 4, showKeybinds: true} // exactly footerHeight
+		m := model{height: 4, width: 200, showKeybinds: true}
 		// 4 - 4 - 0 - 1 = -1 → returns 1
 		got := m.listViewHeight()
 		if got != 1 {
@@ -154,7 +156,7 @@ func TestViewHeights(t *testing.T) {
 	})
 
 	t.Run("tiny height — detailViewHeight guards", func(t *testing.T) {
-		m := model{height: 3, showKeybinds: true}
+		m := model{height: 3, width: 200, showKeybinds: true}
 		// 3 - 4 = -1 → returns 1
 		got := m.detailViewHeight()
 		if got != 1 {
@@ -163,7 +165,7 @@ func TestViewHeights(t *testing.T) {
 	})
 
 	t.Run("tiny height — pickerViewHeight guards", func(t *testing.T) {
-		m := model{height: 5, showKeybinds: true}
+		m := model{height: 5, width: 200, showKeybinds: true, view: viewPicker}
 		// 5 - 2 - 4 = -1 → returns 1
 		got := m.pickerViewHeight()
 		if got != 1 {
@@ -174,6 +176,7 @@ func TestViewHeights(t *testing.T) {
 	t.Run("with activity indicator — list view shrinks by 1", func(t *testing.T) {
 		m := model{
 			height:         40,
+			width:          200,
 			showKeybinds:   true,
 			watching:       true,
 			sessionOngoing: true,
@@ -193,6 +196,20 @@ func TestViewHeights(t *testing.T) {
 		got := m.listViewHeight()
 		if got != 38 {
 			t.Errorf("listViewHeight (keybinds hidden) = %d, want 38", got)
+		}
+	})
+
+	t.Run("narrow terminal wraps keybinds — footer grows", func(t *testing.T) {
+		wide := model{height: 40, width: 200, showKeybinds: true}
+		narrow := model{height: 40, width: 60, showKeybinds: true}
+		wideH := wide.footerHeight()
+		narrowH := narrow.footerHeight()
+		if narrowH <= wideH {
+			t.Errorf("narrow footerHeight (%d) should exceed wide footerHeight (%d) due to wrapping", narrowH, wideH)
+		}
+		// Narrow terminal should give less viewport space.
+		if narrow.listViewHeight() >= wide.listViewHeight() {
+			t.Errorf("narrow listViewHeight (%d) should be less than wide (%d)", narrow.listViewHeight(), wide.listViewHeight())
 		}
 	})
 }

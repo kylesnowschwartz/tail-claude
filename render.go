@@ -39,10 +39,6 @@ const maxContentWidth = 160
 // maxCollapsedLines is the maximum content lines shown when a message is collapsed.
 const maxCollapsedLines = 12
 
-// keybindBarHeight is the rendered line count of the keybind hints bar
-// (rounded border: top + content + bottom = 3 lines).
-const keybindBarHeight = 3
-
 // infoBarHeight returns the rendered line count of the session info bar.
 // Colored modes (bypassPermissions, acceptEdits, plan) render a 3-line
 // RoundedBorder chip; default mode renders a plain 1-line bar.
@@ -1183,12 +1179,64 @@ func (m model) activityIndicatorHeight() int {
 
 // -- Footer height ------------------------------------------------------------
 
+// currentKeybindPairs returns the keybind hint pairs for the active view.
+// Used by footerHeight to measure the rendered bar height before the view
+// function builds its own (possibly identical) pairs. The returned pairs are
+// representative — minor differences like dynamic scroll suffixes don't affect
+// the line count at normal terminal widths.
+func (m model) currentKeybindPairs() []string {
+	switch m.view {
+	case viewDetail:
+		if m.detailHasItems() {
+			return []string{
+				"j/k", "items", "tab", "toggle", "enter", "open",
+				"↑/↓", "scroll", "J/K", "page", "G/g", "jump",
+				"q/esc", "back", "?", "keys",
+			}
+		}
+		return []string{
+			"j/k", "scroll", "↑/↓", "scroll", "G/g", "jump",
+			"q/esc", "back", "?", "keys",
+		}
+	case viewPicker:
+		pairs := []string{"j/k", "nav", "enter", "open"}
+		if len(m.worktreeProjectDirs) > 0 {
+			pairs = append(pairs, "b", "worktrees")
+		}
+		return append(pairs, "y", "copy path", "D", "delete", "G/g", "jump", "q/esc", "back", "?", "keys")
+	case viewDebug:
+		return []string{
+			"j/k", "nav", "tab", "expand", "/", "search", "f", "filter",
+			"y", "copy path", "O", "editor", "q/esc", "back", "?", "keys",
+		}
+	case viewTeam:
+		return []string{
+			"j/k", "scroll", "↑/↓", "scroll", "G/g", "jump",
+			"q/esc", "back", "?", "keys",
+		}
+	default: // viewList
+		pairs := []string{
+			"j/k", "nav", "↑/↓", "scroll", "G/g", "jump",
+			"tab", "toggle", "enter", "detail", "d", "debug log",
+		}
+		if len(m.teams) > 0 {
+			pairs = append(pairs, "t", "tasks")
+		}
+		return append(pairs,
+			"e/c", "expand/collapse", "y", "copy path",
+			"O", "editor", "q/esc", "sessions", "?", "keys",
+		)
+	}
+}
+
 // footerHeight returns the total footer line count: info bar (always) +
-// keybind hints (when showKeybinds is true).
+// keybind hints (when showKeybinds is true). Measures the actual rendered
+// keybind bar so the viewport calculation accounts for content wrapping.
 func (m model) footerHeight() int {
 	h := m.infoBarHeight()
 	if m.showKeybinds {
-		h += keybindBarHeight
+		bar := renderKeybindBox(m.watching, m.width, m.currentKeybindPairs()...)
+		h += lipgloss.Height(bar)
 	}
 	return h
 }
@@ -1309,7 +1357,7 @@ func (m model) renderInfoBar() string {
 	if proj := shortPath(m.sessionCwd, m.sessionGitBranch); proj != "" {
 		leftParts = append(leftParts, StyleSecondary.Render(proj))
 	}
-	if m.liveBranch != "" {
+	if m.liveBranch != "" && m.view != viewPicker {
 		branch := StyleDim.Render(m.liveBranch)
 		if m.liveDirty {
 			branch += lipgloss.NewStyle().Foreground(ColorContextWarn).Render("*")
@@ -1374,6 +1422,12 @@ func (m model) renderFooter(keybindPairs ...string) string {
 // renderKeybindBar renders key hints in a rounded-border box.
 // When m.watching is true, a dim "tail" indicator is prepended.
 func (m model) renderKeybindBar(pairs ...string) string {
+	return renderKeybindBox(m.watching, m.width, pairs...)
+}
+
+// renderKeybindBox is the pure rendering function for keybind hints.
+// Extracted so footerHeight can measure the output without a full model.
+func renderKeybindBox(watching bool, width int, pairs ...string) string {
 	keyStyle := StyleAccentBold
 
 	descStyle := StyleDim
@@ -1382,7 +1436,7 @@ func (m model) renderKeybindBar(pairs ...string) string {
 
 	var hints []string
 
-	if m.watching {
+	if watching {
 		tailLabel := StyleMuted.
 			Render("tail")
 		hints = append(hints, tailLabel)
@@ -1395,7 +1449,7 @@ func (m model) renderKeybindBar(pairs ...string) string {
 	barStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorBorder).
-		Width(m.width-2). // border chars take 2 columns
+		Width(width-2). // border chars take 2 columns
 		Padding(0, 1)
 
 	return barStyle.Render(strings.Join(hints, sep))

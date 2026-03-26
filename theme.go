@@ -158,7 +158,7 @@ func initTheme(hasDarkBg bool) {
 
 	// Picker
 	ColorPickerSelectedBg = ld(lipgloss.Color("254"), lipgloss.Color("237"))
-	ColorPickerMeta = ColorTextMuted
+	ColorPickerMeta = ColorTextDim
 	ColorGitBranch = ld(lipgloss.Color("5"), lipgloss.Color("135"))
 
 	// Tool category colors — all dim for now.
