@@ -74,6 +74,7 @@ type iconSet struct {
 	DrillDown StyledIcon
 	Ellipsis  StyledIcon
 	Expanded  StyledIcon
+	Help      StyledIcon
 	Output    StyledIcon
 	Selected  StyledIcon
 	Session   StyledIcon
@@ -120,6 +121,7 @@ func initIcons() {
 		Expanded:  StyledIcon{"\uF078", ColorTextPrimary}, // nf-fa-chevron_down
 		Output:    StyledIcon{"\U000F0182", ColorAccent},  // nf-md-comment_outline
 		Selected:  StyledIcon{"\u2502", ColorAccent},      // box drawing vertical
+		Help:      StyledIcon{"\uF059", ColorAccent},      // nf-fa-circle_question
 		Session:   StyledIcon{"\U000F0237", ColorTextDim}, // nf-md-fingerprint
 		Subagent:  StyledIcon{glyphRobot, ColorAccent},
 		System:    StyledIcon{"\uF120", ColorTextMuted}, // nf-fa-terminal

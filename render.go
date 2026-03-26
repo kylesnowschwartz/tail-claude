@@ -7,8 +7,14 @@ import (
 	"strings"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
+	zone "github.com/lrstanley/bubblezone/v2"
 
 	"charm.land/lipgloss/v2"
+)
+
+// Zone IDs for click/hover detection via bubblezone.
+const (
+	zoneHelp = "help" // ? icon in info bar footer
 )
 
 // -- Rendered output ----------------------------------------------------------
@@ -1311,8 +1317,8 @@ func (m model) renderInfoBar() string {
 		leftParts = append(leftParts, branch)
 	}
 
-	// Context usage percentage (right-aligned).
-	var rightStr string
+	// Context usage percentage + help hint (right-aligned).
+	var rightParts []string
 	if pct := contextPercent(m.messages); pct >= 0 {
 		var clr color.Color
 		switch {
@@ -1323,8 +1329,12 @@ func (m model) renderInfoBar() string {
 		default:
 			clr = ColorContextOk
 		}
-		rightStr = lipgloss.NewStyle().Foreground(clr).Render(fmt.Sprintf("%d%% ctx", pct))
+		rightParts = append(rightParts, lipgloss.NewStyle().Foreground(clr).Render(fmt.Sprintf("%d%% ctx", pct)))
 	}
+	if !m.showKeybinds {
+		rightParts = append(rightParts, zone.Mark(zoneHelp, Icon.Help.Render()))
+	}
+	rightStr := strings.Join(rightParts, " ")
 
 	badge := renderModeBadge(m.sessionMode)
 

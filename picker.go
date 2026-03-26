@@ -2,15 +2,22 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
+	zone "github.com/lrstanley/bubblezone/v2"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+// zoneSessionID returns the zone ID for a session's fingerprint icon.
+func zoneSessionID(sessionID string) string {
+	return "session-" + sessionID
+}
 
 // pickerSessionsMsg delivers discovered sessions to the model.
 type pickerSessionsMsg struct {
@@ -178,11 +185,109 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.pickerLoading = true
 		m.pickerTickActive = true
 		return m, tea.Batch(loadPickerSessionsCmd(m.projectDirs, m.sessionCache), pickerTickCmd())
+	case "y":
+		if s := m.pickerSelectedSession(); s != nil {
+			m.flashStatus = "Copied: " + s.Path
+			return m, tea.Batch(tea.SetClipboard(s.Path), flashClearCmd())
+		}
+	case "D":
+		if s := m.pickerSelectedSession(); s != nil {
+			preview := s.FirstMessage
+			if len(preview) > 50 {
+				preview = preview[:47] + "..."
+			}
+			if preview == "" {
+				preview = formatSessionName(s.SessionID)
+			}
+			m.popup = newPopup(
+				"Delete session?",
+				preview,
+				func() (tea.Model, tea.Cmd) {
+					return m.executeDeleteSession()
+				},
+			)
+			return m, nil
+		}
 	case "?":
 		m.showKeybinds = !m.showKeybinds
 		m.ensurePickerVisible()
 	}
 	return m, nil
+}
+
+// updatePickerMouse handles mouse events in the session picker view.
+func (m model) updatePickerMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
+		if m.pickerScroll > 0 {
+			m.pickerScroll -= 3
+			if m.pickerScroll < 0 {
+				m.pickerScroll = 0
+			}
+		}
+	case tea.MouseWheelDown:
+		m.pickerScroll += 3
+		maxScroll := m.pickerTotalLines() - m.pickerViewHeight()
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if m.pickerScroll > maxScroll {
+			m.pickerScroll = maxScroll
+		}
+	case tea.MouseLeft:
+		if zone.Get(zoneHelp).InBounds(msg) {
+			m.showKeybinds = !m.showKeybinds
+			return m, nil
+		}
+		// Check each visible session's fingerprint zone.
+		for _, item := range m.pickerItems {
+			if item.typ != pickerItemSession || item.session == nil {
+				continue
+			}
+			if zone.Get(zoneSessionID(item.session.SessionID)).InBounds(msg) {
+				m.flashStatus = "Copied: " + item.session.SessionID
+				return m, tea.Batch(tea.SetClipboard(item.session.SessionID), flashClearCmd())
+			}
+		}
+	}
+	return m, nil
+}
+
+// executeDeleteSession removes the selected session's JSONL file from disk
+// and refreshes the picker list. Called after confirmation.
+func (m model) executeDeleteSession() (tea.Model, tea.Cmd) {
+	s := m.pickerSelectedSession()
+	if s == nil {
+		return m, nil
+	}
+
+	if err := os.Remove(s.Path); err != nil {
+		m.flashStatus = "Delete failed: " + err.Error()
+		return m, flashClearCmd()
+	}
+
+	// Remove from session list and rebuild picker items.
+	path := s.Path
+	filtered := make([]parser.SessionInfo, 0, len(m.pickerSessions)-1)
+	for _, si := range m.pickerSessions {
+		if si.Path != path {
+			filtered = append(filtered, si)
+		}
+	}
+	m.pickerSessions = filtered
+	m.pickerItems = rebuildPickerItems(filtered)
+
+	// Clamp cursor to valid range.
+	if m.pickerCursor >= len(m.pickerItems) {
+		m.pickerCursorLast()
+	}
+	// If cursor landed on a header, move to the next session.
+	if m.pickerCursor < len(m.pickerItems) && m.pickerItems[m.pickerCursor].typ == pickerItemHeader {
+		m.pickerCursorDown()
+	}
+
+	m.flashStatus = "Deleted session"
+	return m, flashClearCmd()
 }
 
 // dedup returns a new slice with duplicates removed, preserving order.
@@ -425,6 +530,8 @@ func (m model) viewPicker() string {
 		}
 	}
 	footerPairs = append(footerPairs,
+		"y", "copy path",
+		"D", "delete",
 		"G/g", "jump",
 		"q/esc", "back"+scrollInfo,
 		"?", "keys",
@@ -594,9 +701,9 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 
 	if s.SessionID != "" {
-		sessionIcon := Icon.Session.WithColor(ColorPickerMeta)
+		sessionIcon := Icon.Session.WithColor(ColorAccent)
 		nameStr := lipgloss.NewStyle().Foreground(metaColor).Render(formatSessionName(s.SessionID))
-		metaParts = append(metaParts, sessionIcon+" "+nameStr)
+		metaParts = append(metaParts, zone.Mark(zoneSessionID(s.SessionID), sessionIcon+" "+nameStr))
 	}
 
 	metaLeft := indent + strings.Join(metaParts, " "+dot+" ")

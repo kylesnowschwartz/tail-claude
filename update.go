@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
+	zone "github.com/lrstanley/bubblezone/v2"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -579,6 +580,10 @@ func (m model) updateDebugMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelDown:
 		m.debugScroll += 3
 		m.clampDebugScroll()
+	case tea.MouseLeft:
+		if zone.Get(zoneHelp).InBounds(msg) {
+			m.showKeybinds = !m.showKeybinds
+		}
 	}
 	return m, nil
 }
@@ -596,6 +601,10 @@ func (m model) updateListMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelDown:
 		m.scroll += 3
 		m.clampListScroll()
+	case tea.MouseLeft:
+		if zone.Get(zoneHelp).InBounds(msg) {
+			m.showKeybinds = !m.showKeybinds
+		}
 	}
 	return m, nil
 }
@@ -614,6 +623,10 @@ func (m model) updateDetailMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.detailScroll += 3
 		if m.detailScroll > m.detailMaxScroll {
 			m.detailScroll = m.detailMaxScroll
+		}
+	case tea.MouseLeft:
+		if zone.Get(zoneHelp).InBounds(msg) {
+			m.showKeybinds = !m.showKeybinds
 		}
 	}
 	return m, nil
@@ -663,6 +676,10 @@ func (m model) updateTeamMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelDown:
 		m.teamScroll += 3
 		m.clampTeamScroll()
+	case tea.MouseLeft:
+		if zone.Get(zoneHelp).InBounds(msg) {
+			m.showKeybinds = !m.showKeybinds
+		}
 	}
 	return m, nil
 }
