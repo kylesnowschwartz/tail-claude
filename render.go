@@ -1468,31 +1468,25 @@ func renderKeybindBox(watching bool, width int, pairs ...string) string {
 
 // -- Team task board ----------------------------------------------------------
 
-// teamViewHeight returns the visible content lines in the team task board.
-func (m model) teamViewHeight() int {
-	h := m.height - m.footerHeight()
-	if h <= 0 {
-		return 1
-	}
-	return h
-}
-
 // viewTeamBoard renders the team task board view with scrolling and footer.
 func (m model) viewTeamBoard() string {
 	width := m.clampWidth()
 
 	if len(m.teams) == 0 {
-		empty := StyleDim.Render("No teams found")
-		padding := strings.Repeat("\n", max(m.teamViewHeight()-1, 0))
 		footer := m.renderFooter("q/esc", "back", "?", "keys")
-		output := centerBlock(empty+padding, width, m.width)
-		return output + "\n" + footer
+		return (screenLayout{
+			lines:   []string{StyleDim.Render("No teams found")},
+			footer:  footer,
+			screenH: m.height,
+			width:   m.width,
+			cw:      width,
+		}).assemble()
 	}
 
 	content := m.renderTeamContent(width, m.animFrame)
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
-	viewHeight := m.teamViewHeight()
+	viewHeight := m.contentHeight(0, 0)
 
 	// Scroll
 	scroll := m.teamScroll
@@ -1509,12 +1503,6 @@ func (m model) viewTeamBoard() string {
 	if len(lines) > viewHeight {
 		lines = lines[:viewHeight]
 	}
-	for len(lines) < viewHeight {
-		lines = append(lines, "")
-	}
-
-	output := strings.Join(lines, "\n")
-	output = centerBlock(output, width, m.width)
 
 	// Scroll indicator
 	scrollInfo := ""
@@ -1531,7 +1519,13 @@ func (m model) viewTeamBoard() string {
 		"?", "keys",
 	)
 
-	return output + "\n" + footer
+	return (screenLayout{
+		lines:   lines,
+		footer:  footer,
+		screenH: m.height,
+		width:   m.width,
+		cw:      width,
+	}).assemble()
 }
 
 // renderTeamContent renders all team sections joined by blank lines.

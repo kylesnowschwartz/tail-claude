@@ -688,7 +688,7 @@ func (m model) updateTeamMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 func (m model) teamMaxScroll() int {
 	content := m.renderTeamContent(m.clampWidth(), m.animFrame)
 	totalLines := strings.Count(content, "\n") + 1
-	viewHeight := m.teamViewHeight()
+	viewHeight := m.contentHeight(0, 0)
 	maxScroll := totalLines - viewHeight
 	if maxScroll < 0 {
 		return 0
