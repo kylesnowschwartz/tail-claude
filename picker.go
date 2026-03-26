@@ -227,7 +227,7 @@ func (m model) updatePickerMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseWheelDown:
 		m.pickerScroll += 3
-		maxScroll := m.pickerTotalLines() - m.pickerViewHeight()
+		maxScroll := m.pickerTotalLines() - m.contentHeight(1, 0)
 		if maxScroll < 0 {
 			maxScroll = 0
 		}
@@ -359,7 +359,7 @@ func (m *model) pickerCursorFirst() {
 // ensurePickerVisible adjusts pickerScroll so the cursor is visible.
 // Uses pickerItemHeight for variable-height items (expanded previews, headers with gaps).
 func (m *model) ensurePickerVisible() {
-	viewHeight := m.pickerViewHeight()
+	viewHeight := m.contentHeight(1, 0)
 
 	// Compute line position of cursor item.
 	cursorLineStart := 0
@@ -490,30 +490,33 @@ func (m model) viewPicker() string {
 	}
 	header += "\n"
 
+	header = strings.TrimRight(header, "\n")
+
 	// Empty state
 	if len(m.pickerItems) == 0 {
 		if m.pickerLoading {
 			frame := SpinnerFrames[m.pickerAnimFrame%len(SpinnerFrames)]
-			return header + "\n" + StyleDim.Render(frame+" Loading sessions...")
+			return (screenLayout{
+				header:  header,
+				lines:   []string{StyleDim.Render(frame + " Loading sessions...")},
+				footer:  m.renderFooter("q/esc", "back", "?", "keys"),
+				screenH: m.height,
+				width:   m.width,
+				cw:      width,
+			}).assemble()
 		}
-		return header + "\n" + StyleDim.Render("No sessions found for this project.")
+		return (screenLayout{
+			header:  header,
+			lines:   []string{StyleDim.Render("No sessions found for this project.")},
+			footer:  m.renderFooter("q/esc", "back", "?", "keys"),
+			screenH: m.height,
+			width:   m.width,
+			cw:      width,
+		}).assemble()
 	}
 
 	allLines := m.renderPickerItems(width)
-	visible := scrollWindow(allLines, m.pickerViewHeight(), m.pickerScroll)
-
-	content := header + "\n" + strings.Join(visible, "\n")
-
-	// Center content within the terminal when wider than the content cap.
-	content = centerBlock(content, width, m.width)
-
-	// Pad to fill viewport so footer stays at bottom.
-	// The -1 accounts for the "\n" separator before the footer.
-	targetLines := m.height - m.footerHeight() - 1
-	renderedLines := strings.Count(content, "\n") + 1
-	if renderedLines < targetLines {
-		content += strings.Repeat("\n", targetLines-renderedLines)
-	}
+	visible := scrollWindow(allLines, m.contentHeight(1, 0), m.pickerScroll)
 
 	// Scroll position indicator.
 	scrollInfo := m.pickerScrollInfo()
@@ -537,9 +540,15 @@ func (m model) viewPicker() string {
 		"q/esc", "back"+scrollInfo,
 		"?", "keys",
 	)
-	footer := m.renderFooter(footerPairs...)
 
-	return content + "\n" + footer
+	return (screenLayout{
+		header:  header,
+		lines:   visible,
+		footer:  m.renderFooter(footerPairs...),
+		screenH: m.height,
+		width:   m.width,
+		cw:      width,
+	}).assemble()
 }
 
 // renderPickerItems renders all picker items (headers + sessions) into lines.
@@ -576,7 +585,7 @@ func scrollWindow(lines []string, viewHeight, scroll int) []string {
 
 // pickerScrollInfo returns a scroll percentage string, or "" if all content fits.
 func (m model) pickerScrollInfo() string {
-	viewHeight := m.pickerViewHeight()
+	viewHeight := m.contentHeight(1, 0)
 	totalLines := m.pickerTotalLines()
 	if totalLines <= viewHeight {
 		return ""

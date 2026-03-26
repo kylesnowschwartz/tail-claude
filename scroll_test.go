@@ -137,12 +137,12 @@ func TestViewHeights(t *testing.T) {
 		}
 	})
 
-	t.Run("pickerViewHeight normal", func(t *testing.T) {
+	t.Run("contentHeight for picker", func(t *testing.T) {
 		m := model{height: 40, width: 200, showKeybinds: true, view: viewPicker}
-		// 40 - 2 - 4 = 34
-		got := m.pickerViewHeight()
-		if got != 34 {
-			t.Errorf("pickerViewHeight = %d, want 34", got)
+		// 40 - 4 (footer) - 1 (header) = 35
+		got := m.contentHeight(1, 0)
+		if got != 35 {
+			t.Errorf("contentHeight(1, 0) = %d, want 35", got)
 		}
 	})
 
@@ -164,12 +164,12 @@ func TestViewHeights(t *testing.T) {
 		}
 	})
 
-	t.Run("tiny height — pickerViewHeight guards", func(t *testing.T) {
+	t.Run("tiny height — contentHeight for picker guards", func(t *testing.T) {
 		m := model{height: 5, width: 200, showKeybinds: true, view: viewPicker}
-		// 5 - 2 - 4 = -1 → returns 1
-		got := m.pickerViewHeight()
+		// 5 - 4 - 1 = 0 → returns 1
+		got := m.contentHeight(1, 0)
 		if got != 1 {
-			t.Errorf("pickerViewHeight(%d) = %d, want 1 (guard)", m.height, got)
+			t.Errorf("contentHeight(1, 0) for height=%d = %d, want 1 (guard)", m.height, got)
 		}
 	})
 

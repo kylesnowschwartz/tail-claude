@@ -1258,20 +1258,6 @@ func (m model) contentHeight(headerLines, middleLines int) int {
 	return h
 }
 
-// -- Viewport height ----------------------------------------------------------
-// Named methods for viewport height formulas. Each includes a <= 0 guard
-// returning 1 so callers never divide by zero or produce negative slices.
-// Picker's -2 accounts for the 2-line header.
-
-// pickerViewHeight returns the visible content lines in the session picker.
-func (m model) pickerViewHeight() int {
-	h := m.height - 2 - m.footerHeight()
-	if h <= 0 {
-		return 1
-	}
-	return h
-}
-
 // renderActivityIndicator returns a centered animated bead line when the
 // session is ongoing, or an empty string otherwise. Each tick shifts the
 // bright "head" position through 5 dots.

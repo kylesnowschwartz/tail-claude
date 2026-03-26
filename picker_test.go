@@ -2,14 +2,19 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
+	zone "github.com/lrstanley/bubblezone/v2"
 )
+
+var initZone sync.Once
 
 // pickerModel builds a model in picker view with sensible defaults.
 func pickerModel() model {
+	initZone.Do(zone.NewGlobal)
 	m := initialModel(nil, true)
 	m.width = 120
 	m.height = 40
