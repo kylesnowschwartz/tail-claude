@@ -1317,19 +1317,13 @@ func (m model) renderInfoBar() string {
 		leftParts = append(leftParts, branch)
 	}
 
-	// Context usage percentage + help hint (right-aligned).
+	// Context token count + help hint (right-aligned).
+	// Only show context usage when viewing a session, not on the picker.
 	var rightParts []string
-	if pct := contextPercent(m.messages); pct >= 0 {
-		var clr color.Color
-		switch {
-		case pct > 80:
-			clr = ColorContextCrit
-		case pct > 50:
-			clr = ColorContextWarn
-		default:
-			clr = ColorContextOk
+	if m.view != viewPicker {
+		if tokens := lastContextTokens(m.messages); tokens > 0 {
+			rightParts = append(rightParts, StyleDim.Render(formatTokens(tokens)+" ctx"))
 		}
-		rightParts = append(rightParts, lipgloss.NewStyle().Foreground(clr).Render(fmt.Sprintf("%d%% ctx", pct)))
 	}
 	if !m.showKeybinds {
 		rightParts = append(rightParts, zone.Mark(zoneHelp, Icon.Help.Render()))

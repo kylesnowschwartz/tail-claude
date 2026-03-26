@@ -17,7 +17,7 @@ type SessionInfo struct {
 	FirstMessage   string // first user message text, truncated
 	TurnCount      int    // conversation turns (user messages + their first AI responses)
 	IsOngoing      bool   // AI activity after last ending event
-	TotalTokens    int    // sum of all assistant usage tokens
+	ContextTokens  int    // last assistant message's context window usage
 	DurationMs     int64  // last timestamp - first timestamp
 	Model          string // model from first real assistant entry
 	Cwd            string // working directory from session entries
@@ -241,7 +241,7 @@ func discoverSessions(projectDir string, scan scanFn) ([]SessionInfo, error) {
 			FirstMessage:   meta.firstMsg,
 			TurnCount:      meta.turnCount,
 			IsOngoing:      isOngoing,
-			TotalTokens:    meta.totalTokens,
+			ContextTokens:  meta.contextTokens,
 			DurationMs:     meta.durationMs,
 			Model:          meta.model,
 			Cwd:            meta.cwd,
@@ -262,7 +262,7 @@ type sessionMetadata struct {
 	firstMsg       string
 	turnCount      int
 	isOngoing      bool
-	totalTokens    int
+	contextTokens  int
 	durationMs     int64
 	model          string
 	cwd            string // first non-empty cwd from any entry
@@ -300,14 +300,9 @@ func scanSessionMetadata(path string) sessionMetadata {
 	awaitingAIGroup := false
 
 	// Token deduplication: Claude Code writes multiple JSONL entries per API
-	// response during streaming, each with the same requestId but incrementally
-	// increasing output_tokens. Only the last entry per requestId has the final
-	// counts. We track per-requestId usage and sum once at the end.
-	// Ported from claude-devtools' deduplicateByRequestId (jsonl.ts).
-	type tokenSnapshot struct {
-		input, output, cacheRead, cacheCreate int
-	}
-	requestTokens := make(map[string]tokenSnapshot)
+	// Context tokens: we want the last assistant message's context snapshot.
+	// Streaming entries share a requestId with incrementally larger counts,
+	// but since we always overwrite, last-entry-wins naturally.
 
 	// Ongoing detection state (one-pass, ported from jsonl.ts:437-499).
 	var activityIndex int
@@ -365,18 +360,10 @@ func scanSessionMetadata(path string) sessionMetadata {
 			awaitingAIGroup = false
 		}
 
-		// --- Token accumulation (dedup streaming entries by requestId) ---
+		// --- Context token tracking (last assistant message's window snapshot) ---
 		if raw.Type == "assistant" && !raw.IsSidechain && raw.Message.Model != "<synthetic>" {
 			u := raw.Message.Usage
-			snap := tokenSnapshot{u.InputTokens, u.OutputTokens, u.CacheReadInputTokens, u.CacheCreationInputTokens}
-			if raw.RequestID != "" {
-				// Last-entry-wins: streaming entries share a requestId,
-				// each with incrementally larger counts. Overwrite previous.
-				requestTokens[raw.RequestID] = snap
-			} else {
-				// No requestId (older Claude Code versions): sum directly.
-				meta.totalTokens += snap.input + snap.output + snap.cacheRead + snap.cacheCreate
-			}
+			meta.contextTokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 		}
 
 		// --- Model extraction (first real assistant entry) ---
@@ -443,11 +430,6 @@ func scanSessionMetadata(path string) sessionMetadata {
 	// label -- the session ran under the user's default permission mode.
 	if meta.permissionMode == "" {
 		meta.permissionMode = "default"
-	}
-
-	// Finalize token totals: sum the last-seen usage per requestId.
-	for _, snap := range requestTokens {
-		meta.totalTokens += snap.input + snap.output + snap.cacheRead + snap.cacheCreate
 	}
 
 	// Finalize ongoing detection.

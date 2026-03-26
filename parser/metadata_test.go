@@ -64,15 +64,10 @@ func TestScanSessionMetadata_MultiTurn(t *testing.T) {
 		t.Errorf("turnCount = %d, want 6", meta.turnCount)
 	}
 
-	// Tokens: sum of all assistant usage fields (non-sidechain, non-synthetic).
-	// a1: 100+50+10+5 = 165
-	// a2: 200+80+0+0 = 280
-	// a3: 300+100+0+0 = 400
-	// a4: 400+120+20+0 = 540
-	// Total: 1385
-	wantTokens := 165 + 280 + 400 + 540
-	if meta.totalTokens != wantTokens {
-		t.Errorf("totalTokens = %d, want %d", meta.totalTokens, wantTokens)
+	// Context tokens: last assistant message's context window snapshot.
+	// a4: input=400 + cacheRead=20 + cacheCreate=0 = 420
+	if meta.contextTokens != 420 {
+		t.Errorf("contextTokens = %d, want 420", meta.contextTokens)
 	}
 
 	// Duration: last timestamp - first timestamp.
@@ -104,11 +99,11 @@ func TestScanSessionMetadata_ModelExtraction(t *testing.T) {
 	}
 }
 
-func TestScanSessionMetadata_TokenAccumulation(t *testing.T) {
+func TestScanSessionMetadata_ContextTokens(t *testing.T) {
 	meta := scanSessionMetadata(filepath.Join("testdata", "not_ongoing_text.jsonl"))
-	// a1: 500+200+100+0 = 800
-	if meta.totalTokens != 800 {
-		t.Errorf("totalTokens = %d, want 800", meta.totalTokens)
+	// Single assistant: input=500 + cacheRead=100 + cacheCreate=0 = 600
+	if meta.contextTokens != 600 {
+		t.Errorf("contextTokens = %d, want 600", meta.contextTokens)
 	}
 }
 
@@ -136,11 +131,10 @@ func TestScanSessionMetadata_NotOngoingInterruptedPending(t *testing.T) {
 
 func TestScanSessionMetadata_StreamingDedup(t *testing.T) {
 	meta := scanSessionMetadata(filepath.Join("testdata", "streaming_dedup.jsonl"))
-	// Two assistant entries share requestId "req_001". The first has output_tokens=5,
-	// the second has output_tokens=30. Only the last should count.
-	// Expected: 100 + 30 + 50 + 0 = 180 (not 100+5+50+0 + 100+30+50+0 = 335)
-	if meta.totalTokens != 180 {
-		t.Errorf("totalTokens = %d, want 180 (streaming entries should be deduplicated)", meta.totalTokens)
+	// Two assistant entries share requestId "req_001". Last-entry-wins.
+	// Context: input=100 + cacheRead=50 + cacheCreate=0 = 150
+	if meta.contextTokens != 150 {
+		t.Errorf("contextTokens = %d, want 150 (streaming entries should be deduplicated)", meta.contextTokens)
 	}
 }
 

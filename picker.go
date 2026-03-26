@@ -691,13 +691,9 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(durStr))
 	}
 
-	if s.TotalTokens > 0 {
-		tokStr := fmt.Sprintf("%6s", formatTokens(s.TotalTokens))
-		tokColor := metaColor
-		if s.TotalTokens > 150_000 {
-			tokColor = ColorTokenHigh
-		}
-		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(tokColor).Render(tokStr))
+	if s.ContextTokens > 0 {
+		tokStr := fmt.Sprintf("%6s", formatTokens(s.ContextTokens))
+		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(tokStr+" ctx"))
 	}
 
 	if s.SessionID != "" {
