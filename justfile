@@ -2,7 +2,7 @@
 
 # Build the binary
 build:
-    go build -o ./tail-claude .
+    go build -ldflags "-X main.version=$(cat VERSION)" -o ./tail-claude .
 
 # Build, vet, and static analysis
 check:
@@ -34,7 +34,7 @@ run-file path: build
 
 # Build and run with race detector
 race:
-    go build -race -o ./tail-claude . && ./tail-claude
+    go build -race -ldflags "-X main.version=$(cat VERSION)" -o ./tail-claude . && ./tail-claude
 
 # Bump version (patch, minor, or major)
 bump version:

@@ -4,15 +4,31 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
+	zone "github.com/lrstanley/bubblezone/v2"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+// version is set at build time via ldflags. Falls back to Go module info
+// (populated by go install) or "dev" for plain go build.
+var version = ""
+
+func resolveVersion() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
 
 // Message roles
 const (
@@ -266,6 +282,9 @@ type model struct {
 
 	// Flash status (ephemeral notification in the info bar, e.g. "Copied: /path/to/file").
 	flashStatus string
+
+	// Modal popup (e.g. delete confirmation). When non-nil, captures all input.
+	popup *popup
 }
 
 // applyDebugFilters rebuilds debugFiltered from debugEntries using the current
@@ -661,6 +680,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+z" {
 			return m, tea.Suspend
 		}
+		// Modal popup captures all input when active.
+		if m.popup != nil {
+			return m.updatePopup(msg)
+		}
 		switch m.view {
 		case viewDetail:
 			return m.updateDetail(msg)
@@ -684,6 +707,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		switch m.view {
+		case viewPicker:
+			return m.updatePickerMouse(msg)
 		case viewDetail:
 			return m.updateDetailMouse(msg)
 		case viewDebug:
@@ -716,7 +741,10 @@ func (m model) View() tea.View {
 			content = m.viewList()
 		}
 	}
-	v := tea.NewView(content)
+	if m.popup != nil {
+		content = m.renderPopup(content)
+	}
+	v := tea.NewView(zone.Scan(content))
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	return v
@@ -874,6 +902,7 @@ func main() {
 	hasDarkBg := lipgloss.HasDarkBackground(os.Stdin, os.Stderr)
 	initTheme(hasDarkBg)
 	initIcons()
+	zone.NewGlobal()
 
 	dumpMode := false
 	expandAll := false
@@ -883,8 +912,11 @@ func main() {
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
 		switch {
+		case arg == "--version" || arg == "-v":
+			fmt.Println("tail-claude", resolveVersion())
+			os.Exit(0)
 		case arg == "--help" || arg == "-h":
-			fmt.Print(`Usage: tail-claude [flags] [session.jsonl]
+			fmt.Printf(`Usage: tail-claude [flags] [session.jsonl]
 
 Without arguments, auto-discovers the most recent session and opens
 the interactive TUI.
@@ -897,6 +929,7 @@ Flags:
   --expand        Expand all messages (use with --dump)
   --width N       Set terminal width for --dump output (default 160, min 40)
   --update        Update to the latest version via go install
+  -v, --version   Show version
   -h, --help      Show this help
 `)
 			os.Exit(0)
