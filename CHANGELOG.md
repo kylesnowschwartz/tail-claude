@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.5.0 (2026-03-27)
+
 ## v0.4.0 (2026-03-26)
 
 - Add `--version`/`-v` flag (resolves #2)
