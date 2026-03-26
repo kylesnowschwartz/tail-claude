@@ -116,7 +116,8 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Open debug log viewer for current session.
 		debugPath := parser.DebugLogPath(m.sessionPath)
 		if debugPath == "" {
-			return m, nil // no debug file, no-op
+			m.flashStatus = "No debug log (start Claude with --debug)"
+			return m, flashClearCmd()
 		}
 		entries, offset, err := parser.ReadDebugLog(debugPath)
 		if err != nil {
