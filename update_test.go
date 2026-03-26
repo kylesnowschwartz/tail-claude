@@ -692,10 +692,10 @@ func TestUpdateListMouse(t *testing.T) {
 	t.Run("WheelDown clamps at maxScroll", func(t *testing.T) {
 		m := testModel()
 		m.totalRenderedLines = 10
-		m.scroll = 8 // near the end; maxScroll = 10 - listViewHeight
+		m.scroll = 8 // near the end; maxScroll = 10 - contentHeight
 		result, _ := m.updateListMouse(mouseScroll(tea.MouseWheelDown))
 		got := asModel(result)
-		// listViewHeight = 40 - 3 - 0 - 1 = 36; maxScroll = max(0, 10-36) = 0
+		// contentHeight(0, 0) = 40 - 3 = 37; maxScroll = max(0, 10-37) = 0
 		if got.scroll != 0 {
 			t.Errorf("scroll = %d, want 0 (clamped at max)", got.scroll)
 		}
