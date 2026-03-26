@@ -128,12 +128,12 @@ func TestViewHeights(t *testing.T) {
 		}
 	})
 
-	t.Run("detailViewHeight normal", func(t *testing.T) {
+	t.Run("contentHeight for detail (no activity)", func(t *testing.T) {
 		m := model{height: 40, width: 200, showKeybinds: true}
-		// 40 - 4 - 0 = 36
-		got := m.detailViewHeight()
+		// 40 - 4 - 0 - 0 = 36
+		got := m.contentHeight(0, m.activityIndicatorHeight())
 		if got != 36 {
-			t.Errorf("detailViewHeight = %d, want 36", got)
+			t.Errorf("contentHeight(0, activity) = %d, want 36", got)
 		}
 	})
 
@@ -155,12 +155,12 @@ func TestViewHeights(t *testing.T) {
 		}
 	})
 
-	t.Run("tiny height — detailViewHeight guards", func(t *testing.T) {
+	t.Run("tiny height — contentHeight for detail guards", func(t *testing.T) {
 		m := model{height: 3, width: 200, showKeybinds: true}
-		// 3 - 4 = -1 → returns 1
-		got := m.detailViewHeight()
+		// 3 - 4 - 0 = -1 → returns 1
+		got := m.contentHeight(0, m.activityIndicatorHeight())
 		if got != 1 {
-			t.Errorf("detailViewHeight(%d) = %d, want 1 (guard)", m.height, got)
+			t.Errorf("contentHeight(%d) = %d, want 1 (guard)", m.height, got)
 		}
 	})
 

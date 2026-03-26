@@ -826,7 +826,7 @@ func (m model) viewDetail() string {
 	lines := strings.Split(content, "\n")
 	totalLines := len(lines)
 
-	viewHeight := m.detailViewHeight()
+	viewHeight := m.contentHeight(0, m.activityIndicatorHeight())
 	maxScroll := totalLines - viewHeight
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -842,16 +842,6 @@ func (m model) viewDetail() string {
 	if len(lines) > viewHeight {
 		lines = lines[:viewHeight]
 	}
-	// Pad so total output fills m.height: detailViewHeight has no -1, so
-	// padding to exactly viewHeight leaves footer flush with the screen bottom.
-	for len(lines) < viewHeight {
-		lines = append(lines, "")
-	}
-
-	output := strings.Join(lines, "\n")
-
-	// Center content within the terminal when wider than the content cap.
-	output = centerBlock(output, width, m.width)
 
 	// Scroll position indicator
 	scrollInfo := ""
@@ -861,12 +851,6 @@ func (m model) viewDetail() string {
 			pct = scroll * 100 / maxScroll
 		}
 		scrollInfo = fmt.Sprintf("  %d%% (%d/%d)", pct, scroll+viewHeight, totalLines)
-	}
-
-	// Activity indicator (above status bar, only when ongoing)
-	indicator := m.renderActivityIndicator(m.width)
-	if indicator != "" {
-		output += "\n" + indicator
 	}
 
 	// Footer varies by message type
@@ -893,7 +877,14 @@ func (m model) viewDetail() string {
 		)
 	}
 
-	return output + "\n" + footer
+	return (screenLayout{
+		lines:   lines,
+		middle:  m.renderActivityIndicator(m.width),
+		footer:  footer,
+		screenH: m.height,
+		width:   m.width,
+		cw:      width,
+	}).assemble()
 }
 
 func main() {

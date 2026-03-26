@@ -1274,15 +1274,6 @@ func (m model) listViewHeight() int {
 	return h
 }
 
-// detailViewHeight returns the visible content lines in the detail view.
-func (m model) detailViewHeight() int {
-	h := m.height - m.footerHeight() - m.activityIndicatorHeight()
-	if h <= 0 {
-		return 1
-	}
-	return h
-}
-
 // pickerViewHeight returns the visible content lines in the session picker.
 func (m model) pickerViewHeight() int {
 	h := m.height - 2 - m.footerHeight()

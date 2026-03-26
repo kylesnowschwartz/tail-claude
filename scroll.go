@@ -95,7 +95,7 @@ func (m *model) computeDetailMaxScroll() {
 	trimmed := strings.TrimRight(r.content, "\n")
 	totalLines := strings.Count(trimmed, "\n") + 1
 
-	m.detailMaxScroll = totalLines - m.detailViewHeight()
+	m.detailMaxScroll = totalLines - m.contentHeight(0, m.activityIndicatorHeight())
 	if m.detailMaxScroll < 0 {
 		m.detailMaxScroll = 0
 	}
@@ -182,7 +182,7 @@ func (m *model) ensureDetailCursorVisible() {
 		cursorEnd += m.detailRowLines(rows[m.detailCursor], width) - 1
 	}
 
-	viewHeight := m.detailViewHeight()
+	viewHeight := m.contentHeight(0, m.activityIndicatorHeight())
 
 	// Scroll up if cursor is above viewport
 	if cursorLine < m.detailScroll {
