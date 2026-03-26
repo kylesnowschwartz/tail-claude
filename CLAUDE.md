@@ -41,6 +41,7 @@ Bubble Tea model with three view states: list, detail, picker.
 - **picker.go** -- Session discovery and selection UI
 - **picker_watcher.go** -- Directory watcher for live picker updates (new/changed sessions)
 - **markdown.go** -- Glamour-based markdown renderer with width-based caching
+- **popup.go** -- Reusable modal confirmation overlay (ANSI-safe background splicing)
 - **theme.go** -- AdaptiveColor definitions for dark/light terminal support
 - **icons.go** -- Nerd Font icon constants
 
@@ -148,6 +149,7 @@ tail-claude [flags] [session.jsonl]
   --expand        Expand all messages (use with --dump)
   --width N       Set terminal width for --dump output (default 160, min 40)
   --update        Update to the latest version via go install
+  -v, --version   Show version
   -h, --help      Show this help
 ```
 
@@ -157,5 +159,5 @@ tail-claude [flags] [session.jsonl]
 - Keep parser package free of TUI dependencies
 - Test files live alongside source (`*_test.go`)
 - Test fixtures in `parser/testdata/`
-- No external dependencies beyond bubbletea/v2, lipgloss/v2, glamour, chroma/v2, colorprofile, fsnotify, and x/term
+- No external dependencies beyond bubbletea/v2, lipgloss/v2, glamour, chroma/v2, colorprofile, fsnotify, x/term, x/ansi, and bubblezone/v2
 - Attribution for ported parsing logic documented in ATTRIBUTION.md

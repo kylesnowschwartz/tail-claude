@@ -57,6 +57,8 @@ tail-claude [flags] [session.jsonl]
   --expand        Expand all messages (use with --dump)
   --width N       Set terminal width for --dump output (default 160, min 40)
   --update        Update to the latest version via go install
+  -v, --version   Show version
+  -h, --help      Show this help
 ```
 
 ### Keybindings
@@ -122,8 +124,12 @@ tail-claude [flags] [session.jsonl]
 | `Tab` | Toggle preview expansion |
 | `b` | Toggle worktree sessions (when worktrees exist) |
 | `Enter` | Open selected session |
+| `y` | Copy session JSONL path to clipboard |
+| `D` | Delete session (with confirmation popup) |
 | `q` / `Esc` | Back to list |
 | `Ctrl+c` | Quit |
+
+Click the fingerprint icon to copy the session UUID. Click `?` in the footer to toggle keybind hints.
 
 ## Development
 
