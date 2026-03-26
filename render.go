@@ -1241,6 +1241,17 @@ func (m model) footerHeight() int {
 	return h
 }
 
+// contentHeight returns the number of visible content lines available after
+// subtracting the footer, header, and middle sections from the screen height.
+// Guards against zero/negative results by returning at least 1.
+func (m model) contentHeight(headerLines, middleLines int) int {
+	h := m.height - m.footerHeight() - headerLines - middleLines
+	if h <= 0 {
+		return 1
+	}
+	return h
+}
+
 // -- Viewport height ----------------------------------------------------------
 // Named methods for the three viewport height formulas. Each includes a <= 0
 // guard returning 1 so callers never divide by zero or produce negative slices.

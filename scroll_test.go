@@ -268,3 +268,52 @@ func TestLayoutListAgreement(t *testing.T) {
 		}
 	})
 }
+
+// --- contentHeight -----------------------------------------------------------
+
+func TestContentHeight(t *testing.T) {
+	t.Run("no header no middle", func(t *testing.T) {
+		m := model{height: 40, width: 200}
+		// footerHeight = infoBarHeight(1) = 1; 40 - 1 - 0 - 0 = 39
+		got := m.contentHeight(0, 0)
+		if got != 39 {
+			t.Errorf("contentHeight(0,0) = %d, want 39", got)
+		}
+	})
+
+	t.Run("with header", func(t *testing.T) {
+		m := model{height: 40, width: 200}
+		// 40 - 1 - 2 - 0 = 37
+		got := m.contentHeight(2, 0)
+		if got != 37 {
+			t.Errorf("contentHeight(2,0) = %d, want 37", got)
+		}
+	})
+
+	t.Run("with middle", func(t *testing.T) {
+		m := model{height: 40, width: 200}
+		// 40 - 1 - 0 - 1 = 38
+		got := m.contentHeight(0, 1)
+		if got != 38 {
+			t.Errorf("contentHeight(0,1) = %d, want 38", got)
+		}
+	})
+
+	t.Run("with keybinds shown", func(t *testing.T) {
+		m := model{height: 40, width: 200, showKeybinds: true}
+		// footerHeight = 1 + 3 = 4; 40 - 4 - 0 - 0 = 36
+		got := m.contentHeight(0, 0)
+		if got != 36 {
+			t.Errorf("contentHeight(0,0) with keybinds = %d, want 36", got)
+		}
+	})
+
+	t.Run("guards against zero", func(t *testing.T) {
+		m := model{height: 3, width: 200, showKeybinds: true}
+		// footerHeight = 4; 3 - 4 - 0 - 0 = -1 → 1
+		got := m.contentHeight(0, 0)
+		if got != 1 {
+			t.Errorf("contentHeight(0,0) tiny = %d, want 1 (guard)", got)
+		}
+	})
+}
