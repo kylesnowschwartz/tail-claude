@@ -953,13 +953,19 @@ func (m model) viewDebugLog() string {
 			filterInfo += " \"" + m.debugFilterText + "\""
 		}
 		empty := StyleDim.Render("No debug entries (filter: " + filterInfo + ")")
-		footer := m.renderDebugFooter("")
-		padding := strings.Repeat("\n", max(m.debugViewHeight()-filterPromptHeight-1, 0))
-		output := centerBlock(empty+padding, width, m.width)
+		var middle string
 		if m.debugFilterMode {
-			output += "\n" + m.renderDebugFilterPrompt(width)
+			middle = m.renderDebugFilterPrompt(width)
 		}
-		return output + "\n" + footer
+		footer := m.renderDebugFooter("")
+		return (screenLayout{
+			lines:   []string{empty},
+			middle:  middle,
+			footer:  footer,
+			screenH: m.height,
+			width:   m.width,
+			cw:      width,
+		}).assemble()
 	}
 
 	// Render all visible lines.
@@ -980,7 +986,7 @@ func (m model) viewDebugLog() string {
 	allLines := strings.Split(content, "\n")
 	totalLines := len(allLines)
 
-	viewHeight := m.debugViewHeight() - filterPromptHeight
+	viewHeight := m.contentHeight(0, filterPromptHeight)
 
 	// Apply scroll offset.
 	scroll := m.debugScroll
@@ -997,27 +1003,27 @@ func (m model) viewDebugLog() string {
 	if len(allLines) > viewHeight {
 		allLines = allLines[:viewHeight]
 	}
-	for len(allLines) < viewHeight {
-		allLines = append(allLines, "")
-	}
 
-	output := strings.Join(allLines, "\n")
-	output = centerBlock(output, width, m.width)
-
-	// Scroll position indicator
+	// Scroll position indicator.
 	scrollInfo := ""
 	if totalLines > viewHeight && maxScroll > 0 {
 		pct := scroll * 100 / maxScroll
 		scrollInfo = fmt.Sprintf("  %d%%", pct)
 	}
 
-	// Filter prompt (shown above footer when / is active).
+	var middle string
 	if m.debugFilterMode {
-		output += "\n" + m.renderDebugFilterPrompt(width)
+		middle = m.renderDebugFilterPrompt(width)
 	}
-
 	footer := m.renderDebugFooter(scrollInfo)
-	return output + "\n" + footer
+	return (screenLayout{
+		lines:   allLines,
+		middle:  middle,
+		footer:  footer,
+		screenH: m.height,
+		width:   m.width,
+		cw:      width,
+	}).assemble()
 }
 
 // renderDebugFooter builds the footer for the debug view, including

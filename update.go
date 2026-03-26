@@ -504,7 +504,7 @@ func (m model) debugTotalLines() int {
 // debugMaxScroll returns the maximum scroll offset for the debug view.
 func (m model) debugMaxScroll() int {
 	total := m.debugTotalLines()
-	viewHeight := m.debugViewHeight()
+	viewHeight := m.contentHeight(0, m.debugFilterPromptHeight())
 	maxScroll := total - viewHeight
 	if maxScroll < 0 {
 		return 0
@@ -512,13 +512,12 @@ func (m model) debugMaxScroll() int {
 	return maxScroll
 }
 
-// debugViewHeight returns the visible content lines in the debug view.
-func (m model) debugViewHeight() int {
-	h := m.height - m.footerHeight()
-	if h <= 0 {
+// debugFilterPromptHeight returns 1 when the debug filter input is active, 0 otherwise.
+func (m model) debugFilterPromptHeight() int {
+	if m.debugFilterMode {
 		return 1
 	}
-	return h
+	return 0
 }
 
 // debugCursorLine returns the absolute line offset of the debug cursor.
@@ -536,7 +535,7 @@ func (m model) debugCursorLine() int {
 // ensureDebugCursorVisible adjusts debugScroll to keep the cursor in view.
 func (m *model) ensureDebugCursorVisible() {
 	cursorLine := m.debugCursorLine()
-	viewHeight := m.debugViewHeight()
+	viewHeight := m.contentHeight(0, m.debugFilterPromptHeight())
 
 	if cursorLine < m.debugScroll {
 		m.debugScroll = cursorLine
