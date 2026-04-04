@@ -72,6 +72,10 @@ var (
 	ColorPillAcceptEdits color.Color // purple: acceptEdits
 	ColorPillPlan        color.Color // green: plan
 
+	// Search
+	ColorSearchHighlightFg color.Color
+	ColorSearchHighlightBg color.Color
+
 	// Picker
 	ColorPickerSelectedBg color.Color
 	ColorPickerMeta       color.Color // metadata icons in picker rows
@@ -107,13 +111,14 @@ var (
 // are immutable value types -- each method returns a copy.
 
 var (
-	StylePrimaryBold   lipgloss.Style
-	StyleSecondary     lipgloss.Style
-	StyleSecondaryBold lipgloss.Style
-	StyleDim           lipgloss.Style
-	StyleMuted         lipgloss.Style
-	StyleAccentBold    lipgloss.Style
-	StyleErrorBold     lipgloss.Style
+	StylePrimaryBold     lipgloss.Style
+	StyleSecondary       lipgloss.Style
+	StyleSecondaryBold   lipgloss.Style
+	StyleDim             lipgloss.Style
+	StyleMuted           lipgloss.Style
+	StyleAccentBold      lipgloss.Style
+	StyleErrorBold       lipgloss.Style
+	StyleSearchHighlight lipgloss.Style
 )
 
 // initTheme resolves all colors for the detected background and rebuilds
@@ -156,6 +161,10 @@ func initTheme(hasDarkBg bool) {
 	ColorPillAcceptEdits = ld(lipgloss.Color("5"), lipgloss.Color("135"))
 	ColorPillPlan = ld(lipgloss.Color("2"), lipgloss.Color("114"))
 
+	// Search highlight (yellow/black — stands out on both dark and light)
+	ColorSearchHighlightFg = ld(lipgloss.Color("0"), lipgloss.Color("0"))
+	ColorSearchHighlightBg = ld(lipgloss.Color("11"), lipgloss.Color("3"))
+
 	// Picker
 	ColorPickerSelectedBg = ld(lipgloss.Color("254"), lipgloss.Color("237"))
 	ColorPickerMeta = ColorTextDim
@@ -191,4 +200,6 @@ func initTheme(hasDarkBg bool) {
 	StyleMuted = lipgloss.NewStyle().Foreground(ColorTextMuted)
 	StyleAccentBold = lipgloss.NewStyle().Bold(true).Foreground(ColorAccent)
 	StyleErrorBold = lipgloss.NewStyle().Bold(true).Foreground(ColorError)
+	StyleSearchHighlight = lipgloss.NewStyle().Bold(true).
+		Foreground(ColorSearchHighlightFg).Background(ColorSearchHighlightBg)
 }

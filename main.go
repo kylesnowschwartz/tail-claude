@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
@@ -172,6 +173,12 @@ type message struct {
 	isError          bool   // system message: bash stderr or killed task
 }
 
+// previewCacheEntry holds a parsed session for the search preview LRU cache.
+type previewCacheEntry struct {
+	path     string
+	messages []message
+}
+
 // savedDetailState preserves parent detail view state when drilling into a
 // subagent trace. Restored on Escape.
 type savedDetailState struct {
@@ -285,6 +292,23 @@ type model struct {
 
 	// Modal popup (e.g. delete confirmation). When non-nil, captures all input.
 	popup *popup
+
+	// Picker search mode state
+	pickerSearchMode    bool         // true when / search is active
+	pickerSearchTyping  bool         // true while text input is focused (all chars → input)
+	pickerSearchQuery   string       // current search text
+	pickerSearchResults []pickerItem // filtered picker items when search active
+	pickerSearchGen     int          // generation counter to cancel stale scans
+
+	// Picker preview pane (right side of search split view)
+	pickerPreviewMessages []message           // parsed messages for preview pane
+	pickerPreviewPath     string              // path of currently loaded preview session
+	pickerPreviewLoading  bool                // true while preview session is being parsed
+	pickerPreviewGen      int                 // generation counter to cancel stale preview loads
+	pickerPreviewCache    []previewCacheEntry // LRU cache of last 5 previews
+
+	// Resume: set before tea.Quit to exec into claude --resume after exit
+	resumeSession *parser.SessionInfo
 }
 
 // applyDebugFilters rebuilds debugFiltered from debugEntries using the current
@@ -663,6 +687,46 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case pickerSearchResultMsg:
+		if msg.gen != m.pickerSearchGen {
+			return m, nil // stale result
+		}
+		m.pickerSearchResults = msg.results
+		// Set cursor to first session in results.
+		m.pickerCursor = 0
+		for i, item := range msg.results {
+			if item.typ == pickerItemSession {
+				m.pickerCursor = i
+				break
+			}
+		}
+		m.pickerScroll = 0
+		cmd := m.schedulePreviewLoad()
+		return m, cmd
+
+	case pickerPreviewTickMsg:
+		if msg.gen != m.pickerPreviewGen {
+			return m, nil // stale debounce
+		}
+		s := m.pickerSearchSelectedSession()
+		if s == nil {
+			m.pickerPreviewLoading = false
+			return m, nil
+		}
+		return m, loadPreviewCmd(*s, m.pickerPreviewGen)
+
+	case pickerPreviewLoadedMsg:
+		if msg.gen != m.pickerPreviewGen {
+			return m, nil // stale load
+		}
+		m.pickerPreviewMessages = msg.messages
+		m.pickerPreviewPath = msg.path
+		m.pickerPreviewLoading = false
+		if msg.messages != nil {
+			m.addPreviewCache(msg.path, msg.messages)
+		}
+		return m, nil
+
 	case flashClearMsg:
 		m.flashStatus = ""
 		return m, nil
@@ -866,6 +930,34 @@ func (m model) viewDetail() string {
 	}).assemble()
 }
 
+// runAndMaybeResume runs the Bubble Tea program. If the user triggered a
+// resume action, it exec's into `claude --resume <id>` after the TUI exits.
+// This never returns when resuming (syscall.Exec replaces the process).
+func runAndMaybeResume(p *tea.Program) {
+	fm, err := p.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	m := fm.(model)
+	if m.resumeSession == nil {
+		return
+	}
+
+	// Change to the session's working directory so claude picks up context.
+	if m.resumeSession.Cwd != "" {
+		os.Chdir(m.resumeSession.Cwd)
+	}
+
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tail-claude: claude not found in PATH\n")
+		os.Exit(1)
+	}
+	syscall.Exec(claudePath, []string{"claude", "--resume", m.resumeSession.SessionID}, os.Environ())
+}
+
 func main() {
 	// Detect terminal background ONCE, before Bubble Tea takes over.
 	// lipgloss queries via OSC 11 which can fail in alt-screen mode.
@@ -1007,10 +1099,7 @@ Flags:
 		m.pickerTickActive = true
 
 		p := tea.NewProgram(m)
-		if _, err := p.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
+		runAndMaybeResume(p)
 		return
 	}
 
@@ -1085,8 +1174,5 @@ Flags:
 	}
 
 	p := tea.NewProgram(m)
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
+	runAndMaybeResume(p)
 }

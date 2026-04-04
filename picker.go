@@ -123,7 +123,21 @@ func rebuildPickerItems(sessions []parser.SessionInfo) []pickerItem {
 
 // updatePicker handles key events in the session picker view.
 func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Delegate to search handler when search mode is active.
+	if m.pickerSearchMode {
+		return m.updatePickerSearch(msg)
+	}
+
 	switch msg.String() {
+	case "/":
+		m.pickerSearchMode = true
+		m.pickerSearchTyping = true
+		m.pickerSearchQuery = ""
+		m.pickerSearchResults = nil
+		m.pickerSearchGen++
+		// Load preview for whatever session is currently selected.
+		cmd := m.schedulePreviewLoad()
+		return m, cmd
 	case "q", "esc", "escape", "backspace":
 		if m.pickerWatcher != nil {
 			m.pickerWatcher.stop()
@@ -189,6 +203,19 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if s := m.pickerSelectedSession(); s != nil {
 			m.flashStatus = "Copied: " + s.Path
 			return m, tea.Batch(tea.SetClipboard(s.Path), flashClearCmd())
+		}
+	case "r":
+		if s := m.pickerSelectedSession(); s != nil {
+			si := *s // copy for closure
+			m.popup = newPopup(
+				"Resume session?",
+				"claude --resume "+formatSessionName(s.SessionID),
+				func() (tea.Model, tea.Cmd) {
+					m.resumeSession = &si
+					return m, tea.Quit
+				},
+			)
+			return m, nil
 		}
 	case "D":
 		if s := m.pickerSelectedSession(); s != nil {
@@ -480,6 +507,10 @@ func (m model) pickerTotalLines() int {
 
 // viewPicker renders the session picker screen.
 func (m model) viewPicker() string {
+	if m.pickerSearchMode {
+		return m.viewPickerSearch()
+	}
+
 	width := m.clampWidth()
 
 	// Header
@@ -522,6 +553,8 @@ func (m model) viewPicker() string {
 		"j/k", "nav",
 		"tab", "preview",
 		"enter", "open",
+		"/", "search",
+		"r", "resume",
 	}
 	if len(m.worktreeProjectDirs) > 0 {
 		if m.pickerWorktreeMode {
