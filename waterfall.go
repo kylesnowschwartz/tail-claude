@@ -230,34 +230,129 @@ func (m model) renderWaterfallTimeline(width int) string {
 	return b.String()
 }
 
-// renderWaterfallInspector renders the right-side inspector panel.
-// Full content is added by card bl-qkkj; this card shows a placeholder.
+// wfCategoryColor maps a ToolCategory to its theme color for inspector display.
+// Named wfCategoryColor to avoid conflict with the parallel card bl-qx3j which
+// also adds a categoryColor function to waterfall.go.
+func wfCategoryColor(cat parser.ToolCategory) color.Color {
+	switch cat {
+	case parser.CategoryRead:
+		return ColorToolRead
+	case parser.CategoryEdit:
+		return ColorToolEdit
+	case parser.CategoryWrite:
+		return ColorToolWrite
+	case parser.CategoryBash:
+		return ColorToolBash
+	case parser.CategoryGrep:
+		return ColorToolGrep
+	case parser.CategoryGlob:
+		return ColorToolGlob
+	case parser.CategoryTask:
+		return ColorToolTask
+	case parser.CategoryTool:
+		return ColorToolSkill
+	case parser.CategoryWeb:
+		return ColorToolWeb
+	default:
+		return ColorToolOther
+	}
+}
+
+// renderWaterfallInspector renders the right-side inspector panel with
+// timing-focused detail for the currently selected row.
 func (m model) renderWaterfallInspector(width int) string {
-	style := lipgloss.NewStyle().
-		Faint(true).
+	containerStyle := lipgloss.NewStyle().
 		Width(width).
 		PaddingLeft(1)
 
+	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
+	secondaryStyle := lipgloss.NewStyle().Foreground(ColorTextSecondary)
+
+	// No row selected
 	if m.wfCursor >= len(m.wfRows) {
-		return style.Render("Select a row to inspect")
+		return containerStyle.Render(dimStyle.Render("Select a row to inspect"))
 	}
 
 	row := m.wfRows[m.wfCursor]
+
+	// User separator: show minimal info
 	if row.IsUserSeparator {
-		return style.Render("User message")
+		return containerStyle.Render(secondaryStyle.Render(
+			fmt.Sprintf("User message\n@ +%s", formatRelativeMs(row.StartMs)),
+		))
 	}
 
 	var b strings.Builder
-	b.WriteString("Inspector\n")
-	b.WriteString(strings.Repeat("\u2500", min(width-2, 20)))
-	b.WriteByte('\n')
+
+	divider := dimStyle.Render(strings.Repeat("\u2500", min(width-2, 20)))
+
+	// --- Top metadata ---
 	if row.Model != "" {
-		b.WriteString(fmt.Sprintf("Model: %s\n", shortModel(row.Model)))
+		modelStyle := lipgloss.NewStyle().Foreground(modelColor(row.Model))
+		b.WriteString(fmt.Sprintf("Model: %s\n", modelStyle.Render(shortModel(row.Model))))
 	}
 	b.WriteString(fmt.Sprintf("Duration: %s\n", formatDuration(row.DurationMs)))
 	b.WriteString(fmt.Sprintf("Tools: %d\n", len(row.Tools)))
 
-	return style.Render(b.String())
+	// --- Subagent section ---
+	if row.IsSubagent {
+		b.WriteByte('\n')
+		b.WriteString(divider)
+		b.WriteByte('\n')
+		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Subagent"))
+		b.WriteByte('\n')
+
+		// Find the Task tool (CategoryTask) for subagent metadata
+		for _, t := range row.Tools {
+			if t.Category == parser.CategoryTask {
+				if t.Name != "" {
+					nameStyle := lipgloss.NewStyle().Foreground(wfCategoryColor(t.Category))
+					b.WriteString(fmt.Sprintf("Type: %s\n", nameStyle.Render(t.Name)))
+				}
+				if t.Summary != "" {
+					b.WriteString(fmt.Sprintf("Desc: %s\n", dimStyle.Render(t.Summary)))
+				}
+				break
+			}
+		}
+
+		// Child tool count: all tools excluding the Task tool itself
+		childCount := 0
+		for _, t := range row.Tools {
+			if t.Category != parser.CategoryTask {
+				childCount++
+			}
+		}
+		b.WriteString(fmt.Sprintf("Child tools: %d\n", childCount))
+	}
+
+	// --- Tool details ---
+	if len(row.Tools) > 0 {
+		b.WriteByte('\n')
+		b.WriteString(divider)
+		b.WriteByte('\n')
+		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Tool Details"))
+		b.WriteByte('\n')
+
+		for _, t := range row.Tools {
+			nameStyle := lipgloss.NewStyle().Foreground(wfCategoryColor(t.Category))
+			namePart := nameStyle.Render(t.Name)
+			durPart := secondaryStyle.Render(formatDuration(t.DurationMs))
+
+			if t.Error {
+				errorStyle := lipgloss.NewStyle().Foreground(ColorError).Bold(true)
+				b.WriteString(fmt.Sprintf("%s  %s  %s\n", namePart, durPart, errorStyle.Render("ERROR")))
+			} else {
+				b.WriteString(fmt.Sprintf("%s  %s\n", namePart, durPart))
+			}
+
+			if t.Summary != "" {
+				b.WriteString(fmt.Sprintf("  %s\n", dimStyle.Render(t.Summary)))
+			}
+		}
+	}
+
+	return containerStyle.Render(b.String())
 }
 
 // ensureWfCursorVisible scrolls the waterfall viewport to keep the cursor visible.
@@ -305,4 +400,3 @@ func formatRelativeMs(ms int64) string {
 	remainSecs := secs - float64(mins*60)
 	return fmt.Sprintf("%dm%02.0fs", mins, remainSecs)
 }
-
