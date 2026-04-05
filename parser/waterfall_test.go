@@ -332,3 +332,31 @@ func TestColOffset_Midpoint(t *testing.T) {
 		t.Errorf("ColOffset(250,1000,80) should be 20, got %d", got)
 	}
 }
+
+// TestBuildWaterfallRows_EndTimeUsesMaxChunkEnd verifies that EndTime is the
+// maximum end timestamp across all chunks, not just the last chunk's end time.
+func TestBuildWaterfallRows_EndTimeUsesMaxChunkEnd(t *testing.T) {
+	// Long task starts at t=0, runs 10s. Short read at t=5s, runs 100ms.
+	// Last chunk (index 1) ends at 5.1s, but chunk 0 ends at 10s.
+	// EndTime must be 10s, not 5.1s.
+	chunks := []Chunk{
+		aiChunkWithTools(baseTime, 10000, "opus", []DisplayItem{
+			subagentItem("Task", 9500),
+		}),
+		aiChunkWithTools(baseTime.Add(5*time.Second), 100, "sonnet", []DisplayItem{
+			toolItem("Read", CategoryRead, 100, false, "file.go"),
+		}),
+	}
+	rows, axis := BuildWaterfallRows(chunks)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	// TotalMs should be 10000 (from chunk 0), not 5100 (from chunk 1).
+	if axis.TotalMs != 10000 {
+		t.Errorf("TotalMs should be 10000 (max chunk end), got %d", axis.TotalMs)
+	}
+	expectedEnd := baseTime.Add(10 * time.Second)
+	if !axis.EndTime.Equal(expectedEnd) {
+		t.Errorf("EndTime should be %v, got %v", expectedEnd, axis.EndTime)
+	}
+}

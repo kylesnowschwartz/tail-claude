@@ -41,8 +41,15 @@ func BuildWaterfallRows(chunks []Chunk) ([]WaterfallRow, TimeAxis) {
 	}
 
 	firstTS := chunks[0].Timestamp
-	lastChunk := chunks[len(chunks)-1]
-	endTime := lastChunk.Timestamp.Add(time.Duration(lastChunk.DurationMs) * time.Millisecond)
+	// Compute the true latest end time across all chunks (not just the last one).
+	// A long-running chunk starting earlier can end after the chronologically last chunk.
+	var endTime time.Time
+	for _, c := range chunks {
+		chunkEnd := c.Timestamp.Add(time.Duration(c.DurationMs) * time.Millisecond)
+		if chunkEnd.After(endTime) {
+			endTime = chunkEnd
+		}
+	}
 	totalMs := endTime.Sub(firstTS).Milliseconds()
 
 	var rows []WaterfallRow
