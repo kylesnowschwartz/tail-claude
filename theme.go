@@ -170,17 +170,17 @@ func initTheme(hasDarkBg bool) {
 	ColorPickerMeta = ColorTextDim
 	ColorGitBranch = ld(lipgloss.Color("5"), lipgloss.Color("135"))
 
-	// Tool category colors — all dim for now.
-	ColorToolRead = ColorTextDim
-	ColorToolEdit = ColorTextDim
-	ColorToolWrite = ColorTextDim
-	ColorToolBash = ColorTextDim
-	ColorToolGrep = ColorTextDim
-	ColorToolGlob = ColorTextDim
-	ColorToolTask = ColorTextDim
-	ColorToolSkill = ColorTextDim
-	ColorToolWeb = ColorTextDim
-	ColorToolOther = ColorTextDim
+	// Tool category colors — distinct per category for waterfall bars and detail icons.
+	ColorToolRead = ld(lipgloss.Color("4"), lipgloss.Color("75"))    // blue
+	ColorToolEdit = ld(lipgloss.Color("3"), lipgloss.Color("220"))   // yellow
+	ColorToolWrite = ld(lipgloss.Color("2"), lipgloss.Color("114"))  // green
+	ColorToolBash = ld(lipgloss.Color("1"), lipgloss.Color("196"))   // red
+	ColorToolGrep = ld(lipgloss.Color("6"), lipgloss.Color("80"))    // cyan
+	ColorToolGlob = ld(lipgloss.Color("6"), lipgloss.Color("80"))    // cyan
+	ColorToolTask = ld(lipgloss.Color("5"), lipgloss.Color("177"))   // purple
+	ColorToolSkill = ld(lipgloss.Color("8"), lipgloss.Color("245"))  // gray
+	ColorToolWeb = ld(lipgloss.Color("3"), lipgloss.Color("208"))    // orange
+	ColorToolOther = ld(lipgloss.Color("8"), lipgloss.Color("245"))  // gray
 
 	// Team member colors
 	ColorTeamBlue = ld(lipgloss.Color("4"), lipgloss.Color("75"))

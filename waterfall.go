@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
 // updateWaterfall handles key events in the waterfall timeline view.
@@ -81,16 +83,74 @@ func (m model) viewWaterfall() string {
 	return body + "\n" + footer
 }
 
-// renderWaterfallTimeline renders the left panel with row labels.
-// Bars are added by card bl-qx3j; this card renders labels only.
+// categoryColor returns the theme color for a tool category.
+func categoryColor(cat parser.ToolCategory) color.Color {
+	switch cat {
+	case parser.CategoryRead:
+		return ColorToolRead
+	case parser.CategoryEdit:
+		return ColorToolEdit
+	case parser.CategoryWrite:
+		return ColorToolWrite
+	case parser.CategoryBash:
+		return ColorToolBash
+	case parser.CategoryGrep:
+		return ColorToolGrep
+	case parser.CategoryGlob:
+		return ColorToolGlob
+	case parser.CategoryTask:
+		return ColorToolTask
+	case parser.CategoryTool:
+		return ColorToolSkill
+	case parser.CategoryWeb:
+		return ColorToolWeb
+	default:
+		return ColorToolOther
+	}
+}
+
+// renderTimeAxisHeader renders a one-line time axis with tick marks at 0%, 25%,
+// 50%, 75%, and 100% of totalMs. The gutter prefix is blank to align with bars.
+func renderTimeAxisHeader(gutterWidth, barWidth int, totalMs int64) string {
+	dimStyle := lipgloss.NewStyle().Faint(true)
+
+	// Build the bar-area portion: place tick labels at each quarter position.
+	buf := make([]byte, barWidth)
+	for i := range buf {
+		buf[i] = ' '
+	}
+
+	// The five tick positions (0, 25, 50, 75, 100 percent).
+	ticks := [5]int{0, 1, 2, 3, 4}
+	for _, t := range ticks {
+		ms := int64(t) * totalMs / 4
+		col := parser.ColOffset(ms, totalMs, barWidth)
+		label := "|" + formatRelativeMs(ms)
+		for j, ch := range []byte(label) {
+			if col+j < barWidth {
+				buf[col+j] = ch
+			}
+		}
+	}
+
+	gutter := strings.Repeat(" ", gutterWidth)
+	return dimStyle.Render(gutter + string(buf))
+}
+
+// renderWaterfallTimeline renders the left panel with a time axis and horizontal
+// bars colored by tool category.
 func (m model) renderWaterfallTimeline(width int) string {
+	const gutterWidth = 12 // "+XXX.Xs   " prefix
+
+	barWidth := width - gutterWidth
+	if barWidth < 1 {
+		barWidth = 1
+	}
+
 	var b strings.Builder
 
-	// Header
-	title := lipgloss.NewStyle().Bold(true).Render("Waterfall Timeline")
-	b.WriteString(title)
-	b.WriteByte('\n')
-	b.WriteString(strings.Repeat("\u2500", min(width, 40)))
+	// Time axis header
+	b.WriteString(renderTimeAxisHeader(gutterWidth, barWidth, m.wfTimeAxis.TotalMs))
 	b.WriteByte('\n')
 
 	// Visible rows based on scroll
@@ -105,42 +165,62 @@ func (m model) renderWaterfallTimeline(width int) string {
 	}
 
 	dimStyle := lipgloss.NewStyle().Faint(true)
-	selectedStyle := lipgloss.NewStyle().Reverse(true)
+	selectedBg := lipgloss.NewStyle().Background(ColorPickerSelectedBg)
 
 	for i := start; i < end; i++ {
 		row := m.wfRows[i]
-		var line string
 
+		// Gutter: left-aligned relative timestamp padded to gutterWidth.
+		gutter := fmt.Sprintf("+%-8s  ", formatRelativeMs(row.StartMs))
+
+		var barArea string
 		if row.IsUserSeparator {
-			line = dimStyle.Render(fmt.Sprintf("  \u2500\u2500 user message @ +%s \u2500\u2500", formatRelativeMs(row.StartMs)))
+			// Thin dimmed horizontal line across the bar area.
+			barArea = dimStyle.Render(strings.Repeat("\u2500", barWidth))
 		} else {
-			// Primary tool name and count
+			// Compute bar start and width in columns.
+			startCol := parser.ColOffset(row.StartMs, m.wfTimeAxis.TotalMs, barWidth)
+			endCol := parser.ColOffset(row.StartMs+row.DurationMs, m.wfTimeAxis.TotalMs, barWidth)
+			barCols := endCol - startCol
+			if barCols < 1 {
+				barCols = 1
+			}
+
+			// Choose color from primary tool category.
+			var cat parser.ToolCategory
+			if len(row.Tools) > 0 {
+				cat = row.Tools[0].Category
+			}
+			col := categoryColor(cat)
+			barStr := strings.Repeat("\u2588", barCols)
+			coloredBar := lipgloss.NewStyle().Foreground(col).Render(barStr)
+
+			// Label: primary tool name + extra count.
 			primary := "unknown"
 			if len(row.Tools) > 0 {
 				primary = row.Tools[0].Name
 			}
-			toolCount := len(row.Tools)
 			label := primary
-			if toolCount > 1 {
-				label = fmt.Sprintf("%s +%d", primary, toolCount-1)
+			if len(row.Tools) > 1 {
+				label = fmt.Sprintf("%s +%d", primary, len(row.Tools)-1)
 			}
 			if row.IsSubagent {
-				chevron := "\u25b6" // right-pointing triangle
+				chevron := "\u25b6"
 				if m.wfExpanded[i] {
-					chevron = "\u25bc" // down-pointing triangle
+					chevron = "\u25bc"
 				}
 				label = chevron + " " + label
 			}
-			line = fmt.Sprintf("  +%-8s %s", formatRelativeMs(row.StartMs), label)
+
+			// Build the bar area: leading spaces + colored bar + space + label.
+			prefix := strings.Repeat(" ", startCol)
+			barArea = prefix + coloredBar + " " + label
 		}
 
-		// Truncate to width
-		if len(line) > width {
-			line = line[:width]
-		}
+		line := gutter + barArea
 
 		if i == m.wfCursor {
-			line = selectedStyle.Render(line)
+			line = selectedBg.Render(line)
 		}
 
 		b.WriteString(line)
