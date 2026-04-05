@@ -511,6 +511,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewDetail {
 			m.computeDetailMaxScroll()
 		}
+		if m.view == viewWaterfall {
+			m.clampWfScroll()
+		}
 		return m, nil
 
 	case tickMsg:
@@ -576,6 +579,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// streaming text). Recompute max scroll so the user can reach
 			// the new content, but don't move their scroll position.
 			m.computeDetailMaxScroll()
+		} else if m.view == viewWaterfall {
+			m.wfRows, m.wfTimeAxis = parser.BuildWaterfallRows(m.sessionChunks)
+			if m.wfCursor >= len(m.wfRows) && len(m.wfRows) > 0 {
+				m.wfCursor = len(m.wfRows) - 1
+			}
+			m.clampWfScroll()
 		}
 
 		// Ongoing indicator with grace period.
