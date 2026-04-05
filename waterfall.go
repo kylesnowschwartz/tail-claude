@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
@@ -114,8 +115,11 @@ func categoryColor(cat parser.ToolCategory) color.Color {
 func renderTimeAxisHeader(gutterWidth, barWidth int, totalMs int64) string {
 	dimStyle := lipgloss.NewStyle().Faint(true)
 
-	// Build the bar-area portion: place tick labels at each quarter position.
-	buf := make([]byte, barWidth)
+	// Extra capacity so the rightmost tick label isn't clipped by the buffer
+	// boundary. The 100% tick lands at barWidth-1, and its label (e.g. "|10.0s")
+	// can be up to ~8 chars, so 16 bytes of headroom is plenty.
+	bufLen := barWidth + 16
+	buf := make([]byte, bufLen)
 	for i := range buf {
 		buf[i] = ' '
 	}
@@ -127,14 +131,16 @@ func renderTimeAxisHeader(gutterWidth, barWidth int, totalMs int64) string {
 		col := parser.ColOffset(ms, totalMs, barWidth)
 		label := "|" + formatRelativeMs(ms)
 		for j, ch := range []byte(label) {
-			if col+j < barWidth {
+			if col+j < bufLen {
 				buf[col+j] = ch
 			}
 		}
 	}
 
+	// Trim trailing spaces while keeping the full last label.
+	result := strings.TrimRight(string(buf), " ")
 	gutter := strings.Repeat(" ", gutterWidth)
-	return dimStyle.Render(gutter + string(buf))
+	return dimStyle.Render(gutter + result)
 }
 
 // renderWaterfallTimeline renders the left panel with a time axis and horizontal
@@ -213,8 +219,9 @@ func (m model) renderWaterfallTimeline(width int) string {
 			}
 
 			// Build the bar area: leading spaces + colored bar + space + label.
+			// Truncate to barWidth so the bar never bleeds into the inspector panel.
 			prefix := strings.Repeat(" ", startCol)
-			barArea = prefix + coloredBar + " " + label
+			barArea = ansi.Truncate(prefix+coloredBar+" "+label, barWidth, "")
 		}
 
 		line := gutter + barArea
