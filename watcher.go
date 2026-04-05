@@ -22,6 +22,7 @@ const watcherDebounce = 500 * time.Millisecond
 type tailUpdateMsg struct {
 	messages       []message
 	teams          []parser.TeamSnapshot
+	chunks         []parser.Chunk
 	ongoing        bool   // whether the session appears to still be in progress
 	permissionMode string // last-seen permissionMode from new entries; empty if unchanged
 }
@@ -256,6 +257,7 @@ func (w *sessionWatcher) readAndRebuild() {
 	update := tailUpdateMsg{
 		messages:       chunksToMessages(chunks, allProcs, colorMap),
 		teams:          teams,
+		chunks:         chunks,
 		ongoing:        ongoing,
 		permissionMode: permissionMode,
 	}

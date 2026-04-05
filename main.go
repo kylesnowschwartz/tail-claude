@@ -43,11 +43,12 @@ const (
 type viewState int
 
 const (
-	viewList   viewState = iota // message list (main view)
-	viewDetail                  // full-screen single message
-	viewPicker                  // session picker
-	viewDebug                   // debug log viewer
-	viewTeam                    // team task board
+	viewList      viewState = iota // message list (main view)
+	viewDetail                     // full-screen single message
+	viewPicker                     // session picker
+	viewDebug                      // debug log viewer
+	viewTeam                       // team task board
+	viewWaterfall                  // waterfall timeline
 )
 
 // staleSessionThreshold controls when an auto-discovered session is
@@ -275,6 +276,14 @@ type model struct {
 	teams      []parser.TeamSnapshot
 	teamScroll int
 
+	// Waterfall view state
+	sessionChunks []parser.Chunk       // raw chunks for waterfall building
+	wfRows        []parser.WaterfallRow
+	wfTimeAxis    parser.TimeAxis
+	wfCursor      int
+	wfScroll      int
+	wfExpanded    map[int]bool
+
 	// Debug log viewer state
 	debugEntries    []parser.DebugEntry // raw parsed entries (before filter/collapse)
 	debugFiltered   []parser.DebugEntry // after level filter + duplicate collapse
@@ -334,6 +343,7 @@ func (m *model) stopDebugWatcher() {
 type loadResult struct {
 	messages     []message
 	teams        []parser.TeamSnapshot
+	chunks       []parser.Chunk
 	path         string
 	classified   []parser.ClassifiedMsg
 	offset       int64
@@ -388,6 +398,7 @@ func loadSession(path string) (loadResult, error) {
 	return loadResult{
 		messages:     chunksToMessages(chunks, allProcs, colorMap),
 		teams:        teams,
+		chunks:       chunks,
 		path:         path,
 		classified:   classified,
 		offset:       offset,
@@ -409,6 +420,12 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.messages = result.messages
 	m.teams = result.teams
 	m.teamScroll = 0
+	m.sessionChunks = result.chunks
+	m.wfRows = nil
+	m.wfTimeAxis = parser.TimeAxis{}
+	m.wfCursor = 0
+	m.wfScroll = 0
+	m.wfExpanded = make(map[int]bool)
 	m.expanded = make(map[int]bool)
 	m.resetDetailState()
 	m.cursor = 0
@@ -533,6 +550,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		wasAtEnd := m.view == viewList && m.cursor >= len(m.messages)-1
 		m.messages = msg.messages
 		m.teams = msg.teams
+		m.sessionChunks = msg.chunks
 		if msg.permissionMode != "" {
 			m.sessionMode = msg.permissionMode
 		}
@@ -757,6 +775,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDebug(msg)
 		case viewTeam:
 			return m.updateTeam(msg)
+		case viewWaterfall:
+			return m.updateWaterfall(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -766,6 +786,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layoutList()
 		if m.view == viewDetail {
 			m.computeDetailMaxScroll()
+		}
+		if m.view == viewWaterfall {
+			m.clampWfScroll()
 		}
 		return m, nil
 
@@ -779,6 +802,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDebugMouse(msg)
 		case viewTeam:
 			return m.updateTeamMouse(msg)
+		case viewWaterfall:
+			return m, nil
 		default:
 			return m.updateListMouse(msg)
 		}
@@ -801,6 +826,8 @@ func (m model) View() tea.View {
 			content = m.viewDebugLog()
 		case viewTeam:
 			content = m.viewTeamBoard()
+		case viewWaterfall:
+			content = m.viewWaterfall()
 		default:
 			content = m.viewList()
 		}
@@ -1143,6 +1170,7 @@ Flags:
 
 	m := initialModel(result.messages, hasDarkBg)
 	m.sessionPath = result.path
+	m.sessionChunks = result.chunks
 	m.projectDir = projectDir
 	m.projectDirs = projectDirs
 	m.worktreeProjectDirs = worktreeProjectDirs

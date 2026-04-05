@@ -112,6 +112,15 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.teamScroll = 0
 			m.view = viewTeam
 		}
+	case "w":
+		// Open waterfall timeline view.
+		if len(m.sessionChunks) > 0 {
+			m.wfRows, m.wfTimeAxis = parser.BuildWaterfallRows(m.sessionChunks)
+			m.wfCursor = 0
+			m.wfScroll = 0
+			m.wfExpanded = make(map[int]bool)
+			m.view = viewWaterfall
+		}
 	case "d":
 		// Open debug log viewer for current session.
 		debugPath := parser.DebugLogPath(m.sessionPath)
