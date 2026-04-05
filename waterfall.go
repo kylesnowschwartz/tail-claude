@@ -230,33 +230,6 @@ func (m model) renderWaterfallTimeline(width int) string {
 	return b.String()
 }
 
-// wfCategoryColor maps a ToolCategory to its theme color for inspector display.
-// Named wfCategoryColor to avoid conflict with the parallel card bl-qx3j which
-// also adds a categoryColor function to waterfall.go.
-func wfCategoryColor(cat parser.ToolCategory) color.Color {
-	switch cat {
-	case parser.CategoryRead:
-		return ColorToolRead
-	case parser.CategoryEdit:
-		return ColorToolEdit
-	case parser.CategoryWrite:
-		return ColorToolWrite
-	case parser.CategoryBash:
-		return ColorToolBash
-	case parser.CategoryGrep:
-		return ColorToolGrep
-	case parser.CategoryGlob:
-		return ColorToolGlob
-	case parser.CategoryTask:
-		return ColorToolTask
-	case parser.CategoryTool:
-		return ColorToolSkill
-	case parser.CategoryWeb:
-		return ColorToolWeb
-	default:
-		return ColorToolOther
-	}
-}
 
 // renderWaterfallInspector renders the right-side inspector panel with
 // timing-focused detail for the currently selected row.
@@ -306,7 +279,7 @@ func (m model) renderWaterfallInspector(width int) string {
 		for _, t := range row.Tools {
 			if t.Category == parser.CategoryTask {
 				if t.Name != "" {
-					nameStyle := lipgloss.NewStyle().Foreground(wfCategoryColor(t.Category))
+					nameStyle := lipgloss.NewStyle().Foreground(categoryColor(t.Category))
 					b.WriteString(fmt.Sprintf("Type: %s\n", nameStyle.Render(t.Name)))
 				}
 				if t.Summary != "" {
@@ -335,7 +308,7 @@ func (m model) renderWaterfallInspector(width int) string {
 		b.WriteByte('\n')
 
 		for _, t := range row.Tools {
-			nameStyle := lipgloss.NewStyle().Foreground(wfCategoryColor(t.Category))
+			nameStyle := lipgloss.NewStyle().Foreground(categoryColor(t.Category))
 			namePart := nameStyle.Render(t.Name)
 			durPart := secondaryStyle.Render(formatDuration(t.DurationMs))
 
