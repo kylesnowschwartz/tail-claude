@@ -279,6 +279,7 @@ type model struct {
 	// Waterfall view state
 	sessionChunks []parser.Chunk       // raw chunks for waterfall building
 	wfRows        []parser.WaterfallRow
+	wfVisible     []wfVisibleRow       // flat navigable row list (parents + expanded children)
 	wfTimeAxis    parser.TimeAxis
 	wfTimeMap     parser.TimeMap       // compressed display mapping for long idle gaps
 	wfStats       parser.WaterfallStats
@@ -424,6 +425,7 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.teamScroll = 0
 	m.sessionChunks = result.chunks
 	m.wfRows = nil
+	m.wfVisible = nil
 	m.wfTimeAxis = parser.TimeAxis{}
 	m.wfTimeMap = parser.TimeMap{}
 	m.wfStats = parser.WaterfallStats{}
@@ -587,8 +589,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.wfRows, m.wfTimeAxis = parser.BuildWaterfallRows(m.sessionChunks)
 			m.wfTimeMap = parser.BuildTimeMap(m.wfRows, m.wfTimeAxis.TotalMs)
 			m.wfStats = parser.ComputeWaterfallStats(m.wfRows, m.wfTimeAxis)
-			if m.wfCursor >= len(m.wfRows) && len(m.wfRows) > 0 {
-				m.wfCursor = len(m.wfRows) - 1
+			m.wfVisible = buildWfVisibleRows(m.wfRows, m.wfExpanded)
+			if m.wfCursor >= len(m.wfVisible) && len(m.wfVisible) > 0 {
+				m.wfCursor = len(m.wfVisible) - 1
 			}
 			m.clampWfScroll()
 		}

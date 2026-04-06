@@ -12,6 +12,52 @@ import (
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
+// wfVisibleRow represents one navigable row in the waterfall timeline view.
+// Parent rows (childIndex == -1) map directly to a WaterfallRow.
+// Child rows (childIndex >= 0) represent individual tools inside an expanded
+// subagent row, indented one level in the timeline.
+type wfVisibleRow struct {
+	rowIndex   int                  // index into m.wfRows
+	childIndex int                  // -1 for parent rows, 0..N for child tools
+	row        parser.WaterfallRow  // the parent WaterfallRow
+	childTool  *parser.WaterfallTool // non-nil for child rows
+	indent     int                  // 0 for parents, 1 for children
+}
+
+// buildWfVisibleRows computes the flat visible row list from waterfall rows and
+// expansion state. Expanded subagent rows insert child rows -- one per tool in
+// the row, excluding the Task tool itself (since that is the subagent spawner).
+func buildWfVisibleRows(rows []parser.WaterfallRow, expanded map[int]bool) []wfVisibleRow {
+	var visible []wfVisibleRow
+	for i, row := range rows {
+		visible = append(visible, wfVisibleRow{
+			rowIndex:   i,
+			childIndex: -1,
+			row:        row,
+			indent:     0,
+		})
+		if expanded[i] && row.IsSubagent {
+			ci := 0
+			for ti := range row.Tools {
+				t := row.Tools[ti]
+				if t.Category == parser.CategoryTask {
+					continue // skip the Task tool -- it's the subagent spawner
+				}
+				tool := t // copy to take address
+				visible = append(visible, wfVisibleRow{
+					rowIndex:   i,
+					childIndex: ci,
+					row:        row,
+					childTool:  &tool,
+					indent:     1,
+				})
+				ci++
+			}
+		}
+	}
+	return visible
+}
+
 // updateWaterfall handles key events in the waterfall timeline view.
 func (m model) updateWaterfall(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -21,7 +67,7 @@ func (m model) updateWaterfall(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.view = viewList
 		return m, nil
 	case "j":
-		if len(m.wfRows) > 0 && m.wfCursor < len(m.wfRows)-1 {
+		if len(m.wfVisible) > 0 && m.wfCursor < len(m.wfVisible)-1 {
 			m.wfCursor++
 			m.ensureWfCursorVisible()
 		}
@@ -31,8 +77,8 @@ func (m model) updateWaterfall(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.ensureWfCursorVisible()
 		}
 	case "G":
-		if len(m.wfRows) > 0 {
-			m.wfCursor = len(m.wfRows) - 1
+		if len(m.wfVisible) > 0 {
+			m.wfCursor = len(m.wfVisible) - 1
 			m.ensureWfCursorVisible()
 		}
 	case "g":
@@ -46,10 +92,18 @@ func (m model) updateWaterfall(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.wfScroll < 0 {
 			m.wfScroll = 0
 		}
-	case "tab":
-		// Toggle expansion for subagent rows (placeholder for card bl-6y8y).
-		if m.wfCursor < len(m.wfRows) && m.wfRows[m.wfCursor].IsSubagent {
-			m.wfExpanded[m.wfCursor] = !m.wfExpanded[m.wfCursor]
+	case "tab", "enter":
+		// Toggle expansion for subagent parent rows only; ignore child rows
+		// and non-subagent rows (spec: non-subagent rows do nothing on tab/enter).
+		if m.wfCursor < len(m.wfVisible) {
+			vr := m.wfVisible[m.wfCursor]
+			if vr.childIndex == -1 && vr.row.IsSubagent {
+				m.wfExpanded[vr.rowIndex] = !m.wfExpanded[vr.rowIndex]
+				m.wfVisible = buildWfVisibleRows(m.wfRows, m.wfExpanded)
+				if m.wfCursor >= len(m.wfVisible) {
+					m.wfCursor = len(m.wfVisible) - 1
+				}
+			}
 		}
 	case "?":
 		m.showKeybinds = !m.showKeybinds
@@ -283,41 +337,27 @@ func (m model) renderWaterfallTimeline(width int) string {
 	}
 	start := m.wfScroll
 	end := start + visibleRows
-	if end > len(m.wfRows) {
-		end = len(m.wfRows)
+	if end > len(m.wfVisible) {
+		end = len(m.wfVisible)
 	}
 
 	dimStyle := lipgloss.NewStyle().Faint(true)
 	selectedBg := lipgloss.NewStyle().Background(ColorPickerSelectedBg)
 
-	for i := start; i < end; i++ {
-		row := m.wfRows[i]
+	for vi := start; vi < end; vi++ {
+		vr := m.wfVisible[vi]
+		row := vr.row
 
-		// Gutter: left-aligned relative timestamp padded to gutterWidth.
-		gutter := fmt.Sprintf("+%-8s  ", formatRelativeMs(row.StartMs))
-
+		var gutter string
 		var barArea string
-		if row.IsUserSeparator {
-			// Single dimmed vertical bar at the turn's time column.
-			// This reclaims vertical space: the row stays 1 line but the
-			// marker is subtle so tool bars remain the primary visual element.
-			compressedTotal := m.wfTimeMap.CompressedTotalMs
-			if compressedTotal <= 0 {
-				compressedTotal = m.wfTimeAxis.TotalMs
-			}
-			displayMs := m.wfTimeMap.MapToDisplay(row.StartMs)
-			col := parser.ColOffset(displayMs, compressedTotal, barWidth)
-			label := "user"
-			// Build: spaces up to col, then the vertical bar, then dimmed label.
-			marker := strings.Repeat(" ", col) + "\u2502" + label
-			if len(marker) > barWidth {
-				marker = marker[:barWidth]
-			}
-			barArea = dimStyle.Render(marker)
-		} else {
-			// Float64 scaling for sub-character precision using compressed display ms.
-			// MapToDisplay converts raw StartMs/EndMs to compressed coordinates so
-			// long idle gaps shrink and active tool work spreads proportionally.
+
+		if vr.childIndex >= 0 && vr.childTool != nil {
+			// Child row: indented tool inside an expanded subagent.
+			// Gutter shows indent prefix (2 chars) + blank padding.
+			gutter = fmt.Sprintf("  %-10s", "")
+
+			// Render the child tool as a simple bar using the parent row's
+			// time position and the child's own duration.
 			compressedTotal := m.wfTimeMap.CompressedTotalMs
 			if compressedTotal <= 0 {
 				compressedTotal = m.wfTimeAxis.TotalMs
@@ -327,56 +367,111 @@ func (m model) renderWaterfallTimeline(width int) string {
 				scaleFactor = 0
 			}
 			displayStartMs := m.wfTimeMap.MapToDisplay(row.StartMs)
-			displayEndMs := m.wfTimeMap.MapToDisplay(row.StartMs + row.DurationMs)
+			displayEndMs := m.wfTimeMap.MapToDisplay(row.StartMs + vr.childTool.DurationMs)
 			startColF := float64(displayStartMs) * scaleFactor
 			barWidthF := float64(displayEndMs-displayStartMs) * scaleFactor
 			if barWidthF < 0.125 {
-				barWidthF = 0.125 // minimum visible: 1/8th block
+				barWidthF = 0.125
 			}
-
-			// Round start to nearest whole column.
 			startCol := int(math.Round(startColF))
 			if startCol >= barWidth {
 				startCol = barWidth - 1
 			}
 
-			// Choose color from primary tool category.
-			var cat parser.ToolCategory
-			if len(row.Tools) > 0 {
-				cat = row.Tools[0].Category
+			// Indent by 2 chars in the bar region.
+			const childIndent = 2
+			effectiveBarWidth := barWidth - childIndent
+			if effectiveBarWidth < 1 {
+				effectiveBarWidth = 1
 			}
-			barCol := categoryColor(cat)
+			if startCol >= effectiveBarWidth {
+				startCol = effectiveBarWidth - 1
+			}
+
+			barCol := categoryColor(vr.childTool.Category)
 			coloredBar := renderBarString(barWidthF, barCol)
+			dimDur := dimStyle.Render(waterfallBarDurText(vr.childTool.DurationMs))
+			prefix := strings.Repeat(" ", childIndent+startCol)
+			barArea = ansi.Truncate(prefix+coloredBar+" "+vr.childTool.Name+" "+dimDur, barWidth, "")
+		} else {
+			// Parent row: render as before.
+			gutter = fmt.Sprintf("+%-8s  ", formatRelativeMs(row.StartMs))
 
-			// Label: primary tool name + extra count.
-			primary := "unknown"
-			if len(row.Tools) > 0 {
-				primary = row.Tools[0].Name
-			}
-			label := primary
-			if len(row.Tools) > 1 {
-				label = fmt.Sprintf("%s +%d", primary, len(row.Tools)-1)
-			}
-			if row.IsSubagent {
-				chevron := "\u25b6"
-				if m.wfExpanded[i] {
-					chevron = "\u25bc"
+			if row.IsUserSeparator {
+				// Single dimmed vertical bar at the turn's time column.
+				compressedTotal := m.wfTimeMap.CompressedTotalMs
+				if compressedTotal <= 0 {
+					compressedTotal = m.wfTimeAxis.TotalMs
 				}
-				label = chevron + " " + label
+				displayMs := m.wfTimeMap.MapToDisplay(row.StartMs)
+				col := parser.ColOffset(displayMs, compressedTotal, barWidth)
+				label := "user"
+				marker := strings.Repeat(" ", col) + "\u2502" + label
+				if len(marker) > barWidth {
+					marker = marker[:barWidth]
+				}
+				barArea = dimStyle.Render(marker)
+			} else {
+				// Float64 scaling for sub-character precision using compressed display ms.
+				compressedTotal := m.wfTimeMap.CompressedTotalMs
+				if compressedTotal <= 0 {
+					compressedTotal = m.wfTimeAxis.TotalMs
+				}
+				scaleFactor := float64(barWidth) / float64(compressedTotal)
+				if compressedTotal == 0 {
+					scaleFactor = 0
+				}
+				displayStartMs := m.wfTimeMap.MapToDisplay(row.StartMs)
+				displayEndMs := m.wfTimeMap.MapToDisplay(row.StartMs + row.DurationMs)
+				startColF := float64(displayStartMs) * scaleFactor
+				barWidthF := float64(displayEndMs-displayStartMs) * scaleFactor
+				if barWidthF < 0.125 {
+					barWidthF = 0.125 // minimum visible: 1/8th block
+				}
+
+				// Round start to nearest whole column.
+				startCol := int(math.Round(startColF))
+				if startCol >= barWidth {
+					startCol = barWidth - 1
+				}
+
+				// Choose color from primary tool category.
+				var cat parser.ToolCategory
+				if len(row.Tools) > 0 {
+					cat = row.Tools[0].Category
+				}
+				barCol := categoryColor(cat)
+				coloredBar := renderBarString(barWidthF, barCol)
+
+				// Label: primary tool name + extra count.
+				primary := "unknown"
+				if len(row.Tools) > 0 {
+					primary = row.Tools[0].Name
+				}
+				label := primary
+				if len(row.Tools) > 1 {
+					label = fmt.Sprintf("%s +%d", primary, len(row.Tools)-1)
+				}
+				if row.IsSubagent {
+					chevron := "\u25b6"
+					if m.wfExpanded[vr.rowIndex] {
+						chevron = "\u25bc"
+					}
+					label = chevron + " " + label
+				}
+
+				// Format duration; treat zero/sub-ms as "0ms".
+				dimDur := dimStyle.Render(waterfallBarDurText(row.DurationMs))
+
+				// Build the bar area: leading spaces + colored bar + space + label + dimmed duration.
+				prefix := strings.Repeat(" ", startCol)
+				barArea = ansi.Truncate(prefix+coloredBar+" "+label+" "+dimDur, barWidth, "")
 			}
-
-			// Format duration; treat zero/sub-ms as "0ms".
-			dimDur := dimStyle.Render(waterfallBarDurText(row.DurationMs))
-
-			// Build the bar area: leading spaces + colored bar + space + label + dimmed duration.
-			// Truncate to barWidth so the bar never bleeds into the inspector panel.
-			prefix := strings.Repeat(" ", startCol)
-			barArea = ansi.Truncate(prefix+coloredBar+" "+label+" "+dimDur, barWidth, "")
 		}
 
 		line := gutter + barArea
 
-		if i == m.wfCursor {
+		if vi == m.wfCursor {
 			line = selectedBg.Render(line)
 		}
 
@@ -399,11 +494,30 @@ func (m model) renderWaterfallInspector(width int) string {
 	secondaryStyle := lipgloss.NewStyle().Foreground(ColorTextSecondary)
 
 	// No row selected: show session statistics instead of an empty hint.
-	if m.wfCursor >= len(m.wfRows) {
+	if m.wfCursor >= len(m.wfVisible) {
 		return containerStyle.Render(m.renderWaterfallStats(width, dimStyle, secondaryStyle))
 	}
 
-	row := m.wfRows[m.wfCursor]
+	vr := m.wfVisible[m.wfCursor]
+
+	// Child row: show that specific tool's details.
+	if vr.childIndex >= 0 && vr.childTool != nil {
+		t := vr.childTool
+		var b strings.Builder
+		nameStyle := lipgloss.NewStyle().Foreground(categoryColor(t.Category))
+		b.WriteString(fmt.Sprintf("Tool: %s\n", nameStyle.Render(t.Name)))
+		b.WriteString(fmt.Sprintf("Duration: %s\n", formatDuration(t.DurationMs)))
+		if t.Error {
+			errorStyle := lipgloss.NewStyle().Foreground(ColorError).Bold(true)
+			b.WriteString(errorStyle.Render("ERROR") + "\n")
+		}
+		if t.Summary != "" {
+			b.WriteString(fmt.Sprintf("\n%s\n", dimStyle.Render(t.Summary)))
+		}
+		return containerStyle.Render(b.String())
+	}
+
+	row := vr.row
 
 	// User separator: show minimal info
 	if row.IsUserSeparator {
@@ -553,7 +667,7 @@ func (m *model) clampWfScroll() {
 	if visibleRows < 1 {
 		visibleRows = 1
 	}
-	maxScroll := len(m.wfRows) - visibleRows
+	maxScroll := len(m.wfVisible) - visibleRows
 	if maxScroll < 0 {
 		maxScroll = 0
 	}

@@ -121,6 +121,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.wfCursor = 0
 			m.wfScroll = 0
 			m.wfExpanded = make(map[int]bool)
+			m.wfVisible = buildWfVisibleRows(m.wfRows, m.wfExpanded)
 			m.view = viewWaterfall
 		}
 	case "d":

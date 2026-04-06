@@ -199,6 +199,278 @@ func TestRenderTimeAxisHeaderZeroTotalMs(t *testing.T) {
 	}
 }
 
+// TestBuildWfVisibleRows_Empty verifies that an empty rows slice returns nil.
+func TestBuildWfVisibleRows_Empty(t *testing.T) {
+	result := buildWfVisibleRows(nil, nil)
+	if result != nil {
+		t.Errorf("expected nil for nil input, got %v", result)
+	}
+	result = buildWfVisibleRows([]parser.WaterfallRow{}, make(map[int]bool))
+	if result != nil {
+		t.Errorf("expected nil for empty slice, got %v", result)
+	}
+}
+
+// TestBuildWfVisibleRows_NonSubagentRows verifies that non-subagent rows are
+// emitted as parent rows only (no child expansion regardless of expanded state).
+func TestBuildWfVisibleRows_NonSubagentRows(t *testing.T) {
+	rows := []parser.WaterfallRow{
+		{IsUserSeparator: true, StartMs: 0},
+		{StartMs: 100, DurationMs: 200, Tools: []parser.WaterfallTool{
+			{Name: "Read", Category: parser.CategoryRead, DurationMs: 50},
+		}},
+	}
+	expanded := map[int]bool{0: true, 1: true} // expansion ignored for non-subagent rows
+
+	result := buildWfVisibleRows(rows, expanded)
+
+	if len(result) != 2 {
+		t.Fatalf("expected 2 visible rows, got %d", len(result))
+	}
+	for i, vr := range result {
+		if vr.childIndex != -1 {
+			t.Errorf("row %d: expected childIndex=-1, got %d", i, vr.childIndex)
+		}
+		if vr.indent != 0 {
+			t.Errorf("row %d: expected indent=0, got %d", i, vr.indent)
+		}
+		if vr.rowIndex != i {
+			t.Errorf("row %d: expected rowIndex=%d, got %d", i, i, vr.rowIndex)
+		}
+	}
+}
+
+// TestBuildWfVisibleRows_SubagentCollapsed verifies that a collapsed subagent
+// row produces only the parent row (no children).
+func TestBuildWfVisibleRows_SubagentCollapsed(t *testing.T) {
+	rows := []parser.WaterfallRow{
+		{
+			StartMs:    100,
+			DurationMs: 500,
+			IsSubagent: true,
+			Tools: []parser.WaterfallTool{
+				{Name: "Task", Category: parser.CategoryTask, DurationMs: 500},
+				{Name: "Read", Category: parser.CategoryRead, DurationMs: 100},
+				{Name: "Bash", Category: parser.CategoryBash, DurationMs: 200},
+			},
+		},
+	}
+	expanded := map[int]bool{} // not expanded
+
+	result := buildWfVisibleRows(rows, expanded)
+
+	if len(result) != 1 {
+		t.Fatalf("expected 1 visible row (collapsed), got %d", len(result))
+	}
+	if result[0].childIndex != -1 {
+		t.Errorf("expected parent row (childIndex=-1), got childIndex=%d", result[0].childIndex)
+	}
+}
+
+// TestBuildWfVisibleRows_SubagentExpanded verifies that an expanded subagent
+// row inserts child rows for each non-Task tool, with correct indent.
+func TestBuildWfVisibleRows_SubagentExpanded(t *testing.T) {
+	rows := []parser.WaterfallRow{
+		{
+			StartMs:    100,
+			DurationMs: 500,
+			IsSubagent: true,
+			Tools: []parser.WaterfallTool{
+				{Name: "Task", Category: parser.CategoryTask, DurationMs: 500},
+				{Name: "Read", Category: parser.CategoryRead, DurationMs: 100},
+				{Name: "Bash", Category: parser.CategoryBash, DurationMs: 200},
+			},
+		},
+	}
+	expanded := map[int]bool{0: true}
+
+	result := buildWfVisibleRows(rows, expanded)
+
+	// Expect: 1 parent + 2 children (Task excluded)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 visible rows (1 parent + 2 children), got %d", len(result))
+	}
+
+	parent := result[0]
+	if parent.childIndex != -1 {
+		t.Errorf("result[0]: expected parent (childIndex=-1), got %d", parent.childIndex)
+	}
+	if parent.indent != 0 {
+		t.Errorf("result[0]: expected indent=0, got %d", parent.indent)
+	}
+
+	for i, child := range result[1:] {
+		if child.childIndex != i {
+			t.Errorf("result[%d]: expected childIndex=%d, got %d", i+1, i, child.childIndex)
+		}
+		if child.indent != 1 {
+			t.Errorf("result[%d]: expected indent=1, got %d", i+1, child.indent)
+		}
+		if child.childTool == nil {
+			t.Errorf("result[%d]: expected non-nil childTool", i+1)
+		}
+		if child.rowIndex != 0 {
+			t.Errorf("result[%d]: expected rowIndex=0, got %d", i+1, child.rowIndex)
+		}
+	}
+
+	// Verify child tools are Read and Bash (Task was excluded).
+	if result[1].childTool.Name != "Read" {
+		t.Errorf("child[0]: expected Name=Read, got %q", result[1].childTool.Name)
+	}
+	if result[2].childTool.Name != "Bash" {
+		t.Errorf("child[1]: expected Name=Bash, got %q", result[2].childTool.Name)
+	}
+}
+
+// TestBuildWfVisibleRows_TaskOnlySubagent verifies that a subagent with only a
+// Task tool produces no child rows when expanded (Task is excluded).
+func TestBuildWfVisibleRows_TaskOnlySubagent(t *testing.T) {
+	rows := []parser.WaterfallRow{
+		{
+			StartMs:    100,
+			DurationMs: 300,
+			IsSubagent: true,
+			Tools: []parser.WaterfallTool{
+				{Name: "Task", Category: parser.CategoryTask, DurationMs: 300},
+			},
+		},
+	}
+	expanded := map[int]bool{0: true}
+
+	result := buildWfVisibleRows(rows, expanded)
+
+	// Only the parent row -- Task tool is excluded so no children.
+	if len(result) != 1 {
+		t.Fatalf("expected 1 visible row (Task-only subagent produces no children), got %d", len(result))
+	}
+}
+
+// TestBuildWfVisibleRows_MultipleRows verifies row index assignment across a
+// mix of user separators, regular rows, and subagent rows.
+func TestBuildWfVisibleRows_MultipleRows(t *testing.T) {
+	rows := []parser.WaterfallRow{
+		{IsUserSeparator: true, StartMs: 0},                          // index 0
+		{StartMs: 50, DurationMs: 100, IsSubagent: false},            // index 1
+		{StartMs: 200, DurationMs: 400, IsSubagent: true, Tools: []parser.WaterfallTool{ // index 2
+			{Name: "Task", Category: parser.CategoryTask},
+			{Name: "Write", Category: parser.CategoryWrite, DurationMs: 150},
+		}},
+	}
+	expanded := map[int]bool{2: true}
+
+	result := buildWfVisibleRows(rows, expanded)
+
+	// Expected: row0 (sep), row1 (regular), row2 (subagent parent), row2-child0 (Write)
+	if len(result) != 4 {
+		t.Fatalf("expected 4 visible rows, got %d", len(result))
+	}
+	if result[0].rowIndex != 0 || result[0].childIndex != -1 {
+		t.Errorf("result[0]: expected rowIndex=0, childIndex=-1; got rowIndex=%d, childIndex=%d", result[0].rowIndex, result[0].childIndex)
+	}
+	if result[1].rowIndex != 1 || result[1].childIndex != -1 {
+		t.Errorf("result[1]: expected rowIndex=1, childIndex=-1; got rowIndex=%d, childIndex=%d", result[1].rowIndex, result[1].childIndex)
+	}
+	if result[2].rowIndex != 2 || result[2].childIndex != -1 {
+		t.Errorf("result[2]: expected rowIndex=2, childIndex=-1; got rowIndex=%d, childIndex=%d", result[2].rowIndex, result[2].childIndex)
+	}
+	if result[3].rowIndex != 2 || result[3].childIndex != 0 {
+		t.Errorf("result[3]: expected rowIndex=2, childIndex=0; got rowIndex=%d, childIndex=%d", result[3].rowIndex, result[3].childIndex)
+	}
+	if result[3].childTool == nil || result[3].childTool.Name != "Write" {
+		t.Errorf("result[3]: expected childTool.Name=Write, got %v", result[3].childTool)
+	}
+}
+
+// TestRenderWaterfallTimeline_SubagentChevron verifies that a subagent row
+// shows the collapsed chevron (▶) when not expanded and the expanded chevron
+// (▼) when expanded.
+func TestRenderWaterfallTimeline_SubagentChevron(t *testing.T) {
+	const totalMs = int64(10_000)
+	rows := []parser.WaterfallRow{
+		{
+			StartMs:    1000,
+			DurationMs: 3000,
+			IsSubagent: true,
+			Tools: []parser.WaterfallTool{
+				{Name: "Task", Category: parser.CategoryTask, DurationMs: 3000},
+				{Name: "Read", Category: parser.CategoryRead, DurationMs: 500},
+			},
+		},
+	}
+
+	// Collapsed
+	m := model{
+		wfRows:     rows,
+		wfExpanded: map[int]bool{},
+		wfTimeAxis: parser.TimeAxis{TotalMs: totalMs},
+		height:     10,
+	}
+	m.wfVisible = buildWfVisibleRows(m.wfRows, m.wfExpanded)
+	rendered := m.renderWaterfallTimeline(100)
+	plain := strings.Join(strings.Fields(ansi.Strip(rendered)), " ")
+	if !strings.Contains(plain, "\u25b6") {
+		t.Errorf("collapsed subagent should show ▶ chevron; rendered: %q", plain)
+	}
+
+	// Expanded
+	m.wfExpanded = map[int]bool{0: true}
+	m.wfVisible = buildWfVisibleRows(m.wfRows, m.wfExpanded)
+	rendered = m.renderWaterfallTimeline(100)
+	plain = strings.Join(strings.Fields(ansi.Strip(rendered)), " ")
+	if !strings.Contains(plain, "\u25bc") {
+		t.Errorf("expanded subagent should show ▼ chevron; rendered: %q", plain)
+	}
+}
+
+// TestRenderWaterfallTimeline_SubagentChildRows verifies that child tool rows
+// are rendered with 2-char indent when a subagent is expanded.
+func TestRenderWaterfallTimeline_SubagentChildRows(t *testing.T) {
+	const totalMs = int64(10_000)
+	rows := []parser.WaterfallRow{
+		{
+			StartMs:    1000,
+			DurationMs: 3000,
+			IsSubagent: true,
+			Tools: []parser.WaterfallTool{
+				{Name: "Task", Category: parser.CategoryTask, DurationMs: 3000},
+				{Name: "Bash", Category: parser.CategoryBash, DurationMs: 800},
+			},
+		},
+	}
+
+	m := model{
+		wfRows:     rows,
+		wfExpanded: map[int]bool{0: true},
+		wfTimeAxis: parser.TimeAxis{TotalMs: totalMs},
+		height:     10,
+	}
+	m.wfVisible = buildWfVisibleRows(m.wfRows, m.wfExpanded)
+
+	rendered := m.renderWaterfallTimeline(100)
+	plain := ansi.Strip(rendered)
+
+	// Child row must contain the tool name.
+	if !strings.Contains(plain, "Bash") {
+		t.Errorf("expected child row with 'Bash' tool name; rendered:\n%s", plain)
+	}
+
+	// Child row must start with 2-char indent in the bar area (after gutter).
+	lines := strings.Split(plain, "\n")
+	// Line 0 = time axis, line 1 = parent row, line 2 = child row.
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines, got %d", len(lines))
+	}
+	childLine := lines[2]
+	// The gutter for child rows is "  " (2 spaces) + 10 spaces = 12 chars wide.
+	// The bar area then starts with 2 indent spaces. Check that the line starts
+	// with spaces rather than immediately a block character.
+	runes := []rune(childLine)
+	if len(runes) > 12 && runes[12] != ' ' {
+		t.Errorf("child row bar area should start with indent space at col 12, got %q", string(runes[12]))
+	}
+}
+
 // TestRenderTimeAxisHeaderNarrowTerminal verifies that a narrow terminal
 // (barWidth < 60) targets ~4 ticks instead of ~8.
 func TestRenderTimeAxisHeaderNarrowTerminal(t *testing.T) {
@@ -280,10 +552,12 @@ func TestUserSeparatorMarkerColumn(t *testing.T) {
 	const barWidth = 80
 
 	// Build a minimal model with one user separator row and enough height to render it.
+	wfRows := []parser.WaterfallRow{
+		{IsUserSeparator: true, StartMs: separatorStartMs},
+	}
 	m := model{
-		wfRows: []parser.WaterfallRow{
-			{IsUserSeparator: true, StartMs: separatorStartMs},
-		},
+		wfRows:     wfRows,
+		wfVisible:  buildWfVisibleRows(wfRows, map[int]bool{}),
 		wfTimeAxis: parser.TimeAxis{TotalMs: totalMs},
 		// wfTimeMap zero value: CompressedTotalMs=0, MapToDisplay returns identity.
 		height: 10, // enough rows to show the separator
