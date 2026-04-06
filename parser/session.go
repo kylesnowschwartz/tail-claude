@@ -77,8 +77,14 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 
 	lr := newLineReader(f)
 
-	// Collect all entries from this read window.
+	// Full reads (offset=0) collect raw entries alongside classification
+	// so FilterForks can prune forked DAG paths before the caller sees them.
+	// Incremental reads skip fork detection — new lines extend the canonical head.
+	collectEntries := offset == 0
+
 	var entries []Entry
+	var msgs []ClassifiedMsg
+
 	for {
 		line, ok := lr.next()
 		if !ok {
@@ -88,22 +94,30 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 		if !ok {
 			continue
 		}
-		entries = append(entries, entry)
+		if collectEntries {
+			entries = append(entries, entry)
+		}
+		msg, ok := Classify(entry)
+		if !ok {
+			continue
+		}
+		msgs = append(msgs, msg)
 	}
 	if err := lr.Err(); err != nil {
-		// Return whatever we managed to collect.
-		return classifyEntries(entries), offset + lr.BytesRead(), err
+		return msgs, offset + lr.BytesRead(), err
 	}
 
 	newOffset := offset + lr.BytesRead()
 
-	// Full read: apply fork detection before classification so forked paths
-	// are pruned before Classify strips the metadata we need for the DAG walk.
-	if offset == 0 {
-		entries = FilterForks(entries)
+	// If fork detection finds actual forks, re-classify only the canonical path.
+	if collectEntries {
+		filtered := FilterForks(entries)
+		if len(filtered) < len(entries) {
+			msgs = classifyEntries(filtered)
+		}
 	}
 
-	return classifyEntries(entries), newOffset, nil
+	return msgs, newOffset, nil
 }
 
 // classifyEntries runs Classify on each entry and returns the resulting messages.
