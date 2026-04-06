@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
 // TestFractionalBlock verifies the 1/8th-precision left-block rune mapping.
@@ -94,7 +95,7 @@ func TestRenderTimeAxisHeaderRightmostTick(t *testing.T) {
 	const gutterWidth = 12
 	const totalMs = int64(10_000) // 10 seconds
 
-	rendered := renderTimeAxisHeader(gutterWidth, barWidth, totalMs)
+	rendered := renderTimeAxisHeader(gutterWidth, barWidth, totalMs, parser.TimeMap{})
 	// Strip ANSI escapes so we can inspect plain text.
 	plain := ansi.Strip(rendered)
 
@@ -111,7 +112,7 @@ func TestRenderTimeAxisHeaderAllTicks(t *testing.T) {
 	const gutterWidth = 12
 	const totalMs = int64(10_000)
 
-	rendered := renderTimeAxisHeader(gutterWidth, barWidth, totalMs)
+	rendered := renderTimeAxisHeader(gutterWidth, barWidth, totalMs, parser.TimeMap{})
 	plain := ansi.Strip(rendered)
 
 	want := []string{"|0ms", "|2.5s", "|5.0s", "|7.5s", "|10.0s"}
@@ -131,7 +132,7 @@ func TestRenderTimeAxisHeaderNeverExceedsBarWidth(t *testing.T) {
 		const gutterWidth = 12
 		const totalMs = int64(30_000) // 30 seconds
 
-		rendered := renderTimeAxisHeader(gutterWidth, barWidth, totalMs)
+		rendered := renderTimeAxisHeader(gutterWidth, barWidth, totalMs, parser.TimeMap{})
 		plain := ansi.Strip(rendered)
 
 		// The gutter plus the bar area (with trailing last-label overhang) should

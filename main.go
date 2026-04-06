@@ -280,6 +280,7 @@ type model struct {
 	sessionChunks []parser.Chunk       // raw chunks for waterfall building
 	wfRows        []parser.WaterfallRow
 	wfTimeAxis    parser.TimeAxis
+	wfTimeMap     parser.TimeMap       // compressed display mapping for long idle gaps
 	wfCursor      int
 	wfScroll      int
 	wfExpanded    map[int]bool
@@ -423,6 +424,7 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.sessionChunks = result.chunks
 	m.wfRows = nil
 	m.wfTimeAxis = parser.TimeAxis{}
+	m.wfTimeMap = parser.TimeMap{}
 	m.wfCursor = 0
 	m.wfScroll = 0
 	m.wfExpanded = make(map[int]bool)
@@ -581,6 +583,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.computeDetailMaxScroll()
 		} else if m.view == viewWaterfall {
 			m.wfRows, m.wfTimeAxis = parser.BuildWaterfallRows(m.sessionChunks)
+			m.wfTimeMap = parser.BuildTimeMap(m.wfRows, m.wfTimeAxis.TotalMs)
 			if m.wfCursor >= len(m.wfRows) && len(m.wfRows) > 0 {
 				m.wfCursor = len(m.wfRows) - 1
 			}

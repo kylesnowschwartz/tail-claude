@@ -112,8 +112,10 @@ func categoryColor(cat parser.ToolCategory) color.Color {
 }
 
 // renderTimeAxisHeader renders a one-line time axis with tick marks at 0%, 25%,
-// 50%, 75%, and 100% of totalMs. The gutter prefix is blank to align with bars.
-func renderTimeAxisHeader(gutterWidth, barWidth int, totalMs int64) string {
+// 50%, 75%, and 100% of the raw session duration. Tick positions are placed
+// using compressed display coordinates from timeMap, but labels show real
+// (uncompressed) wall-clock offsets so the user knows actual elapsed time.
+func renderTimeAxisHeader(gutterWidth, barWidth int, totalMs int64, timeMap parser.TimeMap) string {
 	dimStyle := lipgloss.NewStyle().Faint(true)
 
 	// Extra capacity so the rightmost tick label isn't clipped by the buffer
@@ -125,12 +127,19 @@ func renderTimeAxisHeader(gutterWidth, barWidth int, totalMs int64) string {
 		buf[i] = ' '
 	}
 
-	// The five tick positions (0, 25, 50, 75, 100 percent).
+	compressedTotal := timeMap.CompressedTotalMs
+	if compressedTotal <= 0 {
+		compressedTotal = totalMs
+	}
+
+	// The five tick positions (0, 25, 50, 75, 100 percent) of the raw timeline.
+	// Column position uses compressed display ms; label shows real ms.
 	ticks := [5]int{0, 1, 2, 3, 4}
 	for _, t := range ticks {
-		ms := int64(t) * totalMs / 4
-		col := parser.ColOffset(ms, totalMs, barWidth)
-		label := "|" + formatRelativeMs(ms)
+		rawMs := int64(t) * totalMs / 4
+		displayMs := timeMap.MapToDisplay(rawMs)
+		col := parser.ColOffset(displayMs, compressedTotal, barWidth)
+		label := "|" + formatRelativeMs(rawMs)
 		for j, ch := range []byte(label) {
 			if col+j < bufLen {
 				buf[col+j] = ch
@@ -217,7 +226,7 @@ func (m model) renderWaterfallTimeline(width int) string {
 	var b strings.Builder
 
 	// Time axis header
-	b.WriteString(renderTimeAxisHeader(gutterWidth, barWidth, m.wfTimeAxis.TotalMs))
+	b.WriteString(renderTimeAxisHeader(gutterWidth, barWidth, m.wfTimeAxis.TotalMs, m.wfTimeMap))
 	b.WriteByte('\n')
 
 	// Visible rows based on scroll
@@ -245,13 +254,21 @@ func (m model) renderWaterfallTimeline(width int) string {
 			// Thin dimmed horizontal line across the bar area.
 			barArea = dimStyle.Render(strings.Repeat("\u2500", barWidth))
 		} else {
-			// Float64 scaling for sub-character precision.
-			scaleFactor := float64(barWidth) / float64(m.wfTimeAxis.TotalMs)
-			if m.wfTimeAxis.TotalMs == 0 {
+			// Float64 scaling for sub-character precision using compressed display ms.
+			// MapToDisplay converts raw StartMs/EndMs to compressed coordinates so
+			// long idle gaps shrink and active tool work spreads proportionally.
+			compressedTotal := m.wfTimeMap.CompressedTotalMs
+			if compressedTotal <= 0 {
+				compressedTotal = m.wfTimeAxis.TotalMs
+			}
+			scaleFactor := float64(barWidth) / float64(compressedTotal)
+			if compressedTotal == 0 {
 				scaleFactor = 0
 			}
-			startColF := float64(row.StartMs) * scaleFactor
-			barWidthF := float64(row.DurationMs) * scaleFactor
+			displayStartMs := m.wfTimeMap.MapToDisplay(row.StartMs)
+			displayEndMs := m.wfTimeMap.MapToDisplay(row.StartMs + row.DurationMs)
+			startColF := float64(displayStartMs) * scaleFactor
+			barWidthF := float64(displayEndMs-displayStartMs) * scaleFactor
 			if barWidthF < 0.125 {
 				barWidthF = 0.125 // minimum visible: 1/8th block
 			}

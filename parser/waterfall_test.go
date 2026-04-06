@@ -333,6 +333,132 @@ func TestColOffset_Midpoint(t *testing.T) {
 	}
 }
 
+// TestBuildTimeMap_NoCompression verifies that a session with all small gaps
+// returns a linear (uncompressed) mapping where CompressedTotalMs == totalMs.
+func TestBuildTimeMap_NoCompression(t *testing.T) {
+	// Gaps of 1s, 1s, 2s -- median 1s, threshold max(60s, 10s) = 60s.
+	// All gaps are well below 60s, so no compression.
+	rows := []WaterfallRow{
+		{StartMs: 0, IsUserSeparator: false},
+		{StartMs: 1000, IsUserSeparator: false},
+		{StartMs: 2000, IsUserSeparator: false},
+		{StartMs: 4000, IsUserSeparator: false},
+	}
+	const totalMs = int64(5000)
+
+	tm := BuildTimeMap(rows, totalMs)
+
+	if tm.CompressedTotalMs != totalMs {
+		t.Errorf("no compression expected: CompressedTotalMs=%d, want %d", tm.CompressedTotalMs, totalMs)
+	}
+	// MapToDisplay should be identity.
+	for _, ms := range []int64{0, 1000, 2000, 4000, 5000} {
+		if got := tm.MapToDisplay(ms); got != ms {
+			t.Errorf("MapToDisplay(%d) = %d, want identity %d", ms, got, ms)
+		}
+	}
+}
+
+// TestBuildTimeMap_Compression verifies the spec case:
+// gaps of 1s, 1s, 300s, 2s => the 300s gap gets compressed.
+//
+// Timeline:
+//   t=0, t=1s, t=2s, t=302s, t=304s => totalMs = 304000
+//
+// Gaps: 1000, 1000, 300000, 2000 => sorted: 1000, 1000, 2000, 300000
+// median = gaps[2] = 2000ms (index len/2 = 2)
+// threshold = max(60000, 2000*10) = max(60000, 20000) = 60000ms
+// compressedGapDisplay = min(30, max(5, 2000*3)) = min(30, 6000) = 30ms
+// The 300000ms gap exceeds 60000ms threshold => compressed to 30ms.
+func TestBuildTimeMap_Compression(t *testing.T) {
+	rows := []WaterfallRow{
+		{StartMs: 0, IsUserSeparator: false},
+		{StartMs: 1000, IsUserSeparator: false},
+		{StartMs: 2000, IsUserSeparator: false},
+		{StartMs: 302000, IsUserSeparator: false},
+		{StartMs: 304000, IsUserSeparator: false},
+	}
+	const totalMs = int64(304000)
+
+	tm := BuildTimeMap(rows, totalMs)
+
+	// CompressedTotalMs should be less than totalMs.
+	if tm.CompressedTotalMs >= totalMs {
+		t.Errorf("compression expected: CompressedTotalMs=%d should be < totalMs=%d", tm.CompressedTotalMs, totalMs)
+	}
+
+	// The large gap [2000, 302000] should be compressed to 30ms display units.
+	// Before the gap: display matches raw (1:1).
+	if got := tm.MapToDisplay(0); got != 0 {
+		t.Errorf("MapToDisplay(0) = %d, want 0", got)
+	}
+	if got := tm.MapToDisplay(1000); got != 1000 {
+		t.Errorf("MapToDisplay(1000) = %d, want 1000", got)
+	}
+	if got := tm.MapToDisplay(2000); got != 2000 {
+		t.Errorf("MapToDisplay(2000) = %d, want 2000", got)
+	}
+
+	// After the compressed gap [2000..302000]:
+	// displayStart=2000, displayEnd=2000+30=2030
+	// So raw 302000 maps to display 2030.
+	wantAt302000 := int64(2030)
+	if got := tm.MapToDisplay(302000); got != wantAt302000 {
+		t.Errorf("MapToDisplay(302000) = %d, want %d", got, wantAt302000)
+	}
+
+	// The next gap [302000..304000] is 2000ms < threshold, linear.
+	// displayStart=2030, displayEnd=2030+2000=4030.
+	// raw 304000 => display 4030.
+	wantAt304000 := int64(4030)
+	if got := tm.MapToDisplay(304000); got != wantAt304000 {
+		t.Errorf("MapToDisplay(304000) = %d, want %d", got, wantAt304000)
+	}
+}
+
+// TestBuildTimeMap_UserSeparatorsIgnored verifies that IsUserSeparator rows
+// are excluded from gap analysis (they don't represent AI activity intervals).
+func TestBuildTimeMap_UserSeparatorsIgnored(t *testing.T) {
+	rows := []WaterfallRow{
+		{StartMs: 0, IsUserSeparator: false},
+		{StartMs: 500, IsUserSeparator: true},  // separator: excluded
+		{StartMs: 1000, IsUserSeparator: false},
+	}
+	const totalMs = int64(2000)
+
+	tm := BuildTimeMap(rows, totalMs)
+
+	// Only two non-separator times: 0 and 1000. Gap = 1000ms.
+	// With only one gap, median = 1000ms, threshold = max(60000, 10000) = 60000.
+	// Gap 1000ms < 60000ms => no compression.
+	if tm.CompressedTotalMs != totalMs {
+		t.Errorf("no compression expected: CompressedTotalMs=%d, want %d", tm.CompressedTotalMs, totalMs)
+	}
+}
+
+// TestBuildTimeMap_EmptyAndSingleRow verifies graceful handling of degenerate
+// inputs that cannot produce a gap (0 or 1 non-separator rows).
+func TestBuildTimeMap_EmptyAndSingleRow(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		rows    []WaterfallRow
+		totalMs int64
+	}{
+		{"nil rows", nil, 5000},
+		{"zero totalMs", []WaterfallRow{{StartMs: 0}}, 0},
+		{"one non-separator", []WaterfallRow{{StartMs: 0, IsUserSeparator: false}}, 5000},
+		{"only separators", []WaterfallRow{{StartMs: 0, IsUserSeparator: true}}, 5000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tm := BuildTimeMap(tc.rows, tc.totalMs)
+			// Should not panic. CompressedTotalMs == totalMs (linear or zero).
+			if tc.totalMs > 0 && tm.CompressedTotalMs != tc.totalMs {
+				t.Errorf("expected CompressedTotalMs=%d, got %d", tc.totalMs, tm.CompressedTotalMs)
+			}
+		})
+	}
+}
+
 // TestBuildWaterfallRows_EndTimeUsesMaxChunkEnd verifies that EndTime is the
 // maximum end timestamp across all chunks, not just the last chunk's end time.
 func TestBuildWaterfallRows_EndTimeUsesMaxChunkEnd(t *testing.T) {

@@ -116,6 +116,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Open waterfall timeline view.
 		if len(m.sessionChunks) > 0 {
 			m.wfRows, m.wfTimeAxis = parser.BuildWaterfallRows(m.sessionChunks)
+			m.wfTimeMap = parser.BuildTimeMap(m.wfRows, m.wfTimeAxis.TotalMs)
 			m.wfCursor = 0
 			m.wfScroll = 0
 			m.wfExpanded = make(map[int]bool)
