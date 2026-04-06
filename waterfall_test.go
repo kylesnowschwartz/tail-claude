@@ -885,3 +885,30 @@ func TestRenderWaterfallTimeline_SubagentBadge(t *testing.T) {
 		})
 	}
 }
+
+// TestSubagentColorDistinct verifies that 3 distinct subagent row indices
+// produce 3 distinct colors from the SubagentPalette, satisfying the spec
+// requirement that different subagents receive different palette entries.
+func TestSubagentColorDistinct(t *testing.T) {
+	// Initialize the theme so SubagentPalette is populated.
+	initTheme(true)
+
+	if len(SubagentPalette) < 3 {
+		t.Fatalf("SubagentPalette has only %d entries, need at least 3", len(SubagentPalette))
+	}
+
+	// Use the first 3 distinct row indices (0, 1, 2).
+	c0 := subagentColor(0)
+	c1 := subagentColor(1)
+	c2 := subagentColor(2)
+
+	if fmt.Sprintf("%v", c0) == fmt.Sprintf("%v", c1) {
+		t.Errorf("subagentColor(0) == subagentColor(1): %v", c0)
+	}
+	if fmt.Sprintf("%v", c1) == fmt.Sprintf("%v", c2) {
+		t.Errorf("subagentColor(1) == subagentColor(2): %v", c1)
+	}
+	if fmt.Sprintf("%v", c0) == fmt.Sprintf("%v", c2) {
+		t.Errorf("subagentColor(0) == subagentColor(2): %v", c0)
+	}
+}

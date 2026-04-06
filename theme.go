@@ -105,6 +105,11 @@ var (
 	ColorTeamPink   color.Color
 )
 
+// SubagentPalette is a fixed list of colors that cycle by subagent index in the
+// waterfall view, so each subagent gets a visually distinct bar color regardless
+// of its tool category. Initialized in initTheme; never nil after that.
+var SubagentPalette []color.Color
+
 // -- Semantic text styles -----------------------------------------------------
 // Reusable styles for the four text hierarchy levels + common bold/accent
 // combos. Safe to chain (.Width(), .Padding(), etc.) since lipgloss styles
@@ -191,6 +196,17 @@ func initTheme(hasDarkBg bool) {
 	ColorTeamCyan = ld(lipgloss.Color("6"), lipgloss.Color("80"))
 	ColorTeamOrange = ld(lipgloss.Color("3"), lipgloss.Color("208"))
 	ColorTeamPink = ld(lipgloss.Color("5"), lipgloss.Color("211"))
+
+	// Subagent palette: 6 distinct hues that cycle by subagent index so each
+	// subagent gets its own waterfall bar color independent of tool category.
+	SubagentPalette = []color.Color{
+		ld(lipgloss.Color("13"), lipgloss.Color("207")),  // magenta
+		ld(lipgloss.Color("11"), lipgloss.Color("214")),  // yellow
+		ld(lipgloss.Color("14"), lipgloss.Color("87")),   // teal
+		ld(lipgloss.Color("9"), lipgloss.Color("203")),   // coral
+		ld(lipgloss.Color("12"), lipgloss.Color("111")),  // sky blue
+		ld(lipgloss.Color("10"), lipgloss.Color("120")),  // lime
+	}
 
 	// Rebuild styles with resolved colors.
 	StylePrimaryBold = lipgloss.NewStyle().Bold(true).Foreground(ColorTextPrimary)

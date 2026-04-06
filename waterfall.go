@@ -165,6 +165,16 @@ func categoryColor(cat parser.ToolCategory) color.Color {
 	}
 }
 
+// subagentColor returns the palette color for a subagent at the given row index.
+// Cycles through SubagentPalette so each subagent gets a distinct hue.
+// Falls back to ColorToolTask when the palette is empty (e.g. before initTheme).
+func subagentColor(rowIndex int) color.Color {
+	if len(SubagentPalette) == 0 {
+		return ColorToolTask
+	}
+	return SubagentPalette[rowIndex%len(SubagentPalette)]
+}
+
 // niceIntervals is the ordered set of round time boundaries (in ms) that the
 // smart tick algorithm snaps to. Derived from agentviz TimeAxis.jsx.
 var niceIntervals = []int64{
@@ -433,12 +443,18 @@ func (m model) renderWaterfallTimeline(width int) string {
 					startCol = barWidth - 1
 				}
 
-				// Choose color from primary tool category.
-				var cat parser.ToolCategory
-				if len(row.Tools) > 0 {
-					cat = row.Tools[0].Category
+				// Choose bar color: subagent rows use the palette to visually
+				// distinguish each subagent; regular rows use the tool category color.
+				var barCol color.Color
+				if row.IsSubagent {
+					barCol = subagentColor(vr.rowIndex)
+				} else {
+					var cat parser.ToolCategory
+					if len(row.Tools) > 0 {
+						cat = row.Tools[0].Category
+					}
+					barCol = categoryColor(cat)
 				}
-				barCol := categoryColor(cat)
 				coloredBar := renderBarString(barWidthF, barCol)
 
 				// Label: primary tool name + extra count.
@@ -488,12 +504,16 @@ func (m model) renderWaterfallTimeline(width int) string {
 		line := gutter + barArea
 
 		if vi == m.wfCursor {
-			// Determine category color for the left border indicator.
+			// Determine color for the left border indicator. Subagent parent
+			// rows use the palette color; child rows use the child tool category;
+			// all other rows use the tool category or text dim.
 			var borderColor color.Color
 			if vr.childIndex >= 0 && vr.childTool != nil {
 				borderColor = categoryColor(vr.childTool.Category)
 			} else if row.IsUserSeparator {
 				borderColor = ColorTextDim
+			} else if row.IsSubagent {
+				borderColor = subagentColor(vr.rowIndex)
 			} else if len(row.Tools) > 0 {
 				borderColor = categoryColor(row.Tools[0].Category)
 			} else {
