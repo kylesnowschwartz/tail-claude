@@ -586,3 +586,59 @@ func TestUserSeparatorMarkerColumn(t *testing.T) {
 			barAreaOffset, runes[barAreaOffset], separatorLine)
 	}
 }
+
+// TestRowHasErrorMarker verifies that a waterfall bar with one errored tool
+// among multiple tools renders a "!" error marker in the bar area, and that
+// a bar with no errored tools renders without one.
+func TestRowHasErrorMarker(t *testing.T) {
+	const totalMs = int64(10_000)
+	const barWidth = 80
+	const gutterWidth = 12
+
+	// Row with two tools; only the second has Error=true.
+	rowWithError := parser.WaterfallRow{
+		StartMs:    0,
+		DurationMs: 5_000,
+		Tools: []parser.WaterfallTool{
+			{Name: "Read", Category: parser.CategoryRead, DurationMs: 2000, Error: false},
+			{Name: "Write", Category: parser.CategoryWrite, DurationMs: 3000, Error: true},
+		},
+	}
+
+	// Row with two tools; neither has Error=true.
+	rowNoError := parser.WaterfallRow{
+		StartMs:    0,
+		DurationMs: 5_000,
+		Tools: []parser.WaterfallTool{
+			{Name: "Read", Category: parser.CategoryRead, DurationMs: 2000, Error: false},
+			{Name: "Write", Category: parser.CategoryWrite, DurationMs: 3000, Error: false},
+		},
+	}
+
+	renderRow := func(row parser.WaterfallRow) string {
+		rows := []parser.WaterfallRow{row}
+		m := model{
+			wfRows:     rows,
+			wfVisible:  buildWfVisibleRows(rows, nil),
+			wfTimeAxis: parser.TimeAxis{TotalMs: totalMs},
+			height:     10,
+		}
+		rendered := m.renderWaterfallTimeline(gutterWidth + barWidth)
+		lines := strings.Split(rendered, "\n")
+		// Line 0 is the time axis header; line 1 is the data row.
+		if len(lines) < 2 {
+			t.Fatalf("expected at least 2 lines, got %d", len(lines))
+		}
+		return ansi.Strip(lines[1])
+	}
+
+	withErr := renderRow(rowWithError)
+	if !strings.Contains(withErr, "!") {
+		t.Errorf("bar with errored tool: expected '!' in output, got: %q", withErr)
+	}
+
+	noErr := renderRow(rowNoError)
+	if strings.Contains(noErr, "!") {
+		t.Errorf("bar without errored tools: unexpected '!' in output, got: %q", noErr)
+	}
+}

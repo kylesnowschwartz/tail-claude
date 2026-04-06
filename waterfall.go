@@ -463,9 +463,15 @@ func (m model) renderWaterfallTimeline(width int) string {
 				// Format duration; treat zero/sub-ms as "0ms".
 				dimDur := dimStyle.Render(waterfallBarDurText(row.DurationMs))
 
-				// Build the bar area: leading spaces + colored bar + space + label + dimmed duration.
+				// Error marker: red "!" when any tool in the row errored.
+				var errMarker string
+				if rowHasError(row.Tools) {
+					errMarker = " " + lipgloss.NewStyle().Foreground(ColorError).Bold(true).Render("!")
+				}
+
+				// Build the bar area: leading spaces + colored bar + space + label + error marker + dimmed duration.
 				prefix := strings.Repeat(" ", startCol)
-				barArea = ansi.Truncate(prefix+coloredBar+" "+label+" "+dimDur, barWidth, "")
+				barArea = ansi.Truncate(prefix+coloredBar+" "+label+errMarker+" "+dimDur, barWidth, "")
 			}
 		}
 
@@ -700,4 +706,14 @@ func formatRelativeMs(ms int64) string {
 	mins := int(secs) / 60
 	remainSecs := secs - float64(mins*60)
 	return fmt.Sprintf("%dm%02.0fs", mins, remainSecs)
+}
+
+// rowHasError reports whether any tool in the row has an error flag set.
+func rowHasError(tools []parser.WaterfallTool) bool {
+	for _, t := range tools {
+		if t.Error {
+			return true
+		}
+	}
+	return false
 }
