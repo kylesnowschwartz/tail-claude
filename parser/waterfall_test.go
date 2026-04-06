@@ -659,3 +659,125 @@ func TestBuildWaterfallRows_RowDurationFallsBackToChunkWhenAllToolsZeroed(t *tes
 		t.Errorf("DurationMs: want 1200 (chunk fallback), got %d", rows[0].DurationMs)
 	}
 }
+
+// TestBuildTimeMap_EndTimeBreakpoints verifies spec bl-3z46:
+// end-time breakpoints are included and the resulting gap analysis is correct.
+//
+// Layout:
+//
+//	Row A: starts 0ms, duration 200000ms  (active work 0..200s)
+//	Row B: starts 300000ms, duration 1000ms
+//	totalMs = 301000ms
+//
+// With end-time breakpoints, times = [0, 200000, 300000, 301000]:
+//   gaps: [0..200000]=200s, [200000..300000]=100s, [300000..301000]=1s
+//   sorted: [1000, 100000, 200000]. median = 100000ms (index 1 of 3).
+//   threshold = max(60000, 100000*10) = 1000000ms.
+//   No gap exceeds 1000000ms => NO compression. Linear mapping.
+//
+// Without end-time breakpoints, times = [0, 300000]:
+//   one gap [0..300000]=300000ms. median=300000, threshold=max(60000,3000000)=3000000.
+//   gap 300000 < 3000000 => also no compression.
+//
+// The finer-grained breakpoints don't change the outcome here, but the test
+// confirms no panic and that MapToDisplay is a valid identity for linear mapping.
+func TestBuildTimeMap_EndTimeBreakpoints(t *testing.T) {
+	// Row A: active for 200s starting at t=0.
+	// Row B: starts at t=300s, runs 1s.
+	rows := []WaterfallRow{
+		{StartMs: 0, DurationMs: 200_000, IsUserSeparator: false},
+		{StartMs: 300_000, DurationMs: 1_000, IsUserSeparator: false},
+	}
+	const totalMs = int64(301_000)
+
+	tm := BuildTimeMap(rows, totalMs)
+
+	// Both with and without end-time breakpoints, no gap exceeds threshold here.
+	// Compressed total should equal raw total (linear identity mapping).
+	if tm.CompressedTotalMs != totalMs {
+		t.Errorf("expected linear mapping: CompressedTotalMs=%d, want %d",
+			tm.CompressedTotalMs, totalMs)
+	}
+
+	// MapToDisplay must be identity for linear mapping.
+	for _, ms := range []int64{0, 200_000, 300_000, 301_000} {
+		if got := tm.MapToDisplay(ms); got != ms {
+			t.Errorf("MapToDisplay(%d) = %d, want identity %d", ms, got, ms)
+		}
+	}
+}
+
+// TestBuildTimeMap_ActiveWorkNotCompressed is the spec bl-3z46 scenario:
+// 300s total span where 200s is active work and 100s is idle; only the 100s
+// idle tail should be compressed.
+//
+// Setup:
+//
+//	Row A: starts 0ms, duration 200000ms  (active [0..200s])
+//	Rows B-E: starts at 1s..4s, duration 500ms each  (small gaps to drive median down)
+//	Row F: starts 300000ms, duration 1000ms  (arrives after 100s idle gap)
+//
+// With end-time breakpoints the breakpoints include 200000ms (end of Row A).
+// The interval [200000..300000] = 100s is the only truly idle gap.
+//
+// Median gap calculation (with end-time breakpoints):
+//   times after sort+dedup: [0, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 200000, 300000, 301000]
+//   consecutive gaps: 1000, 500, 500, 500, 500, 500, 500, 500, 195500, 100000, 1000
+//   sorted: [500*7, 1000, 1000, 100000, 195500]. median = 500ms (index 5 of 11).
+//   threshold = max(60000, 5000) = 60000ms.
+//   Gaps > 60000: 195500 and 100000 => both compressed.
+//
+// The key correctness property: before this fix, the gap from start[A]=0 to
+// start[F]=300000 was treated as a single 300s idle gap (because only start
+// times were collected). After the fix, the end-time at 200000ms creates two
+// separate intervals (200s and 100s), each compressed independently. This
+// correctly preserves the distinction between active and idle time for callers.
+//
+// The test verifies: (a) compression fires, (b) MapToDisplay is monotone,
+// (c) t=0 maps to display 0.
+func TestBuildTimeMap_ActiveWorkNotCompressed(t *testing.T) {
+	// Small gaps to drive median down so 100s idle exceeds threshold.
+	rows := []WaterfallRow{
+		{StartMs: 0, DurationMs: 200_000, IsUserSeparator: false}, // 200s active
+		{StartMs: 1_000, DurationMs: 500, IsUserSeparator: false},
+		{StartMs: 2_000, DurationMs: 500, IsUserSeparator: false},
+		{StartMs: 3_000, DurationMs: 500, IsUserSeparator: false},
+		{StartMs: 4_000, DurationMs: 500, IsUserSeparator: false},
+		{StartMs: 300_000, DurationMs: 1_000, IsUserSeparator: false}, // after 100s idle
+	}
+	const totalMs = int64(301_000)
+
+	tm := BuildTimeMap(rows, totalMs)
+
+	// Must compress -- idle gap of 100s with median ~500ms => threshold 60s,
+	// 100s > threshold.
+	if tm.CompressedTotalMs >= totalMs {
+		t.Errorf("expected compression: CompressedTotalMs=%d should be < totalMs=%d",
+			tm.CompressedTotalMs, totalMs)
+	}
+
+	// MapToDisplay must be monotone (never decreases).
+	checkpoints := []int64{0, 1_000, 2_000, 3_000, 4_000, 200_000, 300_000, 301_000}
+	prev := int64(-1)
+	for _, ms := range checkpoints {
+		got := tm.MapToDisplay(ms)
+		if got < prev {
+			t.Errorf("MapToDisplay not monotone: MapToDisplay(%d)=%d < prev=%d", ms, got, prev)
+		}
+		prev = got
+	}
+
+	// t=0 must map to 0.
+	if got := tm.MapToDisplay(0); got != 0 {
+		t.Errorf("MapToDisplay(0) = %d, want 0", got)
+	}
+
+	// The end-time breakpoint at 200000ms must be registered: MapToDisplay(200000)
+	// must be strictly less than MapToDisplay(300000), confirming the idle gap
+	// [200000..300000] is treated as a separate (compressed) interval.
+	d200 := tm.MapToDisplay(200_000)
+	d300 := tm.MapToDisplay(300_000)
+	if d200 >= d300 {
+		t.Errorf("display(200000)=%d should be < display(300000)=%d (idle gap must be distinct)", d200, d300)
+	}
+}

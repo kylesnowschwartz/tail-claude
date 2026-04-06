@@ -289,15 +289,33 @@ func BuildTimeMap(rows []WaterfallRow, totalMs int64) TimeMap {
 		return TimeMap{}
 	}
 
-	// Collect start times of non-separator rows to compute inter-chunk gaps.
+	// Collect start times AND end times of non-separator rows so that long-running
+	// rows split "active" intervals from truly idle gaps. Without end times, a row
+	// spanning [0..200s] followed by a start at 300s would look like a 300s gap
+	// instead of a 100s idle gap after 200s of active work.
 	var times []int64
 	for _, r := range rows {
 		if !r.IsUserSeparator {
 			times = append(times, r.StartMs)
+			if r.DurationMs > 0 {
+				times = append(times, r.StartMs+r.DurationMs)
+			}
 		}
 	}
+	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
+	// Deduplicate in-place (requires sorted input).
+	if len(times) > 0 {
+		j := 0
+		for i := 1; i < len(times); i++ {
+			if times[i] != times[j] {
+				j++
+				times[j] = times[i]
+			}
+		}
+		times = times[:j+1]
+	}
 
-	// Need at least two non-separator rows to have a gap.
+	// Need at least two breakpoints to have a gap.
 	if len(times) < 2 {
 		return buildLinearTimeMap(totalMs)
 	}
