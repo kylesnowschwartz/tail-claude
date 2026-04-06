@@ -407,9 +407,7 @@ func (m model) renderWaterfallTimeline(width int) string {
 				col := parser.ColOffset(displayMs, compressedTotal, barWidth)
 				label := "user"
 				marker := strings.Repeat(" ", col) + "\u2502" + label
-				if len(marker) > barWidth {
-					marker = marker[:barWidth]
-				}
+				marker = ansi.Truncate(marker, barWidth, "")
 				barArea = dimStyle.Render(marker)
 			} else {
 				// Float64 scaling for sub-character precision using compressed display ms.

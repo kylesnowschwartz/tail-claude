@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -709,5 +710,40 @@ func TestRenderWaterfallStatsNarrowWidth(t *testing.T) {
 			}()
 			_ = m.renderWaterfallStats(width, dimStyle, secondaryStyle)
 		})
+	}
+}
+
+// TestUserSeparatorMarkerNoGarbledBytes verifies that truncating the user
+// separator marker at a barWidth that falls inside the multi-byte │ (U+2502, 3
+// bytes) produces only valid UTF-8. The old byte-slice path would split the
+// rune mid-byte, producing invalid sequences; ansi.Truncate counts cell widths
+// and never splits a rune.
+func TestUserSeparatorMarkerNoGarbledBytes(t *testing.T) {
+	// Place the separator at the very end of the bar so the │ character lands
+	// right at the boundary. With totalMs=100 and startMs=99 the column is
+	// floor(99/100 * barWidth) which for small barWidths lands at barWidth-1.
+	// Using barWidth=1 forces the column to 0, so marker = "│user" and
+	// ansi.Truncate(marker, 1, "") must truncate to just "" (no partial rune).
+	const totalMs = int64(100)
+	const separatorStartMs = int64(0) // col=0 so marker starts with "│user"
+	const barWidth = 1                // truncation falls inside the 3-byte │
+
+	wfRows := []parser.WaterfallRow{
+		{IsUserSeparator: true, StartMs: separatorStartMs},
+	}
+	m := model{
+		wfRows:     wfRows,
+		wfVisible:  buildWfVisibleRows(wfRows, map[int]bool{}),
+		wfTimeAxis: parser.TimeAxis{TotalMs: totalMs},
+		height:     10,
+	}
+
+	const gutterWidth = 12
+	rendered := m.renderWaterfallTimeline(gutterWidth + barWidth)
+
+	// Strip ANSI escapes to get raw text bytes.
+	plain := ansi.Strip(rendered)
+	if !utf8.ValidString(plain) {
+		t.Errorf("rendered output contains invalid UTF-8: %q", plain)
 	}
 }
