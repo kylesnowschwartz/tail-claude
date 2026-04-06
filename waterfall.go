@@ -365,10 +365,13 @@ func (m model) renderWaterfallTimeline(width int) string {
 				label = chevron + " " + label
 			}
 
-			// Build the bar area: leading spaces + colored bar + space + label.
+			// Format duration; treat zero/sub-ms as "0ms".
+			dimDur := dimStyle.Render(waterfallBarDurText(row.DurationMs))
+
+			// Build the bar area: leading spaces + colored bar + space + label + dimmed duration.
 			// Truncate to barWidth so the bar never bleeds into the inspector panel.
 			prefix := strings.Repeat(" ", startCol)
-			barArea = ansi.Truncate(prefix+coloredBar+" "+label, barWidth, "")
+			barArea = ansi.Truncate(prefix+coloredBar+" "+label+" "+dimDur, barWidth, "")
 		}
 
 		line := gutter + barArea
@@ -560,6 +563,15 @@ func (m *model) clampWfScroll() {
 	if m.wfScroll < 0 {
 		m.wfScroll = 0
 	}
+}
+
+// waterfallBarDurText returns the duration label for a waterfall bar.
+// Zero or sub-millisecond durations show as "0ms" rather than "0.0s".
+func waterfallBarDurText(durationMs int64) string {
+	if durationMs <= 0 {
+		return "0ms"
+	}
+	return formatDuration(durationMs)
 }
 
 // formatRelativeMs formats a millisecond offset as a human-readable relative timestamp.

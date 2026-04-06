@@ -132,6 +132,38 @@ func TestRenderTimeAxisHeaderNiceIntervals(t *testing.T) {
 	}
 }
 
+// TestWaterfallBarDurText verifies the duration label used on waterfall bars.
+// Zero and sub-ms durations show "0ms"; otherwise the label delegates to formatDuration.
+func TestWaterfallBarDurText(t *testing.T) {
+	tests := []struct {
+		name       string
+		durationMs int64
+		want       string
+	}{
+		// Zero and sub-millisecond cases.
+		{"zero", 0, "0ms"},
+		{"negative", -1, "0ms"},
+		// Sub-second.
+		{"45ms", 45, "0.0s"},
+		{"500ms", 500, "0.5s"},
+		{"999ms", 999, "1.0s"},
+		// Multi-second.
+		{"3.5s", 3500, "3.5s"},
+		{"15s", 15000, "15s"},
+		// Multi-minute.
+		{"1m 11s", 71000, "1m 11s"},
+		{"2m 5s", 125000, "2m 5s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := waterfallBarDurText(tt.durationMs)
+			if got != tt.want {
+				t.Errorf("waterfallBarDurText(%d) = %q, want %q", tt.durationMs, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestRenderTimeAxisHeaderNeverExceedsBarWidth verifies that the plain-text
 // portion of the axis header (after trimming trailing spaces) does not exceed
 // gutterWidth + barWidth + len(rightmost label), as the buffer is intentionally
