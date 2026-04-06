@@ -575,9 +575,12 @@ func TestUserSeparatorMarkerColumn(t *testing.T) {
 	separatorLine := ansi.Strip(lines[1])
 
 	// The gutter format is "+%-8s  " = 1 + 8 + 2 = 11 rendered chars.
-	// ColOffset(5000, 10000, 80) = 40. Marker is at index renderedGutterWidth + 40 = 51.
+	// All non-selected rows are prefixed with a 1-char space for alignment with
+	// the selected-row border indicator, so the gutter starts at rune index 1.
+	// ColOffset(5000, 10000, 80) = 40. Marker is at index 1 + renderedGutterWidth + 40 = 52.
+	const prefixWidth = 1 // leading space on non-selected rows
 	expectedCol := parser.ColOffset(separatorStartMs, totalMs, barWidth)
-	barAreaOffset := renderedGutterWidth + expectedCol
+	barAreaOffset := prefixWidth + renderedGutterWidth + expectedCol
 
 	runes := []rune(separatorLine)
 	if barAreaOffset >= len(runes) {
@@ -710,6 +713,82 @@ func TestRenderWaterfallStatsNarrowWidth(t *testing.T) {
 			}()
 			_ = m.renderWaterfallStats(width, dimStyle, secondaryStyle)
 		})
+	}
+}
+
+// TestSelectedRowLeftBorderIndicator verifies that the selected row displays the
+// left border indicator character (▎ U+258E) and non-selected rows get a leading
+// space for alignment. The border uses the row's primary tool category color.
+func TestSelectedRowLeftBorderIndicator(t *testing.T) {
+	const totalMs = int64(10_000)
+	const gutterWidth = 12
+	const barWidth = 80
+
+	rows := []parser.WaterfallRow{
+		{
+			StartMs:    0,
+			DurationMs: 3000,
+			Tools: []parser.WaterfallTool{
+				{Name: "Read", Category: parser.CategoryRead, DurationMs: 3000},
+			},
+		},
+		{
+			StartMs:    3000,
+			DurationMs: 2000,
+			Tools: []parser.WaterfallTool{
+				{Name: "Bash", Category: parser.CategoryBash, DurationMs: 2000},
+			},
+		},
+	}
+
+	// Select first row (index 0).
+	m := model{
+		wfRows:     rows,
+		wfVisible:  buildWfVisibleRows(rows, map[int]bool{}),
+		wfTimeAxis: parser.TimeAxis{TotalMs: totalMs},
+		wfCursor:   0,
+		height:     10,
+	}
+
+	rendered := m.renderWaterfallTimeline(gutterWidth + barWidth)
+	lines := strings.Split(rendered, "\n")
+	// Line 0 is the time axis header; line 1 is the first data row (selected);
+	// line 2 is the second data row (non-selected).
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines, got %d", len(lines))
+	}
+
+	selectedPlain := ansi.Strip(lines[1])
+	nonSelectedPlain := ansi.Strip(lines[2])
+
+	// The selected row must start with the left border character ▎ (U+258E).
+	selectedRunes := []rune(selectedPlain)
+	if len(selectedRunes) == 0 {
+		t.Fatal("selected row is empty")
+	}
+	if selectedRunes[0] != '\u258E' {
+		t.Errorf("selected row: expected first rune to be ▎ (U+258E), got %U (line: %q)", selectedRunes[0], selectedPlain)
+	}
+
+	// The non-selected row must start with a plain space for alignment.
+	nonSelectedRunes := []rune(nonSelectedPlain)
+	if len(nonSelectedRunes) == 0 {
+		t.Fatal("non-selected row is empty")
+	}
+	if nonSelectedRunes[0] != ' ' {
+		t.Errorf("non-selected row: expected first rune to be space, got %U (line: %q)", nonSelectedRunes[0], nonSelectedPlain)
+	}
+
+	// Confirm cursor out-of-bounds produces no border on any visible row.
+	m.wfCursor = len(m.wfVisible) // beyond last row
+	rendered = m.renderWaterfallTimeline(gutterWidth + barWidth)
+	lines = strings.Split(rendered, "\n")
+	for i, line := range lines[1:] { // skip axis header
+		plain := ansi.Strip(line)
+		runes := []rune(plain)
+		if len(runes) > 0 && runes[0] == '\u258E' {
+			t.Errorf("line %d: border character should not appear when cursor is out of bounds (line: %q)", i+1, plain)
+		}
 	}
 }
 

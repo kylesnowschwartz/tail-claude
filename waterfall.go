@@ -476,7 +476,22 @@ func (m model) renderWaterfallTimeline(width int) string {
 		line := gutter + barArea
 
 		if vi == m.wfCursor {
-			line = selectedBg.Render(line)
+			// Determine category color for the left border indicator.
+			var borderColor color.Color
+			if vr.childIndex >= 0 && vr.childTool != nil {
+				borderColor = categoryColor(vr.childTool.Category)
+			} else if row.IsUserSeparator {
+				borderColor = ColorTextDim
+			} else if len(row.Tools) > 0 {
+				borderColor = categoryColor(row.Tools[0].Category)
+			} else {
+				borderColor = ColorTextDim
+			}
+			border := lipgloss.NewStyle().Foreground(borderColor).Render("\u258E")
+			line = selectedBg.Render(border + line)
+		} else {
+			// Non-selected rows: prepend a space so all rows align with the border.
+			line = " " + line
 		}
 
 		b.WriteString(line)
