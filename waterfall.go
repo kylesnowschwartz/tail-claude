@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -143,6 +144,66 @@ func renderTimeAxisHeader(gutterWidth, barWidth int, totalMs int64) string {
 	return dimStyle.Render(gutter + result)
 }
 
+// fractionalBlock returns the left-block element rune for a fractional cell
+// width (0.0 to 1.0). Uses 1/8th character precision via Unicode block elements.
+// Ported from NimbleMarkets/ntcharts canvas/runes/runes.go.
+func fractionalBlock(f float64) rune {
+	if f >= 1.0 {
+		return '\u2588' // full block
+	}
+	if f <= 0.0 {
+		return 0
+	}
+	// 8 levels: ▏▎▍▌▋▊▉█
+	leftBlocks := [9]rune{
+		0,        // 0/8
+		'\u258F', // 1/8 ▏
+		'\u258E', // 2/8 ▎
+		'\u258D', // 3/8 ▍
+		'\u258C', // 4/8 ▌
+		'\u258B', // 5/8 ▋
+		'\u258A', // 6/8 ▊
+		'\u2589', // 7/8 ▉
+		'\u2588', // 8/8 █
+	}
+	idx := int(f / 0.125)
+	if remainder := f - float64(idx)*0.125; remainder >= 0.0625 {
+		idx++ // round up at 1/16th boundary
+	}
+	if idx > 8 {
+		idx = 8
+	}
+	return leftBlocks[idx]
+}
+
+// renderBarString builds a proportional horizontal bar with sub-character
+// trailing edge precision. widthCells is in float64 character cells.
+func renderBarString(widthCells float64, barColor color.Color) string {
+	if widthCells <= 0 {
+		return ""
+	}
+
+	fullCount := int(math.Floor(widthCells))
+	frac := widthCells - float64(fullCount)
+	trail := fractionalBlock(frac)
+
+	var buf strings.Builder
+
+	// Full blocks with fg+bg matching for solid fill.
+	if fullCount > 0 {
+		solidStyle := lipgloss.NewStyle().Foreground(barColor).Background(barColor)
+		buf.WriteString(solidStyle.Render(strings.Repeat("\u2588", fullCount)))
+	}
+
+	// Trailing fractional character with fg=bar color, bg=default.
+	if trail != 0 {
+		trailStyle := lipgloss.NewStyle().Foreground(barColor)
+		buf.WriteString(trailStyle.Render(string(trail)))
+	}
+
+	return buf.String()
+}
+
 // renderWaterfallTimeline renders the left panel with a time axis and horizontal
 // bars colored by tool category.
 func (m model) renderWaterfallTimeline(width int) string {
@@ -184,12 +245,21 @@ func (m model) renderWaterfallTimeline(width int) string {
 			// Thin dimmed horizontal line across the bar area.
 			barArea = dimStyle.Render(strings.Repeat("\u2500", barWidth))
 		} else {
-			// Compute bar start and width in columns.
-			startCol := parser.ColOffset(row.StartMs, m.wfTimeAxis.TotalMs, barWidth)
-			endCol := parser.ColOffset(row.StartMs+row.DurationMs, m.wfTimeAxis.TotalMs, barWidth)
-			barCols := endCol - startCol
-			if barCols < 1 {
-				barCols = 1
+			// Float64 scaling for sub-character precision.
+			scaleFactor := float64(barWidth) / float64(m.wfTimeAxis.TotalMs)
+			if m.wfTimeAxis.TotalMs == 0 {
+				scaleFactor = 0
+			}
+			startColF := float64(row.StartMs) * scaleFactor
+			barWidthF := float64(row.DurationMs) * scaleFactor
+			if barWidthF < 0.125 {
+				barWidthF = 0.125 // minimum visible: 1/8th block
+			}
+
+			// Round start to nearest whole column.
+			startCol := int(math.Round(startColF))
+			if startCol >= barWidth {
+				startCol = barWidth - 1
 			}
 
 			// Choose color from primary tool category.
@@ -197,9 +267,8 @@ func (m model) renderWaterfallTimeline(width int) string {
 			if len(row.Tools) > 0 {
 				cat = row.Tools[0].Category
 			}
-			col := categoryColor(cat)
-			barStr := strings.Repeat("\u2588", barCols)
-			coloredBar := lipgloss.NewStyle().Foreground(col).Render(barStr)
+			barCol := categoryColor(cat)
+			coloredBar := renderBarString(barWidthF, barCol)
 
 			// Label: primary tool name + extra count.
 			primary := "unknown"
