@@ -58,6 +58,12 @@ func ReadSession(path string) ([]Chunk, error) {
 // given byte offset. Returns newly classified messages, the updated offset,
 // and any error. This is the building block for live tailing -- the caller
 // accumulates classified messages and re-runs BuildChunks after each call.
+//
+// When called with offset=0 (full read), fork detection runs on the complete
+// entry set before classification so that only the canonical (longest) path
+// through any uuid/parentUuid DAG branches is classified. Incremental reads
+// (offset>0) skip fork detection because new lines always extend the head of
+// the canonical path established by the initial full read.
 func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -71,8 +77,8 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 
 	lr := newLineReader(f)
 
-	var msgs []ClassifiedMsg
-
+	// Collect all entries from this read window.
+	var entries []Entry
 	for {
 		line, ok := lr.next()
 		if !ok {
@@ -82,17 +88,35 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 		if !ok {
 			continue
 		}
+		entries = append(entries, entry)
+	}
+	if err := lr.Err(); err != nil {
+		// Return whatever we managed to collect.
+		return classifyEntries(entries), offset + lr.BytesRead(), err
+	}
+
+	newOffset := offset + lr.BytesRead()
+
+	// Full read: apply fork detection before classification so forked paths
+	// are pruned before Classify strips the metadata we need for the DAG walk.
+	if offset == 0 {
+		entries = FilterForks(entries)
+	}
+
+	return classifyEntries(entries), newOffset, nil
+}
+
+// classifyEntries runs Classify on each entry and returns the resulting messages.
+func classifyEntries(entries []Entry) []ClassifiedMsg {
+	msgs := make([]ClassifiedMsg, 0, len(entries))
+	for _, entry := range entries {
 		msg, ok := Classify(entry)
 		if !ok {
 			continue
 		}
 		msgs = append(msgs, msg)
 	}
-	if err := lr.Err(); err != nil {
-		return msgs, offset + lr.BytesRead(), err
-	}
-
-	return msgs, offset + lr.BytesRead(), nil
+	return msgs
 }
 
 // ProjectDirForPath returns the Claude CLI projects directory for an absolute

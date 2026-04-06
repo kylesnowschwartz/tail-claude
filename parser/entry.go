@@ -7,6 +7,7 @@ import "encoding/json"
 type Entry struct {
 	Type        string `json:"type"`
 	UUID        string `json:"uuid"`
+	ParentUUID  string `json:"parentUuid"`
 	Timestamp   string `json:"timestamp"`
 	IsSidechain bool   `json:"isSidechain"`
 	IsMeta      bool   `json:"isMeta"`
