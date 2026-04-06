@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
@@ -640,5 +642,72 @@ func TestRowHasErrorMarker(t *testing.T) {
 	noErr := renderRow(rowNoError)
 	if strings.Contains(noErr, "!") {
 		t.Errorf("bar without errored tools: unexpected '!' in output, got: %q", noErr)
+	}
+}
+
+// TestRenderWaterfallInspectorNarrowWidth verifies that renderWaterfallInspector
+// does not panic when the inspector panel width is 0, 1, or 2. The divider uses
+// strings.Repeat which panics on negative counts without the max(0, ...) guard.
+func TestRenderWaterfallInspectorNarrowWidth(t *testing.T) {
+	rows := []parser.WaterfallRow{
+		{
+			StartMs:    0,
+			DurationMs: 1000,
+			Tools: []parser.WaterfallTool{
+				{Name: "Read", Category: parser.CategoryRead, DurationMs: 500},
+			},
+		},
+	}
+	// Set wfStats so renderWaterfallStats reaches the divider (TotalTools > 0).
+	stats := parser.ComputeWaterfallStats(rows, parser.TimeAxis{TotalMs: 1000})
+	m := model{
+		wfRows:     rows,
+		wfVisible:  buildWfVisibleRows(rows, map[int]bool{}),
+		wfTimeAxis: parser.TimeAxis{TotalMs: 1000},
+		wfStats:    stats,
+		// wfCursor=0 with one visible row triggers the row-inspector path.
+		// To reach renderWaterfallStats we need wfCursor >= len(wfVisible).
+		wfCursor: 1,
+	}
+
+	for _, width := range []int{0, 1, 2} {
+		t.Run(fmt.Sprintf("width=%d", width), func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("renderWaterfallInspector panicked at width=%d: %v", width, r)
+				}
+			}()
+			_ = m.renderWaterfallInspector(width)
+		})
+	}
+}
+
+// TestRenderWaterfallStatsNarrowWidth verifies that renderWaterfallStats does
+// not panic at width=0, 1, or 2 when it constructs the horizontal divider.
+func TestRenderWaterfallStatsNarrowWidth(t *testing.T) {
+	rows := []parser.WaterfallRow{
+		{
+			StartMs:    0,
+			DurationMs: 1000,
+			Tools: []parser.WaterfallTool{
+				{Name: "Bash", Category: parser.CategoryBash, DurationMs: 1000},
+			},
+		},
+	}
+	stats := parser.ComputeWaterfallStats(rows, parser.TimeAxis{TotalMs: 1000})
+	m := model{wfStats: stats}
+
+	dimStyle := lipgloss.NewStyle()
+	secondaryStyle := lipgloss.NewStyle()
+
+	for _, width := range []int{0, 1, 2} {
+		t.Run(fmt.Sprintf("width=%d", width), func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("renderWaterfallStats panicked at width=%d: %v", width, r)
+				}
+			}()
+			_ = m.renderWaterfallStats(width, dimStyle, secondaryStyle)
+		})
 	}
 }

@@ -534,7 +534,7 @@ func (m model) renderWaterfallInspector(width int) string {
 
 	var b strings.Builder
 
-	divider := dimStyle.Render(strings.Repeat("\u2500", min(width-2, 20)))
+	divider := dimStyle.Render(strings.Repeat("\u2500", max(0, min(width-2, 20))))
 
 	// --- Top metadata ---
 	if row.Model != "" {
@@ -608,7 +608,7 @@ func (m model) renderWaterfallInspector(width int) string {
 // renderWaterfallStats formats the aggregate session statistics for the inspector
 // panel when no row is selected.
 func (m model) renderWaterfallStats(width int, dimStyle, secondaryStyle lipgloss.Style) string {
-	divider := dimStyle.Render(strings.Repeat("\u2500", min(width-2, 20)))
+	divider := dimStyle.Render(strings.Repeat("\u2500", max(0, min(width-2, 20))))
 	boldStyle := lipgloss.NewStyle().Bold(true)
 
 	if m.wfStats.TotalTools == 0 {
