@@ -231,3 +231,52 @@ func TestRenderTimeAxisHeaderTickPositions(t *testing.T) {
 		})
 	}
 }
+
+// TestUserSeparatorMarkerColumn verifies that a user separator row renders a
+// dimmed vertical bar character (│) at the column position corresponding to the
+// separator's StartMs offset within the barWidth. The gutter (12 chars) precedes
+// the bar area, so the bar character appears at index gutterWidth+col in the
+// stripped line.
+func TestUserSeparatorMarkerColumn(t *testing.T) {
+	// totalMs = 10000, StartMs = 5000 => midpoint => col = barWidth/2.
+	const totalMs = int64(10_000)
+	const separatorStartMs = int64(5_000)
+	// The constant gutterWidth=12 in renderWaterfallTimeline controls barWidth
+	// (width - 12), but the rendered gutter string "+%-8s  " is 11 chars wide.
+	const gutterConstant = 12
+	const renderedGutterWidth = 11
+	const barWidth = 80
+
+	// Build a minimal model with one user separator row and enough height to render it.
+	m := model{
+		wfRows: []parser.WaterfallRow{
+			{IsUserSeparator: true, StartMs: separatorStartMs},
+		},
+		wfTimeAxis: parser.TimeAxis{TotalMs: totalMs},
+		// wfTimeMap zero value: CompressedTotalMs=0, MapToDisplay returns identity.
+		height: 10, // enough rows to show the separator
+	}
+
+	rendered := m.renderWaterfallTimeline(gutterConstant + barWidth)
+	lines := strings.Split(rendered, "\n")
+	// Line 0 is the time axis header; line 1 is the separator row.
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 lines, got %d", len(lines))
+	}
+	separatorLine := ansi.Strip(lines[1])
+
+	// The gutter format is "+%-8s  " = 1 + 8 + 2 = 11 rendered chars.
+	// ColOffset(5000, 10000, 80) = 40. Marker is at index renderedGutterWidth + 40 = 51.
+	expectedCol := parser.ColOffset(separatorStartMs, totalMs, barWidth)
+	barAreaOffset := renderedGutterWidth + expectedCol
+
+	runes := []rune(separatorLine)
+	if barAreaOffset >= len(runes) {
+		t.Fatalf("line too short: expected marker at rune index %d, line has %d runes: %q",
+			barAreaOffset, len(runes), separatorLine)
+	}
+	if runes[barAreaOffset] != '\u2502' {
+		t.Errorf("expected vertical bar (│ U+2502) at column %d, got %U (line: %q)",
+			barAreaOffset, runes[barAreaOffset], separatorLine)
+	}
+}

@@ -298,8 +298,22 @@ func (m model) renderWaterfallTimeline(width int) string {
 
 		var barArea string
 		if row.IsUserSeparator {
-			// Thin dimmed horizontal line across the bar area.
-			barArea = dimStyle.Render(strings.Repeat("\u2500", barWidth))
+			// Single dimmed vertical bar at the turn's time column.
+			// This reclaims vertical space: the row stays 1 line but the
+			// marker is subtle so tool bars remain the primary visual element.
+			compressedTotal := m.wfTimeMap.CompressedTotalMs
+			if compressedTotal <= 0 {
+				compressedTotal = m.wfTimeAxis.TotalMs
+			}
+			displayMs := m.wfTimeMap.MapToDisplay(row.StartMs)
+			col := parser.ColOffset(displayMs, compressedTotal, barWidth)
+			label := "user"
+			// Build: spaces up to col, then the vertical bar, then dimmed label.
+			marker := strings.Repeat(" ", col) + "\u2502" + label
+			if len(marker) > barWidth {
+				marker = marker[:barWidth]
+			}
+			barArea = dimStyle.Render(marker)
 		} else {
 			// Float64 scaling for sub-character precision using compressed display ms.
 			// MapToDisplay converts raw StartMs/EndMs to compressed coordinates so
