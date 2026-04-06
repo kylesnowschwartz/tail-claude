@@ -281,6 +281,7 @@ type model struct {
 	wfRows        []parser.WaterfallRow
 	wfTimeAxis    parser.TimeAxis
 	wfTimeMap     parser.TimeMap       // compressed display mapping for long idle gaps
+	wfStats       parser.WaterfallStats
 	wfCursor      int
 	wfScroll      int
 	wfExpanded    map[int]bool
@@ -425,6 +426,7 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.wfRows = nil
 	m.wfTimeAxis = parser.TimeAxis{}
 	m.wfTimeMap = parser.TimeMap{}
+	m.wfStats = parser.WaterfallStats{}
 	m.wfCursor = 0
 	m.wfScroll = 0
 	m.wfExpanded = make(map[int]bool)
@@ -584,6 +586,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if m.view == viewWaterfall {
 			m.wfRows, m.wfTimeAxis = parser.BuildWaterfallRows(m.sessionChunks)
 			m.wfTimeMap = parser.BuildTimeMap(m.wfRows, m.wfTimeAxis.TotalMs)
+			m.wfStats = parser.ComputeWaterfallStats(m.wfRows, m.wfTimeAxis)
 			if m.wfCursor >= len(m.wfRows) && len(m.wfRows) > 0 {
 				m.wfCursor = len(m.wfRows) - 1
 			}

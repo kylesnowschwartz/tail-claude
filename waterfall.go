@@ -334,9 +334,9 @@ func (m model) renderWaterfallInspector(width int) string {
 	dimStyle := lipgloss.NewStyle().Foreground(ColorTextDim)
 	secondaryStyle := lipgloss.NewStyle().Foreground(ColorTextSecondary)
 
-	// No row selected
+	// No row selected: show session statistics instead of an empty hint.
 	if m.wfCursor >= len(m.wfRows) {
-		return containerStyle.Render(dimStyle.Render("Select a row to inspect"))
+		return containerStyle.Render(m.renderWaterfallStats(width, dimStyle, secondaryStyle))
 	}
 
 	row := m.wfRows[m.wfCursor]
@@ -419,6 +419,54 @@ func (m model) renderWaterfallInspector(width int) string {
 	}
 
 	return containerStyle.Render(b.String())
+}
+
+// renderWaterfallStats formats the aggregate session statistics for the inspector
+// panel when no row is selected.
+func (m model) renderWaterfallStats(width int, dimStyle, secondaryStyle lipgloss.Style) string {
+	divider := dimStyle.Render(strings.Repeat("\u2500", min(width-2, 20)))
+	boldStyle := lipgloss.NewStyle().Bold(true)
+
+	if m.wfStats.TotalTools == 0 {
+		return dimStyle.Render("No tool calls")
+	}
+
+	var b strings.Builder
+
+	b.WriteString(boldStyle.Render("Session Statistics"))
+	b.WriteByte('\n')
+	b.WriteString(divider)
+	b.WriteByte('\n')
+	b.WriteString(fmt.Sprintf("%s  %s\n",
+		dimStyle.Render("Duration:   "),
+		secondaryStyle.Render(formatDuration(m.wfStats.SessionMs))))
+	b.WriteString(fmt.Sprintf("%s  %s\n",
+		dimStyle.Render("Tools:      "),
+		secondaryStyle.Render(fmt.Sprintf("%d", m.wfStats.TotalTools))))
+	b.WriteString(fmt.Sprintf("%s  %s\n",
+		dimStyle.Render("Concurrency:"),
+		secondaryStyle.Render(fmt.Sprintf("%d max", m.wfStats.MaxConcurrency))))
+	if m.wfStats.LongestTool != "" {
+		longest := fmt.Sprintf("%s (%s)", m.wfStats.LongestTool, formatDuration(m.wfStats.LongestToolMs))
+		b.WriteString(fmt.Sprintf("%s  %s\n",
+			dimStyle.Render("Longest:    "),
+			secondaryStyle.Render(longest)))
+	}
+
+	if len(m.wfStats.TopTools) > 0 {
+		b.WriteByte('\n')
+		b.WriteString(boldStyle.Render("Top Tools"))
+		b.WriteByte('\n')
+		b.WriteString(divider)
+		b.WriteByte('\n')
+		for _, tf := range m.wfStats.TopTools {
+			b.WriteString(fmt.Sprintf("%-12s  %s\n",
+				secondaryStyle.Render(tf.Name),
+				dimStyle.Render(fmt.Sprintf("%d", tf.Count))))
+		}
+	}
+
+	return b.String()
 }
 
 // ensureWfCursorVisible scrolls the waterfall viewport to keep the cursor visible.

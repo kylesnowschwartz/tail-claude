@@ -5,6 +5,99 @@ import (
 	"time"
 )
 
+// WaterfallStats holds aggregate statistics for a waterfall session.
+type WaterfallStats struct {
+	TotalTools     int
+	MaxConcurrency int
+	LongestTool    string // "ToolName (duration)"
+	LongestToolMs  int64
+	TopTools       []ToolFreq // sorted by count descending, top 5
+	SessionMs      int64
+}
+
+// ToolFreq pairs a tool name with how many times it appeared.
+type ToolFreq struct {
+	Name  string
+	Count int
+}
+
+// ComputeWaterfallStats derives aggregate statistics from waterfall rows and
+// the session time axis. Pure function -- no side effects.
+//
+// Max concurrency uses a sweep-line algorithm: collect +1 events at each row's
+// start and -1 events at each row's end, sort by time, then scan for peak depth.
+// Only non-separator rows with a positive duration contribute to concurrency.
+func ComputeWaterfallStats(rows []WaterfallRow, axis TimeAxis) WaterfallStats {
+	var stats WaterfallStats
+	stats.SessionMs = axis.TotalMs
+
+	if len(rows) == 0 {
+		return stats
+	}
+
+	// Count tools and find the longest individual tool call.
+	toolCounts := make(map[string]int)
+	for _, row := range rows {
+		if row.IsUserSeparator {
+			continue
+		}
+		for _, t := range row.Tools {
+			stats.TotalTools++
+			toolCounts[t.Name]++
+			if t.DurationMs > stats.LongestToolMs {
+				stats.LongestToolMs = t.DurationMs
+				stats.LongestTool = t.Name
+			}
+		}
+	}
+
+	// Build top-tools list (up to 5), sorted by count descending.
+	for name, count := range toolCounts {
+		stats.TopTools = append(stats.TopTools, ToolFreq{Name: name, Count: count})
+	}
+	sort.Slice(stats.TopTools, func(i, j int) bool {
+		if stats.TopTools[i].Count != stats.TopTools[j].Count {
+			return stats.TopTools[i].Count > stats.TopTools[j].Count
+		}
+		return stats.TopTools[i].Name < stats.TopTools[j].Name
+	})
+	if len(stats.TopTools) > 5 {
+		stats.TopTools = stats.TopTools[:5]
+	}
+
+	// Compute max concurrency via sweep line over row time ranges.
+	// Each non-separator row with positive duration contributes a +1/-1 event pair.
+	type event struct {
+		ms    int64
+		delta int
+	}
+	var events []event
+	for _, row := range rows {
+		if row.IsUserSeparator || row.DurationMs <= 0 {
+			continue
+		}
+		events = append(events, event{row.StartMs, +1})
+		events = append(events, event{row.StartMs + row.DurationMs, -1})
+	}
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].ms != events[j].ms {
+			return events[i].ms < events[j].ms
+		}
+		// Process -1 (ends) before +1 (starts) at the same timestamp so
+		// non-overlapping adjacent ranges don't appear concurrent.
+		return events[i].delta < events[j].delta
+	})
+	depth := 0
+	for _, ev := range events {
+		depth += ev.delta
+		if depth > stats.MaxConcurrency {
+			stats.MaxConcurrency = depth
+		}
+	}
+
+	return stats
+}
+
 // WaterfallRow represents one horizontal bar in the waterfall timeline view.
 // Each AI chunk with tool calls becomes a row; user messages become separators.
 type WaterfallRow struct {

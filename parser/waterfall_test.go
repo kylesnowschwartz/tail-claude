@@ -486,3 +486,134 @@ func TestBuildWaterfallRows_EndTimeUsesMaxChunkEnd(t *testing.T) {
 		t.Errorf("EndTime should be %v, got %v", expectedEnd, axis.EndTime)
 	}
 }
+
+// TestComputeWaterfallStats_Empty verifies stats for a session with no rows.
+func TestComputeWaterfallStats_Empty(t *testing.T) {
+	stats := ComputeWaterfallStats(nil, TimeAxis{})
+	if stats.TotalTools != 0 {
+		t.Errorf("TotalTools should be 0, got %d", stats.TotalTools)
+	}
+	if stats.MaxConcurrency != 0 {
+		t.Errorf("MaxConcurrency should be 0, got %d", stats.MaxConcurrency)
+	}
+	if len(stats.TopTools) != 0 {
+		t.Errorf("TopTools should be empty, got %v", stats.TopTools)
+	}
+}
+
+// TestComputeWaterfallStats_ZeroToolRows verifies stats when rows exist but have no tools.
+func TestComputeWaterfallStats_ZeroToolRows(t *testing.T) {
+	// Only a user separator row -- no tool calls.
+	rows := []WaterfallRow{
+		{IsUserSeparator: true, StartMs: 0},
+	}
+	axis := TimeAxis{TotalMs: 5000}
+	stats := ComputeWaterfallStats(rows, axis)
+	if stats.TotalTools != 0 {
+		t.Errorf("TotalTools should be 0 for separator-only rows, got %d", stats.TotalTools)
+	}
+	if stats.SessionMs != 5000 {
+		t.Errorf("SessionMs should be 5000, got %d", stats.SessionMs)
+	}
+}
+
+// TestComputeWaterfallStats_ThreeRowsOneConcurrentPair verifies stats for a
+// session with 3 tool rows where two overlap in time (spec requirement).
+//
+// Layout:
+//
+//	Row A: starts 0ms,    duration 3000ms  (Read)
+//	Row B: starts 1000ms, duration 3000ms  (Bash, Grep)  -- overlaps with A
+//	Row C: starts 5000ms, duration 1000ms  (Edit)         -- no overlap
+//
+// Expected:
+//
+//	TotalTools     = 4  (Read + Bash + Grep + Edit)
+//	MaxConcurrency = 2  (rows A and B overlap at t=1000..3000ms)
+//	LongestTool    = Bash (2500ms)
+//	TopTools[0]    = Bash (1), Edit (1), Grep (1), Read (1)  -- tied, alpha sorted
+func TestComputeWaterfallStats_ThreeRowsOneConcurrentPair(t *testing.T) {
+	rows := []WaterfallRow{
+		{
+			StartMs:    0,
+			DurationMs: 3000,
+			Tools: []WaterfallTool{
+				{Name: "Read", Category: CategoryRead, DurationMs: 500},
+			},
+		},
+		{
+			StartMs:    1000,
+			DurationMs: 3000,
+			Tools: []WaterfallTool{
+				{Name: "Bash", Category: CategoryBash, DurationMs: 2500},
+				{Name: "Grep", Category: CategoryGrep, DurationMs: 800},
+			},
+		},
+		{
+			StartMs:    5000,
+			DurationMs: 1000,
+			Tools: []WaterfallTool{
+				{Name: "Edit", Category: CategoryEdit, DurationMs: 900},
+			},
+		},
+	}
+	axis := TimeAxis{TotalMs: 6000}
+
+	stats := ComputeWaterfallStats(rows, axis)
+
+	if stats.TotalTools != 4 {
+		t.Errorf("TotalTools: want 4, got %d", stats.TotalTools)
+	}
+	if stats.MaxConcurrency != 2 {
+		t.Errorf("MaxConcurrency: want 2, got %d", stats.MaxConcurrency)
+	}
+	if stats.LongestTool != "Bash" {
+		t.Errorf("LongestTool: want Bash, got %q", stats.LongestTool)
+	}
+	if stats.LongestToolMs != 2500 {
+		t.Errorf("LongestToolMs: want 2500, got %d", stats.LongestToolMs)
+	}
+	if stats.SessionMs != 6000 {
+		t.Errorf("SessionMs: want 6000, got %d", stats.SessionMs)
+	}
+	// All four tools appear once -- tied -- so sorted alphabetically.
+	if len(stats.TopTools) != 4 {
+		t.Fatalf("TopTools: want 4 entries, got %d: %v", len(stats.TopTools), stats.TopTools)
+	}
+	if stats.TopTools[0].Name != "Bash" {
+		t.Errorf("TopTools[0]: want Bash, got %q", stats.TopTools[0].Name)
+	}
+}
+
+// TestComputeWaterfallStats_TopToolsLimit verifies that TopTools is capped at 5.
+func TestComputeWaterfallStats_TopToolsLimit(t *testing.T) {
+	tools := []WaterfallTool{
+		{Name: "A", DurationMs: 100},
+		{Name: "B", DurationMs: 100},
+		{Name: "C", DurationMs: 100},
+		{Name: "D", DurationMs: 100},
+		{Name: "E", DurationMs: 100},
+		{Name: "F", DurationMs: 100},
+	}
+	rows := []WaterfallRow{
+		{StartMs: 0, DurationMs: 600, Tools: tools},
+	}
+	axis := TimeAxis{TotalMs: 600}
+	stats := ComputeWaterfallStats(rows, axis)
+	if len(stats.TopTools) != 5 {
+		t.Errorf("TopTools should be capped at 5, got %d", len(stats.TopTools))
+	}
+}
+
+// TestComputeWaterfallStats_NonOverlapping verifies concurrency=1 for sequential rows.
+func TestComputeWaterfallStats_NonOverlapping(t *testing.T) {
+	rows := []WaterfallRow{
+		{StartMs: 0, DurationMs: 1000, Tools: []WaterfallTool{{Name: "Read", DurationMs: 500}}},
+		{StartMs: 1000, DurationMs: 1000, Tools: []WaterfallTool{{Name: "Edit", DurationMs: 800}}},
+	}
+	axis := TimeAxis{TotalMs: 2000}
+	stats := ComputeWaterfallStats(rows, axis)
+	if stats.MaxConcurrency != 1 {
+		t.Errorf("MaxConcurrency for non-overlapping rows: want 1, got %d", stats.MaxConcurrency)
+	}
+}
