@@ -455,7 +455,19 @@ func (m model) renderWaterfallTimeline(width int) string {
 					if m.wfExpanded[vr.rowIndex] {
 						chevron = "\u25bc"
 					}
-					label = chevron + " " + label
+					// Extract agent type from the Task tool; fall back to "Agent".
+					agentType := "Agent"
+					for _, t := range row.Tools {
+						if t.Category == parser.CategoryTask && t.Name != "" {
+							agentType = t.Name
+							break
+						}
+					}
+					badgeStyle := lipgloss.NewStyle().
+						Foreground(categoryColor(parser.CategoryTask)).
+						Bold(true)
+					badge := badgeStyle.Render("[" + agentType + "]")
+					label = chevron + " " + badge + " " + label
 				}
 
 				// Format duration; treat zero/sub-ms as "0ms".

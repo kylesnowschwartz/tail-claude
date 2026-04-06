@@ -826,3 +826,62 @@ func TestUserSeparatorMarkerNoGarbledBytes(t *testing.T) {
 		t.Errorf("rendered output contains invalid UTF-8: %q", plain)
 	}
 }
+
+// TestRenderWaterfallTimeline_SubagentBadge verifies that subagent rows display a
+// colored badge with the agent type name between the chevron and the tool label.
+// Covers spec: badge shows agent type (Explore, Plan, Worker) and falls back to
+// "Agent" when no Task tool name is set.
+func TestRenderWaterfallTimeline_SubagentBadge(t *testing.T) {
+	const totalMs = int64(10_000)
+
+	cases := []struct {
+		name      string
+		taskName  string // Name field on the Task tool
+		wantBadge string // expected badge text in stripped output
+	}{
+		{name: "Explore agent", taskName: "Explore", wantBadge: "[Explore]"},
+		{name: "Plan agent", taskName: "Plan", wantBadge: "[Plan]"},
+		{name: "Worker agent", taskName: "Worker", wantBadge: "[Worker]"},
+		{name: "fallback when empty name", taskName: "", wantBadge: "[Agent]"},
+		{name: "fallback when no Task tool", taskName: "", wantBadge: "[Agent]"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tools := []parser.WaterfallTool{
+				{Name: tc.taskName, Category: parser.CategoryTask, DurationMs: 3000},
+				{Name: "Read", Category: parser.CategoryRead, DurationMs: 500},
+			}
+			if tc.name == "fallback when no Task tool" {
+				// Omit the Task tool entirely so the loop finds nothing.
+				tools = []parser.WaterfallTool{
+					{Name: "Read", Category: parser.CategoryRead, DurationMs: 500},
+				}
+			}
+
+			rows := []parser.WaterfallRow{
+				{
+					StartMs:    1000,
+					DurationMs: 3000,
+					IsSubagent: true,
+					Tools:      tools,
+				},
+			}
+
+			m := model{
+				wfRows:     rows,
+				wfExpanded: map[int]bool{},
+				wfTimeAxis: parser.TimeAxis{TotalMs: totalMs},
+				height:     5,
+			}
+			m.wfVisible = buildWfVisibleRows(m.wfRows, m.wfExpanded)
+
+			rendered := m.renderWaterfallTimeline(100)
+			plain := ansi.Strip(rendered)
+
+			if !strings.Contains(plain, tc.wantBadge) {
+				t.Errorf("%s: expected badge %q in output; got: %q", tc.name, tc.wantBadge, plain)
+			}
+		})
+	}
+}
