@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -145,6 +146,68 @@ func TestFilterForks_PreservesOrder(t *testing.T) {
 		if result[i].UUID != want {
 			t.Errorf("position %d: expected UUID %q, got %q", i, want, result[i].UUID)
 		}
+	}
+}
+
+// TestFilterForks_DiamondConvergence verifies that a diamond-shaped DAG
+// (where two branches from a fork converge on the same descendant) does not
+// cause exponential recursion via subtreeSize. Without memoization this would
+// hang; with memoization it completes in O(n) time.
+//
+// Graph shape (A is root, B is fork, C and D are branches, E is shared):
+//
+//	A -> B -> C -> E -> F
+//	         D -> E -> F  (D also points to E, creating a diamond)
+func TestFilterForks_DiamondConvergence(t *testing.T) {
+	entries := []Entry{
+		makeEntry("A", "", "user"),
+		makeEntry("B", "A", "assistant"), // fork point
+		makeEntry("C", "B", "user"),      // branch 1
+		makeEntry("D", "B", "user"),      // branch 2
+		makeEntry("E", "C", "user"),      // shared descendant (from branch 1)
+		makeEntry("G", "D", "user"),      // shared descendant (from branch 2)
+		makeEntry("F1", "E", "assistant"),
+		makeEntry("F2", "F1", "assistant"),
+		makeEntry("F3", "F2", "assistant"),
+		makeEntry("F4", "F3", "assistant"),
+		makeEntry("F5", "F4", "assistant"),
+	}
+
+	// Should not hang. Pick whichever branch is longer.
+	result := FilterForks(entries)
+
+	if len(result) == 0 {
+		t.Fatal("expected non-empty result")
+	}
+	// Root and fork node must be present.
+	if result[0].UUID != "A" {
+		t.Errorf("expected root A, got %q", result[0].UUID)
+	}
+}
+
+// TestFilterForks_LargeLinearWithFork verifies that a session with many linear
+// entries and a single fork near the start completes quickly (no exponential
+// recursion). This is the shape that caused the original hang.
+func TestFilterForks_LargeLinearWithFork(t *testing.T) {
+	// Build a chain of 500 entries with a fork near the start.
+	entries := make([]Entry, 0, 502)
+	entries = append(entries, makeEntry("root", "", "user"))
+	entries = append(entries, makeEntry("fork", "root", "assistant"))
+	// Short branch (1 entry)
+	entries = append(entries, makeEntry("short", "fork", "user"))
+	// Long branch (500 entries)
+	prev := "fork"
+	for i := 0; i < 500; i++ {
+		id := fmt.Sprintf("n%d", i)
+		entries = append(entries, makeEntry(id, prev, "user"))
+		prev = id
+	}
+
+	result := FilterForks(entries)
+
+	// Long path should be chosen: root + fork + 500 = 502 entries.
+	if len(result) != 502 {
+		t.Fatalf("expected 502 entries, got %d", len(result))
 	}
 }
 

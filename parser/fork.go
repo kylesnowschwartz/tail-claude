@@ -61,21 +61,34 @@ func FilterForks(entries []Entry) []Entry {
 	}
 
 	// subtreeSize returns the number of entries reachable from startIdx
-	// following only the first child at each node (depth-first length).
-	// We use first-child traversal to count consistently with how agentsview
-	// measures branch depth.
+	// following only the longest-child path at each fork (depth-first length).
+	// We use memoization to avoid recomputing shared subtrees in diamond-shaped
+	// DAGs, which would otherwise cause exponential blowup.
+	memo := make(map[int]int, len(entries))
 	var subtreeSize func(startIdx int) int
 	subtreeSize = func(startIdx int) int {
+		if v, ok := memo[startIdx]; ok {
+			return v
+		}
 		count := 0
 		current := startIdx
+		visited := make(map[int]struct{})
 		for current >= 0 {
+			if _, seen := visited[current]; seen {
+				break // cycle guard
+			}
+			visited[current] = struct{}{}
 			count++
 			uuid := entries[current].UUID
 			kids := children[uuid]
 			if len(kids) == 0 {
 				break
 			}
-			// Recurse into each child and pick the biggest subtree.
+			if len(kids) == 1 {
+				current = kids[0]
+				continue
+			}
+			// Fork: recurse into each child and pick the biggest subtree.
 			best := -1
 			bestSize := -1
 			for _, kid := range kids {
@@ -87,6 +100,7 @@ func FilterForks(entries []Entry) []Entry {
 			}
 			current = best
 		}
+		memo[startIdx] = count
 		return count
 	}
 
