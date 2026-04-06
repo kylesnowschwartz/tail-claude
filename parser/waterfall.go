@@ -164,10 +164,25 @@ func BuildWaterfallRows(chunks []Chunk) ([]WaterfallRow, TimeAxis) {
 				continue
 			}
 			tools := extractTools(c.Items)
+			// Use the longest individual tool duration when it exceeds the chunk
+			// duration. The parser zeroes per-tool durations that would inflate the
+			// total (e.g. a Task that ran concurrently with fast tools), but the
+			// chunk-level DurationMs may still reflect only the wall-clock span. Taking
+			// the max ensures the row is at least as wide as its longest contained tool.
+			maxToolDur := int64(0)
+			for _, t := range tools {
+				if t.DurationMs > maxToolDur {
+					maxToolDur = t.DurationMs
+				}
+			}
+			rowDuration := c.DurationMs
+			if maxToolDur > 0 && maxToolDur > rowDuration {
+				rowDuration = maxToolDur
+			}
 			rows = append(rows, WaterfallRow{
 				ChunkIndex: i,
 				StartMs:    c.Timestamp.Sub(firstTS).Milliseconds(),
-				DurationMs: c.DurationMs,
+				DurationMs: rowDuration,
 				Tools:      tools,
 				IsSubagent: hasSubagentItem(c.Items),
 				Model:      c.Model,

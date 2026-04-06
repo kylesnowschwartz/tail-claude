@@ -617,3 +617,45 @@ func TestComputeWaterfallStats_NonOverlapping(t *testing.T) {
 		t.Errorf("MaxConcurrency for non-overlapping rows: want 1, got %d", stats.MaxConcurrency)
 	}
 }
+
+// TestBuildWaterfallRows_RowDurationUsesMaxToolDuration verifies spec bl-77es:
+// when a chunk contains one long-running tool and one zeroed tool, the row
+// DurationMs is the max of c.DurationMs and the longest individual tool DurationMs.
+func TestBuildWaterfallRows_RowDurationUsesMaxToolDuration(t *testing.T) {
+	// Simulate a chunk where c.DurationMs = 500ms but one tool ran for 800ms.
+	// This can happen when the parser zeroes a fast tool's duration to avoid
+	// inflation, but the long tool's recorded duration exceeds the chunk span.
+	chunk := aiChunkWithTools(baseTime, 500, "claude-sonnet", []DisplayItem{
+		toolItem("Task", CategoryTask, 800, false, "long running"),
+		toolItem("Read", CategoryRead, 0, false, "zeroed"),
+	})
+
+	rows, _ := BuildWaterfallRows([]Chunk{chunk})
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	// Row duration must be max(500, 800) = 800ms.
+	if rows[0].DurationMs != 800 {
+		t.Errorf("DurationMs: want 800 (max of chunk and tool), got %d", rows[0].DurationMs)
+	}
+}
+
+// TestBuildWaterfallRows_RowDurationFallsBackToChunkWhenAllToolsZeroed verifies
+// spec bl-77es: when all tool durations are zero the row falls back to c.DurationMs.
+func TestBuildWaterfallRows_RowDurationFallsBackToChunkWhenAllToolsZeroed(t *testing.T) {
+	chunk := aiChunkWithTools(baseTime, 1200, "claude-sonnet", []DisplayItem{
+		toolItem("Bash", CategoryBash, 0, false, "zeroed"),
+		toolItem("Read", CategoryRead, 0, false, "also zeroed"),
+	})
+
+	rows, _ := BuildWaterfallRows([]Chunk{chunk})
+
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	// All tool durations are zero, so row falls back to chunk duration.
+	if rows[0].DurationMs != 1200 {
+		t.Errorf("DurationMs: want 1200 (chunk fallback), got %d", rows[0].DurationMs)
+	}
+}
