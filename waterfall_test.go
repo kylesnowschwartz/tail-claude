@@ -87,9 +87,9 @@ func TestRenderBarStringFractionalTrail(t *testing.T) {
 	}
 }
 
-// TestRenderTimeAxisHeaderRightmostTick verifies that the 100% tick label is not
-// truncated to just "|". The rightmost tick at barWidth-1 must render its full
-// time string (e.g. "|10.0s") in the output.
+// TestRenderTimeAxisHeaderRightmostTick verifies that the last tick label is not
+// truncated. For a 10-second session with 1s intervals the last tick at 10s
+// must render its full label "|10.0s".
 func TestRenderTimeAxisHeaderRightmostTick(t *testing.T) {
 	const barWidth = 40
 	const gutterWidth = 12
@@ -99,15 +99,16 @@ func TestRenderTimeAxisHeaderRightmostTick(t *testing.T) {
 	// Strip ANSI escapes so we can inspect plain text.
 	plain := ansi.Strip(rendered)
 
-	// The rightmost tick label should be "|10.0s" (not just "|").
+	// The last tick label should be "|10.0s" (not just "|").
 	if !strings.Contains(plain, "|10.0s") {
-		t.Errorf("renderTimeAxisHeader: expected rightmost label '|10.0s' in output, got: %q", plain)
+		t.Errorf("renderTimeAxisHeader: expected last label '|10.0s' in output, got: %q", plain)
 	}
 }
 
-// TestRenderTimeAxisHeaderAllTicks verifies that all five tick labels appear in
-// the rendered header for a 10-second session.
-func TestRenderTimeAxisHeaderAllTicks(t *testing.T) {
+// TestRenderTimeAxisHeaderNiceIntervals verifies that smart round-number ticks
+// are used instead of fixed percentages. For a 10-second session with target 8
+// ticks the interval is 1s, so labels like "|0ms", "|1.0s", "|2.0s" appear.
+func TestRenderTimeAxisHeaderNiceIntervals(t *testing.T) {
 	const barWidth = 80
 	const gutterWidth = 12
 	const totalMs = int64(10_000)
@@ -115,10 +116,18 @@ func TestRenderTimeAxisHeaderAllTicks(t *testing.T) {
 	rendered := renderTimeAxisHeader(gutterWidth, barWidth, totalMs, parser.TimeMap{})
 	plain := ansi.Strip(rendered)
 
-	want := []string{"|0ms", "|2.5s", "|5.0s", "|7.5s", "|10.0s"}
+	// With 1s interval, these ticks must be present.
+	want := []string{"|0ms", "|1.0s", "|2.0s", "|5.0s", "|10.0s"}
 	for _, label := range want {
 		if !strings.Contains(plain, label) {
 			t.Errorf("renderTimeAxisHeader: expected label %q in output, got: %q", label, plain)
+		}
+	}
+	// Old fixed-percentage labels (2.5s, 7.5s) should NOT appear.
+	notWant := []string{"|2.5s", "|7.5s"}
+	for _, label := range notWant {
+		if strings.Contains(plain, label) {
+			t.Errorf("renderTimeAxisHeader: unexpected old-style label %q in output: %q", label, plain)
 		}
 	}
 }
@@ -141,5 +150,84 @@ func TestRenderTimeAxisHeaderNeverExceedsBarWidth(t *testing.T) {
 		if len(plain) > maxLen {
 			t.Errorf("barWidth=%d: plain output length %d exceeds max %d", barWidth, len(plain), maxLen)
 		}
+	}
+}
+
+// TestRenderTimeAxisHeaderZeroTotalMs verifies that when totalMs is zero the
+// time axis renders no tick marks (spec: "When totalMs is zero, no ticks").
+func TestRenderTimeAxisHeaderZeroTotalMs(t *testing.T) {
+	const barWidth = 80
+	const gutterWidth = 12
+
+	rendered := renderTimeAxisHeader(gutterWidth, barWidth, 0, parser.TimeMap{})
+	plain := ansi.Strip(rendered)
+
+	if strings.Contains(plain, "|") {
+		t.Errorf("renderTimeAxisHeader with totalMs=0: expected no ticks, got: %q", plain)
+	}
+}
+
+// TestRenderTimeAxisHeaderNarrowTerminal verifies that a narrow terminal
+// (barWidth < 60) targets ~4 ticks instead of ~8.
+func TestRenderTimeAxisHeaderNarrowTerminal(t *testing.T) {
+	const gutterWidth = 12
+	const totalMs = int64(120_000) // 2 minutes
+
+	// Wide: barWidth=80 → target 8 ticks → rawInterval=15s → nice=15s
+	wideRendered := renderTimeAxisHeader(gutterWidth, 80, totalMs, parser.TimeMap{})
+	widePlain := ansi.Strip(wideRendered)
+
+	// Narrow: barWidth=40 → target 4 ticks → rawInterval=30s → nice=30s
+	narrowRendered := renderTimeAxisHeader(gutterWidth, 40, totalMs, parser.TimeMap{})
+	narrowPlain := ansi.Strip(narrowRendered)
+
+	// Count pipe characters as a proxy for tick count.
+	wideTicks := strings.Count(widePlain, "|")
+	narrowTicks := strings.Count(narrowPlain, "|")
+
+	if narrowTicks >= wideTicks {
+		t.Errorf("narrow terminal should produce fewer ticks than wide: narrow=%d wide=%d", narrowTicks, wideTicks)
+	}
+}
+
+// TestRenderTimeAxisHeaderTickPositions verifies tick positions for sessions of
+// 5s, 2m, and 30m duration (spec requirement).
+func TestRenderTimeAxisHeaderTickPositions(t *testing.T) {
+	cases := []struct {
+		name     string
+		totalMs  int64
+		barWidth int
+		// wantLabels are tick labels that must appear in the output.
+		wantLabels []string
+	}{
+		{
+			name:       "5s session",
+			totalMs:    5_000,
+			barWidth:   80,
+			wantLabels: []string{"|0ms", "|1.0s", "|2.0s", "|3.0s", "|4.0s", "|5.0s"},
+		},
+		{
+			name:       "2m session",
+			totalMs:    120_000,
+			barWidth:   80,
+			wantLabels: []string{"|0ms", "|15.0s", "|30.0s", "|1m00s", "|1m30s", "|2m00s"},
+		},
+		{
+			name:       "30m session",
+			totalMs:    1_800_000,
+			barWidth:   80,
+			wantLabels: []string{"|0ms", "|5m00s", "|10m00s", "|15m00s", "|20m00s", "|25m00s", "|30m00s"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rendered := renderTimeAxisHeader(12, tc.barWidth, tc.totalMs, parser.TimeMap{})
+			plain := ansi.Strip(rendered)
+			for _, label := range tc.wantLabels {
+				if !strings.Contains(plain, label) {
+					t.Errorf("%s: expected label %q in output, got: %q", tc.name, label, plain)
+				}
+			}
+		})
 	}
 }

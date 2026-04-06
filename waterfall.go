@@ -111,16 +111,59 @@ func categoryColor(cat parser.ToolCategory) color.Color {
 	}
 }
 
-// renderTimeAxisHeader renders a one-line time axis with tick marks at 0%, 25%,
-// 50%, 75%, and 100% of the raw session duration. Tick positions are placed
-// using compressed display coordinates from timeMap, but labels show real
-// (uncompressed) wall-clock offsets so the user knows actual elapsed time.
+// niceIntervals is the ordered set of round time boundaries (in ms) that the
+// smart tick algorithm snaps to. Derived from agentviz TimeAxis.jsx.
+var niceIntervals = []int64{
+	100, 250, 500,
+	1_000, 2_000, 5_000, 10_000, 15_000, 30_000,
+	60_000, 120_000, 300_000, 600_000,
+}
+
+// pickNiceInterval returns the nice interval closest to rawInterval (in ms).
+// When rawInterval falls exactly between two candidates the larger one wins,
+// which keeps labels from overlapping on narrow bars.
+func pickNiceInterval(rawInterval int64) int64 {
+	if rawInterval <= 0 {
+		return niceIntervals[0]
+	}
+	best := niceIntervals[0]
+	bestDiff := abs64(rawInterval - best)
+	for _, v := range niceIntervals[1:] {
+		d := abs64(rawInterval - v)
+		if d < bestDiff {
+			best = v
+			bestDiff = d
+		}
+	}
+	return best
+}
+
+func abs64(x int64) int64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// renderTimeAxisHeader renders a one-line time axis with tick marks at smart
+// round-number intervals. The number of ticks targets ~8 on wide terminals and
+// ~4 on narrow ones (barWidth < 60). Tick positions are placed using compressed
+// display coordinates from timeMap, but labels show real (uncompressed)
+// wall-clock offsets so the user knows actual elapsed time.
+//
+// When totalMs is zero no ticks are rendered.
 func renderTimeAxisHeader(gutterWidth, barWidth int, totalMs int64, timeMap parser.TimeMap) string {
 	dimStyle := lipgloss.NewStyle().Faint(true)
 
+	gutter := strings.Repeat(" ", gutterWidth)
+
+	if totalMs <= 0 {
+		return dimStyle.Render(gutter)
+	}
+
 	// Extra capacity so the rightmost tick label isn't clipped by the buffer
-	// boundary. The 100% tick lands at barWidth-1, and its label (e.g. "|10.0s")
-	// can be up to ~8 chars, so 16 bytes of headroom is plenty.
+	// boundary. The last tick label (e.g. "|10.0s") can be up to ~8 chars,
+	// so 16 bytes of headroom is plenty.
 	bufLen := barWidth + 16
 	buf := make([]byte, bufLen)
 	for i := range buf {
@@ -132,11 +175,16 @@ func renderTimeAxisHeader(gutterWidth, barWidth int, totalMs int64, timeMap pars
 		compressedTotal = totalMs
 	}
 
-	// The five tick positions (0, 25, 50, 75, 100 percent) of the raw timeline.
-	// Column position uses compressed display ms; label shows real ms.
-	ticks := [5]int{0, 1, 2, 3, 4}
-	for _, t := range ticks {
-		rawMs := int64(t) * totalMs / 4
+	// Target fewer ticks on narrow terminals to avoid label collisions.
+	targetTicks := int64(8)
+	if barWidth < 60 {
+		targetTicks = 4
+	}
+
+	interval := pickNiceInterval(totalMs / targetTicks)
+
+	// Generate ticks at 0, interval, 2*interval, ... up to totalMs (inclusive).
+	for rawMs := int64(0); rawMs <= totalMs; rawMs += interval {
 		displayMs := timeMap.MapToDisplay(rawMs)
 		col := parser.ColOffset(displayMs, compressedTotal, barWidth)
 		label := "|" + formatRelativeMs(rawMs)
@@ -149,7 +197,6 @@ func renderTimeAxisHeader(gutterWidth, barWidth int, totalMs int64, timeMap pars
 
 	// Trim trailing spaces while keeping the full last label.
 	result := strings.TrimRight(string(buf), " ")
-	gutter := strings.Repeat(" ", gutterWidth)
 	return dimStyle.Render(gutter + result)
 }
 
