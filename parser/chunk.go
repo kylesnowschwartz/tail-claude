@@ -209,7 +209,7 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 					})
 				case "tool_use":
 					inputLen := len(b.ToolInput)
-					if b.ToolName == "Task" || b.ToolName == "Agent" {
+					if b.ToolName == "Task" || b.ToolName == "Agent" || b.ToolName == "Skill" {
 						info := extractSubagentInfo(b.ToolInput)
 						items = append(items, DisplayItem{
 							Type:           ItemSubagent,
@@ -387,6 +387,20 @@ func extractSubagentInfo(input json.RawMessage) subagentInfo {
 			info.Description = Truncate(prompt, 80)
 		}
 	}
+	// Skill tool uses "skill" for type and "args" for description.
+	if info.Type == "" {
+		if raw, ok := fields["skill"]; ok {
+			json.Unmarshal(raw, &info.Type)
+		}
+	}
+	if info.Description == "" {
+		if raw, ok := fields["args"]; ok {
+			var args string
+			json.Unmarshal(raw, &args)
+			info.Description = Truncate(args, 80)
+		}
+	}
+
 	// Team member name (present when team_name + name are both set).
 	if raw, ok := fields["name"]; ok {
 		json.Unmarshal(raw, &info.MemberName)

@@ -16,7 +16,7 @@ func TestCategorizeToolName(t *testing.T) {
 		{"Grep", CategoryGrep},
 		{"Glob", CategoryGlob},
 		{"Task", CategoryTask},
-		{"Skill", CategoryTool},
+		{"Skill", CategoryTask},
 		{"WebFetch", CategoryWeb},
 		{"WebSearch", CategoryWeb},
 

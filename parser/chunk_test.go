@@ -614,6 +614,88 @@ func TestBuildChunks_Items_NonTaskToolStillToolCall(t *testing.T) {
 	}
 }
 
+func TestBuildChunks_Items_SkillToolCreatesSubagent(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	skillInput := json.RawMessage(`{"skill":"tmux-qa","args":"Run QA for tail-claude-mux"}`)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Skill"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Skill", ToolInput: skillInput},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+
+	item := items[0]
+	if item.Type != parser.ItemSubagent {
+		t.Errorf("Type = %d, want ItemSubagent", item.Type)
+	}
+	if item.SubagentType != "tmux-qa" {
+		t.Errorf("SubagentType = %q, want tmux-qa", item.SubagentType)
+	}
+	if item.SubagentDesc != "Run QA for tail-claude-mux" {
+		t.Errorf("SubagentDesc = %q, want 'Run QA for tail-claude-mux'", item.SubagentDesc)
+	}
+	if item.ToolName != "Skill" {
+		t.Errorf("ToolName = %q, want Skill", item.ToolName)
+	}
+	if item.ToolCategory != parser.CategoryTask {
+		t.Errorf("ToolCategory = %q, want CategoryTask", item.ToolCategory)
+	}
+}
+
+func TestBuildChunks_Items_SkillToolWithResult(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	t1 := t0.Add(200 * time.Millisecond)
+	skillInput := json.RawMessage(`{"skill":"simplify"}`)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Skill"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Skill", ToolInput: skillInput},
+			},
+		},
+		parser.AIMsg{
+			Timestamp: t1,
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_result", ToolID: "call_1", Content: `{"success":true,"commandName":"simplify"}`},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+
+	item := items[0]
+	if item.Type != parser.ItemSubagent {
+		t.Errorf("Type = %d, want ItemSubagent", item.Type)
+	}
+	if item.ToolResult == "" {
+		t.Error("ToolResult should be populated for non-fork Skill")
+	}
+	if item.DurationMs != 200 {
+		t.Errorf("DurationMs = %d, want 200", item.DurationMs)
+	}
+}
+
 // --- ItemTeammateMessage tests ---
 
 func TestBuildChunks_TeammateMessageFoldsIntoAITurn(t *testing.T) {

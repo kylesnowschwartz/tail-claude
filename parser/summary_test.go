@@ -281,6 +281,38 @@ func TestToolSummary_Task(t *testing.T) {
 	}
 }
 
+func TestToolSummary_Skill(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "skill with args",
+			input: `{"skill":"tmux-qa","args":"Run QA for tail-claude-mux"}`,
+			want:  "tmux-qa - Run QA for tail-claude-mux",
+		},
+		{
+			name:  "skill only no args",
+			input: `{"skill":"simplify"}`,
+			want:  "simplify",
+		},
+		{
+			name:  "empty",
+			input: `{}`,
+			want:  "Task",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parser.ToolSummary("Skill", json.RawMessage(tt.input))
+			if got != tt.want {
+				t.Errorf("ToolSummary(Skill, %s) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestToolSummary_WebFetch(t *testing.T) {
 	tests := []struct {
 		name  string

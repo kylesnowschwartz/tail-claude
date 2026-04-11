@@ -12,7 +12,7 @@ const (
 	CategoryGrep  ToolCategory = "Grep"
 	CategoryGlob  ToolCategory = "Glob"
 	CategoryTask  ToolCategory = "Task"
-	CategoryTool  ToolCategory = "Tool" // Skill, MCP tools
+	CategoryTool  ToolCategory = "Tool" // MCP tools
 	CategoryWeb   ToolCategory = "Web"  // WebFetch, WebSearch
 	CategoryOther ToolCategory = "Other"
 )
@@ -37,10 +37,8 @@ func CategorizeToolName(name string) ToolCategory {
 		return CategoryGrep
 	case "Glob":
 		return CategoryGlob
-	case "Task", "Agent":
+	case "Task", "Agent", "Skill":
 		return CategoryTask
-	case "Skill":
-		return CategoryTool
 	case "WebFetch", "WebSearch":
 		return CategoryWeb
 

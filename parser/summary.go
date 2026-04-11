@@ -38,7 +38,7 @@ func ToolSummary(name string, input json.RawMessage) string {
 		return summaryGrep(fields)
 	case "Glob":
 		return summaryGlob(fields)
-	case "Task", "Agent":
+	case "Task", "Agent", "Skill":
 		return summaryTask(fields)
 	case "LSP":
 		return summaryLSP(fields)
@@ -172,7 +172,16 @@ func summaryTask(f map[string]json.RawMessage) string {
 	if desc == "" {
 		desc = getString(f, "prompt")
 	}
+	if desc == "" {
+		desc = getString(f, "args") // Skill tool
+	}
 	subType := getString(f, "subagentType")
+	if subType == "" {
+		subType = getString(f, "subagent_type")
+	}
+	if subType == "" {
+		subType = getString(f, "skill") // Skill tool
+	}
 
 	typePrefix := ""
 	if subType != "" {
