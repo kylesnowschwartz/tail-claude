@@ -331,20 +331,22 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 // non-Task tool exceeds concurrentTaskDurationThreshold, the non-Task
 // duration is unreliable. Zero it to suppress display.
 func suppressInflatedDurations(items []DisplayItem) {
-	// Find the maximum Task duration in this turn.
+	// Find the maximum subagent duration in this turn. Only suppress when
+	// a subagent itself ran long enough to plausibly inflate sibling durations.
+	// A short-lived subagent (e.g. a non-fork Skill completing in 200ms)
+	// can't cause inflation.
 	var maxTaskDur int64
 	for i := range items {
 		if items[i].Type == ItemSubagent && items[i].DurationMs > maxTaskDur {
 			maxTaskDur = items[i].DurationMs
 		}
 	}
-	if maxTaskDur == 0 {
+	if maxTaskDur < concurrentTaskDurationThreshold {
 		return
 	}
 
-	// Zero out non-Task tools whose duration exceeds the threshold and
-	// is close to or exceeds the Task duration (suggesting they waited
-	// for the same background work).
+	// Zero out non-subagent tools whose duration exceeds the threshold,
+	// suggesting they waited for the same background work.
 	for i := range items {
 		if items[i].Type == ItemSubagent || items[i].Type == ItemTeammateMessage {
 			continue

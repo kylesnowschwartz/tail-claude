@@ -182,10 +182,11 @@ func IsOngoing(chunks []Chunk) bool {
 }
 
 // hasPendingAgents checks whether any agent/task tool call is still awaiting a
-// result. Only checks ItemSubagent items and ItemToolCall items where ToolName
-// is "Task" or "Agent" — regular tools (Read, Bash, Write, etc.) execute and
-// return within seconds, so a missing result means the session was interrupted
-// or the JSONL is incomplete, not evidence of ongoing work.
+// result. Checks ItemSubagent items (Task, Agent, Skill) and ItemToolCall
+// items where ToolName is "Task" or "Agent" — regular tools (Read, Bash,
+// Write, etc.) execute and return within seconds, so a missing result means
+// the session was interrupted or the JSONL is incomplete, not evidence of
+// ongoing work.
 func hasPendingAgents(chunks []Chunk) bool {
 	for _, chunk := range chunks {
 		if chunk.Type != AIChunk {
