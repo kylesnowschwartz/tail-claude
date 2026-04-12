@@ -66,6 +66,7 @@ func searchSessionsCmd(query string, sessions []parser.SessionInfo, gen int) tea
 func matchesSessionMetadata(s parser.SessionInfo, lowerQuery string) bool {
 	return strings.Contains(strings.ToLower(s.Title), lowerQuery) ||
 		strings.Contains(strings.ToLower(s.FirstMessage), lowerQuery) ||
+		strings.Contains(strings.ToLower(s.LastPrompt), lowerQuery) ||
 		strings.Contains(strings.ToLower(s.Cwd), lowerQuery) ||
 		strings.Contains(strings.ToLower(s.GitBranch), lowerQuery)
 }

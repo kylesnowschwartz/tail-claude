@@ -481,10 +481,14 @@ func (m model) pickerItemHeight(index int) int {
 	if m.pickerExpanded[index] {
 		width := m.clampWidth()
 		innerWidth := max(width-4, 20) // indent (2) + gutter (2)
-		preview := item.session.FirstMessage
-		if preview != "" {
-			wrapped := wrapText(preview, innerWidth)
-			contentLines += len(wrapped)
+		labelWidth := lipgloss.Width("first: ")
+		wrapWidth := max(innerWidth-labelWidth, 20)
+		s := item.session
+		if s.FirstMessage != "" {
+			contentLines += len(wrapText(s.FirstMessage, wrapWidth))
+		}
+		if s.LastPrompt != "" && s.LastPrompt != s.FirstMessage {
+			contentLines += len(wrapText(s.LastPrompt, wrapWidth))
 		}
 	}
 
@@ -739,13 +743,35 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 
 	lines := []string{line1, line2}
 
-	// Tab-expanded preview.
-	if m.pickerExpanded[itemIndex] && s.FirstMessage != "" {
+	// Tab-expanded preview: first prompt and last prompt.
+	if m.pickerExpanded[itemIndex] {
 		wrapWidth := max(innerWidth, 20)
 		expandStyle := StyleSecondary
-		wrapped := wrapText(s.FirstMessage, wrapWidth)
-		for _, wl := range wrapped {
-			lines = append(lines, indent+"  "+expandStyle.Render(wl))
+		labelStyle := StyleDim
+
+		if s.FirstMessage != "" {
+			label := labelStyle.Render("first: ")
+			wrapped := wrapText(s.FirstMessage, wrapWidth-lipgloss.Width("first: "))
+			for i, wl := range wrapped {
+				if i == 0 {
+					lines = append(lines, indent+"  "+label+expandStyle.Render(wl))
+				} else {
+					lines = append(lines, indent+"         "+expandStyle.Render(wl))
+				}
+			}
+		}
+
+		// Show last prompt when it differs from what's already visible.
+		if s.LastPrompt != "" && s.LastPrompt != s.FirstMessage {
+			label := labelStyle.Render(" last: ")
+			wrapped := wrapText(s.LastPrompt, wrapWidth-lipgloss.Width(" last: "))
+			for i, wl := range wrapped {
+				if i == 0 {
+					lines = append(lines, indent+"  "+label+expandStyle.Render(wl))
+				} else {
+					lines = append(lines, indent+"         "+expandStyle.Render(wl))
+				}
+			}
 		}
 	}
 

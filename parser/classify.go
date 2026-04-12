@@ -106,6 +106,7 @@ var noiseEntryTypes = map[string]bool{
 	"file-history-snapshot": true,
 	"queue-operation":       true,
 	"progress":              true,
+	"attachment":            true,
 }
 
 // hardNoiseTags are XML tags whose sole presence means the entire message is noise.
