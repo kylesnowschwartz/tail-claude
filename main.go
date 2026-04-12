@@ -293,6 +293,9 @@ type model struct {
 	// Modal popup (e.g. delete confirmation). When non-nil, captures all input.
 	popup *popup
 
+	// Update notification (set once by background version check)
+	updateAvailable string // non-empty when a newer version exists (e.g. "v0.9.0")
+
 	// Picker search mode state
 	pickerSearchMode    bool         // true when / search is active
 	pickerSearchTyping  bool         // true while text input is focused (all chars → input)
@@ -475,6 +478,9 @@ func (m model) Init() tea.Cmd {
 			cmds = append(cmds, pickerTickCmd())
 		}
 	}
+
+	// Check for newer version in the background.
+	cmds = append(cmds, checkLatestVersionCmd(resolveVersion()))
 
 	// Poll git dirty state every 3 seconds regardless of JSONL activity.
 	if m.gitCwd != "" {
@@ -729,6 +735,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case flashClearMsg:
 		m.flashStatus = ""
+		return m, nil
+
+	case updateAvailableMsg:
+		if msg.version != "" {
+			m.updateAvailable = msg.version
+		}
 		return m, nil
 
 	case editorFinishedMsg:

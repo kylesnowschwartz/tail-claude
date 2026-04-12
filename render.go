@@ -1341,6 +1341,11 @@ func (m model) renderInfoBar() string {
 		leftParts = append(leftParts, branch)
 	}
 
+	// Update notification.
+	if m.updateAvailable != "" {
+		leftParts = append(leftParts, StyleDim.Render(m.updateAvailable+" available (--update)"))
+	}
+
 	// Context token count + help hint (right-aligned).
 	// Only show context usage when viewing a session, not on the picker.
 	var rightParts []string

@@ -526,9 +526,6 @@ func (m model) viewPicker() string {
 	if m.pickerWorktreeMode {
 		header += " " + Icon.Branch.Render() + " " + StyleMuted.Render("worktrees")
 	}
-	header += "\n"
-
-	header = strings.TrimRight(header, "\n")
 
 	// Empty state
 	if len(m.pickerItems) == 0 {
