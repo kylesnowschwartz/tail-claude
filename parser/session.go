@@ -339,15 +339,23 @@ func scanSessionMetadata(path string) sessionMetadata {
 			continue
 		}
 
-		// Title entries (type=custom-title, type=ai-title) have no UUID.
-		// Extract them before the UUID guard. Last value wins since Claude
-		// Code re-appends titles at EOF after compaction.
-		if raw.Type == "custom-title" && raw.CustomTitle != "" {
-			meta.customTitle = raw.CustomTitle
+		// Metadata entries (no UUID) carry session-level state. Extract
+		// before the UUID guard. Last value wins for all of these.
+		switch raw.Type {
+		case "custom-title":
+			if raw.CustomTitle != "" {
+				meta.customTitle = raw.CustomTitle
+			}
 			continue
-		}
-		if raw.Type == "ai-title" && raw.AITitle != "" {
-			meta.aiTitle = raw.AITitle
+		case "ai-title":
+			if raw.AITitle != "" {
+				meta.aiTitle = raw.AITitle
+			}
+			continue
+		case "permission-mode":
+			if raw.PermissionMode != "" {
+				meta.permissionMode = raw.PermissionMode
+			}
 			continue
 		}
 
@@ -370,6 +378,8 @@ func scanSessionMetadata(path string) sessionMetadata {
 		if meta.gitBranch == "" && raw.GitBranch != "" {
 			meta.gitBranch = raw.GitBranch
 		}
+		// Fallback: older sessions lack type=permission-mode entries and
+		// only carry the field on conversational entries.
 		if raw.PermissionMode != "" {
 			meta.permissionMode = raw.PermissionMode
 		}
