@@ -219,7 +219,10 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "D":
 		if s := m.pickerSelectedSession(); s != nil {
-			preview := s.FirstMessage
+			preview := s.Title
+			if preview == "" {
+				preview = s.FirstMessage
+			}
 			if len(preview) > 50 {
 				preview = preview[:47] + "..."
 			}
@@ -649,7 +652,12 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 		line1Parts = append(line1Parts, spinStyle.Render(frame+" "))
 	}
 
+	// Title (from /rename or AI-generated) takes line 1 when present.
+	// First message becomes secondary text.
 	preview := s.FirstMessage
+	if s.Title != "" {
+		preview = s.Title
+	}
 	if preview == "" {
 		preview = "Untitled"
 	}

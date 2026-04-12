@@ -138,6 +138,80 @@ func TestScanSessionMetadata_StreamingDedup(t *testing.T) {
 	}
 }
 
+// --- Session title tests ---
+
+func writeTempSession(t *testing.T, lines string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.jsonl")
+	if err := os.WriteFile(path, []byte(lines), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// Minimal user entry that gives scanSessionMetadata a non-zero turnCount
+// so the session isn't filtered as a ghost.
+const testUserEntry = `{"uuid":"u1","type":"user","timestamp":"2025-01-15T10:00:00Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"hello"}}` + "\n"
+
+func TestScanSessionMetadata_CustomTitle(t *testing.T) {
+	path := writeTempSession(t, testUserEntry+
+		`{"type":"custom-title","customTitle":"my-cool-session","sessionId":"abc"}`)
+
+	meta := scanSessionMetadata(path)
+	if meta.customTitle != "my-cool-session" {
+		t.Errorf("customTitle = %q, want %q", meta.customTitle, "my-cool-session")
+	}
+}
+
+func TestScanSessionMetadata_AITitle(t *testing.T) {
+	path := writeTempSession(t, testUserEntry+
+		`{"type":"ai-title","aiTitle":"fix-auth-bug","sessionId":"abc"}`)
+
+	meta := scanSessionMetadata(path)
+	if meta.aiTitle != "fix-auth-bug" {
+		t.Errorf("aiTitle = %q, want %q", meta.aiTitle, "fix-auth-bug")
+	}
+}
+
+func TestScanSessionMetadata_CustomTitleWinsOverAI(t *testing.T) {
+	path := writeTempSession(t, testUserEntry+
+		`{"type":"ai-title","aiTitle":"auto-generated-name","sessionId":"abc"}`+"\n"+
+		`{"type":"custom-title","customTitle":"user-chosen-name","sessionId":"abc"}`)
+
+	meta := scanSessionMetadata(path)
+	if meta.customTitle != "user-chosen-name" {
+		t.Errorf("customTitle = %q, want %q", meta.customTitle, "user-chosen-name")
+	}
+	if meta.aiTitle != "auto-generated-name" {
+		t.Errorf("aiTitle = %q, want %q", meta.aiTitle, "auto-generated-name")
+	}
+}
+
+func TestScanSessionMetadata_ReAppendedTitleLastWins(t *testing.T) {
+	// Claude Code re-appends titles at EOF after compaction. Last value wins.
+	path := writeTempSession(t, testUserEntry+
+		`{"type":"custom-title","customTitle":"old-name","sessionId":"abc"}`+"\n"+
+		`{"type":"custom-title","customTitle":"new-name","sessionId":"abc"}`)
+
+	meta := scanSessionMetadata(path)
+	if meta.customTitle != "new-name" {
+		t.Errorf("customTitle = %q, want %q (last value should win)", meta.customTitle, "new-name")
+	}
+}
+
+func TestScanSessionMetadata_NoTitle(t *testing.T) {
+	path := writeTempSession(t, testUserEntry)
+
+	meta := scanSessionMetadata(path)
+	if meta.customTitle != "" {
+		t.Errorf("customTitle = %q, want empty", meta.customTitle)
+	}
+	if meta.aiTitle != "" {
+		t.Errorf("aiTitle = %q, want empty", meta.aiTitle)
+	}
+}
+
 // --- ResolveGitRoot tests ---
 
 func TestResolveGitRoot_NormalRepo(t *testing.T) {

@@ -64,7 +64,8 @@ func searchSessionsCmd(query string, sessions []parser.SessionInfo, gen int) tea
 
 // matchesSessionMetadata checks if any session metadata field contains the query.
 func matchesSessionMetadata(s parser.SessionInfo, lowerQuery string) bool {
-	return strings.Contains(strings.ToLower(s.FirstMessage), lowerQuery) ||
+	return strings.Contains(strings.ToLower(s.Title), lowerQuery) ||
+		strings.Contains(strings.ToLower(s.FirstMessage), lowerQuery) ||
 		strings.Contains(strings.ToLower(s.Cwd), lowerQuery) ||
 		strings.Contains(strings.ToLower(s.GitBranch), lowerQuery)
 }
@@ -524,8 +525,11 @@ func (m model) renderSearchPickerSession(s *parser.SessionInfo, isSelected bool,
 	indent := "  "
 	innerWidth := max(width-4, 20)
 
-	// Line 1: preview text with query highlighting
+	// Line 1: title or first message with query highlighting
 	preview := s.FirstMessage
+	if s.Title != "" {
+		preview = s.Title
+	}
 	if preview == "" {
 		preview = "Untitled"
 	}
