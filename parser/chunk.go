@@ -68,7 +68,8 @@ type Chunk struct {
 	Timestamp time.Time
 
 	// User chunk fields.
-	UserText string
+	UserText       string
+	ExpandedPrompt string // expanded skill/command prompt (from isMeta=true entry after /command)
 
 	// AI chunk fields.
 	Model         string
@@ -101,15 +102,25 @@ func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 		aiBuf = aiBuf[:0]
 	}
 
-	for _, msg := range msgs {
-		switch m := msg.(type) {
+	for i := 0; i < len(msgs); i++ {
+		switch m := msgs[i].(type) {
 		case UserMsg:
 			flush()
-			chunks = append(chunks, Chunk{
+			c := Chunk{
 				Type:      UserChunk,
 				Timestamp: m.Timestamp,
 				UserText:  m.Text,
-			})
+			}
+			// Slash commands: the next entry may be the expanded skill prompt
+			// (isMeta=true with text content, no tool_result blocks). Attach
+			// it to this user chunk instead of letting it fall into the AI buffer.
+			if strings.HasPrefix(m.Text, "/") && i+1 < len(msgs) {
+				if expanded := extractExpandedPrompt(msgs[i+1]); expanded != "" {
+					c.ExpandedPrompt = expanded
+					i++ // consume the expanded prompt entry
+				}
+			}
+			chunks = append(chunks, c)
 		case SystemMsg:
 			flush()
 			chunks = append(chunks, Chunk{
@@ -146,6 +157,22 @@ func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 	flush()
 
 	return chunks
+}
+
+// extractExpandedPrompt checks whether a classified message is an expanded
+// skill/command prompt — an isMeta=true AI message with only text blocks
+// (no tool_result). Returns the text content, or empty string if not a match.
+func extractExpandedPrompt(msg ClassifiedMsg) string {
+	ai, ok := msg.(AIMsg)
+	if !ok || !ai.IsMeta || ai.Text == "" {
+		return ""
+	}
+	for _, b := range ai.Blocks {
+		if b.Type == "tool_result" {
+			return ""
+		}
+	}
+	return ai.Text
 }
 
 // pendingTool tracks a tool_use DisplayItem awaiting its result.

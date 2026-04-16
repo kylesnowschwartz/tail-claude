@@ -1138,3 +1138,97 @@ func TestBuildChunks_ConcurrentTask_ShortDurationPreserved(t *testing.T) {
 		t.Errorf("Read DurationMs = %d, want 2000 (under threshold, preserved)", items[0].DurationMs)
 	}
 }
+
+// --- Expanded prompt tests ---
+
+func TestBuildChunks_ExpandedPrompt_AttachedToCommand(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.UserMsg{Timestamp: t0, Text: "/simplify PR #14"},
+		parser.AIMsg{
+			Timestamp: t0,
+			Text:      "# Simplify: Code Review and Cleanup\n\nReview all changed files.",
+			IsMeta:    true,
+			Blocks:    []parser.ContentBlock{{Type: "text", Text: "# Simplify: Code Review and Cleanup\n\nReview all changed files."}},
+		},
+		parser.AIMsg{Timestamp: t0.Add(1 * time.Second), Text: "Here are the results.", Model: "claude-opus-4-6"},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks) = %d, want 2 (user + AI)", len(chunks))
+	}
+	if chunks[0].Type != parser.UserChunk {
+		t.Errorf("chunks[0].Type = %d, want UserChunk", chunks[0].Type)
+	}
+	if chunks[0].ExpandedPrompt != "# Simplify: Code Review and Cleanup\n\nReview all changed files." {
+		t.Errorf("ExpandedPrompt = %q, want expanded text", chunks[0].ExpandedPrompt)
+	}
+	// The expanded prompt should NOT appear in the AI chunk's text.
+	if chunks[1].Type != parser.AIChunk {
+		t.Errorf("chunks[1].Type = %d, want AIChunk", chunks[1].Type)
+	}
+	if chunks[1].Text != "Here are the results." {
+		t.Errorf("AI Text = %q, want only the real response", chunks[1].Text)
+	}
+}
+
+func TestBuildChunks_ExpandedPrompt_NotAttachedToNonCommand(t *testing.T) {
+	// A regular user message (no /) followed by an isMeta AI should NOT
+	// be treated as an expanded prompt.
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.UserMsg{Timestamp: t0, Text: "Hello world"},
+		parser.AIMsg{
+			Timestamp: t0,
+			Text:      "some meta text",
+			IsMeta:    true,
+			Blocks:    []parser.ContentBlock{{Type: "text", Text: "some meta text"}},
+		},
+		parser.AIMsg{Timestamp: t0.Add(1 * time.Second), Text: "Response", Model: "claude-opus-4-6"},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks) = %d, want 2", len(chunks))
+	}
+	if chunks[0].ExpandedPrompt != "" {
+		t.Errorf("ExpandedPrompt = %q, want empty (not a command)", chunks[0].ExpandedPrompt)
+	}
+}
+
+func TestBuildChunks_ExpandedPrompt_SkipsToolResult(t *testing.T) {
+	// An isMeta AI entry with tool_result blocks should NOT be consumed
+	// as an expanded prompt, even after a / command.
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.UserMsg{Timestamp: t0, Text: "/some-command"},
+		parser.AIMsg{
+			Timestamp: t0,
+			Text:      "",
+			IsMeta:    true,
+			Blocks: []parser.ContentBlock{{
+				Type:    "tool_result",
+				ToolID:  "call_123",
+				Content: "tool output",
+			}},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if chunks[0].ExpandedPrompt != "" {
+		t.Errorf("ExpandedPrompt = %q, want empty (tool_result blocks present)", chunks[0].ExpandedPrompt)
+	}
+}
+
+func TestBuildChunks_ExpandedPrompt_CommandAtEndOfInput(t *testing.T) {
+	// A / command as the last message should not panic (no next message).
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.UserMsg{Timestamp: t0, Text: "/help"},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+	if chunks[0].ExpandedPrompt != "" {
+		t.Errorf("ExpandedPrompt = %q, want empty", chunks[0].ExpandedPrompt)
+	}
+}

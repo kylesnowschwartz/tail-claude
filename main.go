@@ -167,6 +167,7 @@ type message struct {
 	timestamp        string
 	items            []displayItem
 	lastOutput       *parser.LastOutput
+	expandedPrompt   string // expanded skill/command prompt (shown on expand)
 	subagentLabel    string // non-empty for trace views: "Explore", "Plan", etc.
 	teammateSpawns   int    // count of distinct team-spawned subagent Task calls
 	teammateMessages int    // count of distinct teammate IDs sending messages

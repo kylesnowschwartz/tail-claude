@@ -40,6 +40,8 @@ Output of the pipeline. Each `Chunk` is one visible unit in the conversation tim
 
 Four chunk types: `UserChunk`, `AIChunk`, `SystemChunk`, `CompactChunk`.
 
+User chunks carry: `UserText`, `ExpandedPrompt` (non-empty when the user typed a slash command and the next JSONL entry was the expanded skill prompt).
+
 AI chunks carry: `Model`, `Text`, `ThinkingCount`, `ToolCalls`, `Items` ([]DisplayItem), `Usage`, `StopReason`, `DurationMs`.
 
 `Usage` is the **last non-meta assistant message's** context-window snapshot, not the sum of all messages. The Claude API reports `input_tokens` as the full context window per API call, so summing across tool-call round trips would overcount. Session-level totals (picker) are computed separately from raw entries in `scanSessionMetadata`.
@@ -81,6 +83,7 @@ Metadata for the session picker: `Path`, `SessionID`, `ModTime`, `FirstMessage` 
   3. Synthetic assistant messages: `model == "<synthetic>"`
   4. Empty stdout/stderr, interruption messages
   5. Sidechain messages (`IsSidechain=true`) are dropped unconditionally
+- **Expanded prompt extraction.** `BuildChunks` detects expanded skill/command prompts: when a `UserMsg` starts with `/` and the next classified message is `AIMsg{IsMeta: true}` with only text blocks (no `tool_result`), the text is consumed as `Chunk.ExpandedPrompt` instead of entering the AI buffer. Detection: `extractExpandedPrompt()`.
 - **AI buffer merging.** `BuildChunks` buffers consecutive `AIMsg` entries and flushes them into a single `AIChunk` when a `UserMsg` or `SystemMsg` appears (or at end of input). `TeammateMsg` folds into the buffer as a synthetic `AIMsg` with a `"teammate"` content block.
 - **Tool result matching.** `mergeAIBuffer` tracks pending `tool_use` blocks by `ToolID`. When a `tool_result` block arrives in a meta message, it fills in `ToolResult`, `ToolError`, and `DurationMs` on the matching `DisplayItem`.
 - **Classify is destructive.** `Classify` and `SanitizeContent` strip XML tags, attributes, and structural markers from raw entry content. Data that any downstream consumer needs (subagent metadata, session metadata, team summaries) must be extracted at the Entry layer -- either in `ParseEntry`, `ReadSession`/`ReadSessionIncremental`, or `readSubagentSession` -- before `Classify` runs. Never write a function that regexes chunk text for data that `Classify` strips. The `teammateSummaryRe` regex is applied in `readSubagentSession` on raw entry content, not on chunks, for exactly this reason.

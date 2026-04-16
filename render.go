@@ -81,8 +81,21 @@ func selectionIndicator(selected bool) string {
 }
 
 // userHeaderLine renders "timestamp  You {icon}" used in both list and detail views.
-func userHeaderLine(msg message) string {
-	return StyleDim.Render(msg.timestamp) + "  " + StylePrimaryBold.Render("You") + " " + Icon.User.Render()
+// userHasExpandableContent returns true when a user message has content that
+// can be toggled: either an expanded skill prompt or long text that gets truncated.
+func userHasExpandableContent(msg message) bool {
+	if msg.expandedPrompt != "" {
+		return true
+	}
+	return strings.Count(msg.content, "\n") >= maxCollapsedLines
+}
+
+func userHeaderLine(msg message, isExpanded bool) string {
+	chev := ""
+	if userHasExpandableContent(msg) {
+		chev = chevron(isExpanded) + " "
+	}
+	return StyleDim.Render(msg.timestamp) + "  " + chev + StylePrimaryBold.Render("You") + " " + Icon.User.Render()
 }
 
 // spaceBetween lays out left and right strings with gap-fill spacing to span width.
@@ -304,7 +317,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 	alignWidth := containerWidth
 
 	// Header: right-aligned to terminal edge
-	rightPart := userHeaderLine(msg)
+	rightPart := userHeaderLine(msg, isExpanded)
 	leftPart := sel
 
 	headerGap := alignWidth - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
@@ -328,6 +341,14 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 			content = truncated
 			hint = StyleDim.Render(fmt.Sprintf("%s (%d lines hidden)", Icon.Ellipsis.Render(), hidden))
 		}
+		if msg.expandedPrompt != "" {
+			promptHint := StyleDim.Render(fmt.Sprintf("%s expanded prompt", Icon.Ellipsis.Render()))
+			if hint != "" {
+				hint += "  " + promptHint
+			} else {
+				hint = promptHint
+			}
+		}
 	}
 
 	// Render markdown content inside the bubble, then append the hint
@@ -335,6 +356,13 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 	rendered := m.md.renderMarkdown(content, bubbleInnerWidth)
 	if hint != "" {
 		rendered += "\n" + hint
+	}
+
+	// When expanded, show the expanded skill/command prompt below a separator
+	if isExpanded && msg.expandedPrompt != "" {
+		sep := StyleDim.Render(strings.Repeat(GlyphHRule, min(bubbleInnerWidth, 40)))
+		promptBody := m.md.renderMarkdown(msg.expandedPrompt, bubbleInnerWidth)
+		rendered += "\n" + sep + "\n" + promptBody
 	}
 
 	bubbleStyle := lipgloss.NewStyle().
@@ -413,8 +441,12 @@ func (m model) renderDetailContent(msg message, width int) rendered {
 		header = m.renderDetailHeader(msg, width).content
 		body = m.md.renderMarkdown(msg.content, width-4)
 	case RoleUser:
-		header = userHeaderLine(msg)
+		header = userHeaderLine(msg, true) // detail view is always expanded
 		body = m.md.renderMarkdown(msg.content, width-4)
+		if msg.expandedPrompt != "" {
+			sep := StyleDim.Render(strings.Repeat(GlyphHRule, min(width-4, 40)))
+			body += "\n\n" + sep + "\n" + m.md.renderMarkdown(msg.expandedPrompt, width-4)
+		}
 	case RoleSystem:
 		header = Icon.System.Render() +
 			" " + StyleSecondary.Render("System") +

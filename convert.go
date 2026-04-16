@@ -25,9 +25,10 @@ func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess,
 		switch c.Type {
 		case parser.UserChunk:
 			msgs = append(msgs, message{
-				role:      RoleUser,
-				content:   c.UserText,
-				timestamp: formatTime(c.Timestamp),
+				role:           RoleUser,
+				content:        c.UserText,
+				expandedPrompt: c.ExpandedPrompt,
+				timestamp:      formatTime(c.Timestamp),
 			})
 		case parser.AIChunk:
 			// Count distinct team-spawned subagents and teammate message senders.
