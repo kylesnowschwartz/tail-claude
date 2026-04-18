@@ -781,6 +781,81 @@ func TestBuildChunks_TeammateMessageBeforeAI(t *testing.T) {
 	}
 }
 
+// --- ItemMemoryLoad tests ---
+
+func TestBuildChunks_MemoryLoadFoldsIntoAITurn(t *testing.T) {
+	// Memory loads arrive between a user submit and Claude's reply.
+	// They should appear as the first item in the surrounding AI chunk,
+	// not split the turn into two chunks.
+	t0 := time.Date(2026, 4, 18, 9, 9, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.UserMsg{Timestamp: t0, Text: "what does this file do"},
+		parser.MemoryLoadMsg{
+			Timestamp:   t0.Add(500 * time.Millisecond),
+			DisplayPath: "claude-code/CLAUDE.md",
+		},
+		parser.AIMsg{
+			Timestamp: t0.Add(1 * time.Second),
+			Model:     "claude-opus-4-7",
+			Text:      "It configures the plugin.",
+			Blocks: []parser.ContentBlock{
+				{Type: "text", Text: "It configures the plugin."},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks) = %d, want 2 (user + AI)", len(chunks))
+	}
+	if chunks[0].Type != parser.UserChunk {
+		t.Errorf("chunks[0].Type = %d, want UserChunk", chunks[0].Type)
+	}
+	if chunks[1].Type != parser.AIChunk {
+		t.Errorf("chunks[1].Type = %d, want AIChunk", chunks[1].Type)
+	}
+
+	items := chunks[1].Items
+	if len(items) != 2 {
+		t.Fatalf("len(Items) = %d, want 2 (memory_load + text)", len(items))
+	}
+	if items[0].Type != parser.ItemMemoryLoad {
+		t.Errorf("Items[0].Type = %d, want ItemMemoryLoad", items[0].Type)
+	}
+	if items[0].Text != "claude-code/CLAUDE.md" {
+		t.Errorf("Items[0].Text = %q, want display path", items[0].Text)
+	}
+	if items[1].Type != parser.ItemOutput {
+		t.Errorf("Items[1].Type = %d, want ItemOutput", items[1].Type)
+	}
+}
+
+func TestBuildChunks_MemoryLoadWithoutAIStillProducesChunk(t *testing.T) {
+	// If a session ends with a memory load before any assistant reply arrives
+	// (in-flight session), the load should still appear as its own AI chunk,
+	// same as teammate messages do.
+	t0 := time.Date(2026, 4, 18, 9, 9, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.UserMsg{Timestamp: t0, Text: "go"},
+		parser.MemoryLoadMsg{
+			Timestamp:   t0.Add(500 * time.Millisecond),
+			DisplayPath: "CLAUDE.md",
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks) = %d, want 2", len(chunks))
+	}
+	if chunks[1].Type != parser.AIChunk {
+		t.Errorf("chunks[1].Type = %d, want AIChunk", chunks[1].Type)
+	}
+	if len(chunks[1].Items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(chunks[1].Items))
+	}
+	if chunks[1].Items[0].Type != parser.ItemMemoryLoad {
+		t.Errorf("Items[0].Type = %d, want ItemMemoryLoad", chunks[1].Items[0].Type)
+	}
+}
+
 // --- CompactChunk tests ---
 
 func TestBuildChunks_CompactMsgProducesCompactChunk(t *testing.T) {

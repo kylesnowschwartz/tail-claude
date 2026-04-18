@@ -23,7 +23,7 @@ func (UserMsg) classifiedMsg() {}
 
 // ContentBlock represents a single content block from an assistant or tool result message.
 type ContentBlock struct {
-	Type          string          // "thinking", "text", "tool_use", "tool_result", "teammate"
+	Type          string          // "thinking", "text", "tool_use", "tool_result", "teammate", "memory_load"
 	Text          string          // thinking or text content
 	ToolID        string          // tool_use: call ID; tool_result: tool_use_id
 	ToolName      string          // tool_use only
@@ -32,6 +32,7 @@ type ContentBlock struct {
 	IsError       bool            // tool_result only
 	TeammateID    string          // teammate only
 	TeammateColor string          // teammate only: team color name
+	DisplayPath   string          // memory_load only: path shown in the "Loaded X" pill
 }
 
 // AIMsg represents assistant responses and internal flow messages (tool results).
@@ -97,16 +98,29 @@ type CompactMsg struct {
 
 func (CompactMsg) classifiedMsg() {}
 
+// MemoryLoadMsg represents a nested memory file being loaded into context —
+// e.g. a CLAUDE.md pulled in because the user changed directories. Surfaced
+// from type=attachment entries with attachment.type=="nested_memory" and
+// rendered as a single "Loaded <path>" pill folded into the surrounding AI
+// turn (parallels how TeammateMsg folds in).
+type MemoryLoadMsg struct {
+	Timestamp   time.Time
+	DisplayPath string // relative path shown to the user ("claude-code/CLAUDE.md")
+}
+
+func (MemoryLoadMsg) classifiedMsg() {}
+
 // --- Hard noise detection ---
 
 // noiseEntryTypes are entry types that never produce visible messages.
 // Note: "summary" is handled separately as CompactMsg, not noise.
+// "attachment" is handled by the dedicated branch in Classify: nested_memory
+// surfaces as MemoryLoadMsg, everything else drops.
 var noiseEntryTypes = map[string]bool{
 	"system":                true,
 	"file-history-snapshot": true,
 	"queue-operation":       true,
 	"progress":              true,
-	"attachment":            true,
 }
 
 // hardNoiseTags are XML tags whose sole presence means the entire message is noise.
@@ -141,6 +155,22 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 
 	// 1. Hard noise: structural metadata types.
 	if noiseEntryTypes[e.Type] {
+		return nil, false
+	}
+
+	// Attachment entries (Claude Code 2.1+). Only nested_memory ("Loaded X")
+	// surfaces to users; every other attachment subtype — hook responses,
+	// skill listings, permission snapshots, mcp/tool deltas, output-style
+	// banners — is infrastructure and drops here. Keeping the enumeration
+	// tight preserves the "unknown → drop" invariant without widening
+	// ClassifiedMsg once per internal event type.
+	if e.Type == "attachment" {
+		if e.Attachment.Type == "nested_memory" && e.Attachment.DisplayPath != "" {
+			return MemoryLoadMsg{
+				Timestamp:   ts,
+				DisplayPath: e.Attachment.DisplayPath,
+			}, true
+		}
 		return nil, false
 	}
 

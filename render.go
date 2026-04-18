@@ -593,6 +593,9 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		if name == "" {
 			name = "Teammate"
 		}
+	case parser.ItemMemoryLoad:
+		indicator = Icon.Memory.Render()
+		name = "Loaded"
 	}
 
 	// Pad name to 12 chars
@@ -625,6 +628,8 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		}
 	case parser.ItemTeammateMessage:
 		summary = parser.Truncate(item.text, 60)
+	case parser.ItemMemoryLoad:
+		summary = item.text // the displayPath
 	}
 	// Suppress summary when it just repeats the tool name (common for MCP
 	// tools with empty input, where summaryDefault returns the name).

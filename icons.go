@@ -75,6 +75,7 @@ type iconSet struct {
 	Ellipsis  StyledIcon
 	Expanded  StyledIcon
 	Help      StyledIcon
+	Memory    StyledIcon
 	Output    StyledIcon
 	Selected  StyledIcon
 	Session   StyledIcon
@@ -122,6 +123,7 @@ func initIcons() {
 		Output:    StyledIcon{"\U000F0182", ColorAccent},  // nf-md-comment_outline
 		Selected:  StyledIcon{"\u2502", ColorAccent},      // box drawing vertical
 		Help:      StyledIcon{"󰘥", ColorAccent},           // nf-fa-circle_question
+		Memory:    StyledIcon{"\U000F01C0", ColorTextDim}, // nf-md-book_open_variant
 		Session:   StyledIcon{"\U000F0237", ColorTextDim}, // nf-md-fingerprint
 		Subagent:  StyledIcon{glyphRobot, ColorAccent},
 		System:    StyledIcon{"\uF120", ColorTextMuted}, // nf-fa-terminal

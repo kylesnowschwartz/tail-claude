@@ -907,6 +907,78 @@ func TestClassify_ToolSearchWithoutMatches_FallsThrough(t *testing.T) {
 	}
 }
 
+// --- Attachment / MemoryLoadMsg classification tests ---
+
+func withAttachment(attachType, displayPath string) func(*parser.Entry) {
+	return func(e *parser.Entry) {
+		e.Attachment.Type = attachType
+		e.Attachment.DisplayPath = displayPath
+	}
+}
+
+func TestClassify_AttachmentNestedMemoryProducesMemoryLoadMsg(t *testing.T) {
+	e := makeEntry("attachment", "att1", "2026-04-18T09:09:00.000Z",
+		json.RawMessage(`null`),
+		withAttachment("nested_memory", "claude-code/CLAUDE.md"),
+	)
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected nested_memory attachment to be classified")
+	}
+	ml, is := msg.(parser.MemoryLoadMsg)
+	if !is {
+		t.Fatalf("got %T, want MemoryLoadMsg", msg)
+	}
+	if ml.DisplayPath != "claude-code/CLAUDE.md" {
+		t.Errorf("DisplayPath = %q, want claude-code/CLAUDE.md", ml.DisplayPath)
+	}
+	if ml.Timestamp.IsZero() {
+		t.Error("Timestamp should not be zero")
+	}
+}
+
+func TestClassify_AttachmentNestedMemoryEmptyPathDropped(t *testing.T) {
+	// Defensive: if displayPath is ever empty (shouldn't happen in practice),
+	// we drop rather than render an unlabeled pill.
+	e := makeEntry("attachment", "att1", "2026-04-18T09:09:00.000Z",
+		json.RawMessage(`null`),
+		withAttachment("nested_memory", ""),
+	)
+	_, ok := parser.Classify(e)
+	if ok {
+		t.Error("nested_memory with empty displayPath should be dropped")
+	}
+}
+
+func TestClassify_AttachmentOtherSubtypesDropped(t *testing.T) {
+	// Every attachment subtype except nested_memory is infrastructure and
+	// must drop silently. Exhaustive per the 2.1.114 observed list.
+	subtypes := []string{
+		"async_hook_response",
+		"hook_success",
+		"hook_additional_context",
+		"command_permissions",
+		"deferred_tools_delta",
+		"mcp_instructions_delta",
+		"output_style",
+		"skill_listing",
+		"something_new_we_havent_seen",
+	}
+	for _, st := range subtypes {
+		t.Run(st, func(t *testing.T) {
+			e := makeEntry("attachment", "att1", "2026-04-18T09:09:00.000Z",
+				json.RawMessage(`null`),
+				withAttachment(st, ""),
+			)
+			_, ok := parser.Classify(e)
+			if ok {
+				t.Errorf("attachment.type=%q should be dropped", st)
+			}
+		})
+	}
+}
+
 func TestClassify_BashInputStrippedInUserMsg(t *testing.T) {
 	content := json.RawMessage(`"<bash-input>git push</bash-input>"`)
 	e := makeEntry("user", "bi1", "2025-01-15T10:00:00Z", content)

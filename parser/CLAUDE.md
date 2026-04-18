@@ -20,17 +20,18 @@ Raw JSONL deserialization. Fields map 1:1 to the on-disk format: `Type`, `UUID`,
 
 ### ClassifiedMsg (`classify.go`)
 
-Sealed interface (unexported `classifiedMsg()` method). Five implementations:
+Sealed interface (unexported `classifiedMsg()` method). Six implementations:
 
 - **UserMsg** -- genuine user input. Fields: `Timestamp`, `Text` (sanitized).
 - **AIMsg** -- assistant responses and internal flow (tool results when `IsMeta=true`). Fields: `Timestamp`, `Model`, `Text`, `ThinkingCount`, `ToolCalls`, `Blocks` ([]ContentBlock), `Usage`, `StopReason`, `IsMeta`.
 - **SystemMsg** -- command output (extracted from `<local-command-stdout>`/`<local-command-stderr>` XML). Fields: `Timestamp`, `Output`.
 - **TeammateMsg** -- messages from teammate agents (detected by `<teammate-message>` XML wrapper). Fields: `Timestamp`, `Text`, `TeammateID`. Folded into AI buffer during chunk building, not a separate chunk type.
 - **CompactMsg** -- context compression boundaries (`type=summary` entries). Fields: `Timestamp`, `Text`. Rendered as horizontal dividers.
+- **MemoryLoadMsg** -- a nested memory file loaded into context (`type=attachment` entries with `attachment.type=="nested_memory"`, e.g. a `CLAUDE.md` pulled in via the "Loaded X" pill). Fields: `Timestamp`, `DisplayPath`. Folded into the surrounding AI turn during chunk building as an `ItemMemoryLoad` display item — not a separate chunk type.
 
 ### Supporting types (`classify.go`)
 
-- **ContentBlock** -- a single block from an assistant or tool result message. `Type` is one of: `"thinking"`, `"text"`, `"tool_use"`, `"tool_result"`, `"teammate"`. Fields vary by type (`Text`, `ToolID`, `ToolName`, `ToolInput`, `Content`, `IsError`).
+- **ContentBlock** -- a single block from an assistant or tool result message. `Type` is one of: `"thinking"`, `"text"`, `"tool_use"`, `"tool_result"`, `"teammate"`, `"memory_load"`. Fields vary by type (`Text`, `ToolID`, `ToolName`, `ToolInput`, `Content`, `IsError`, `DisplayPath`).
 - **ToolCall** -- tool invocation reference: `ID`, `Name`.
 - **Usage** -- token counts: `InputTokens`, `OutputTokens`, `CacheReadTokens`, `CacheCreationTokens`. Method `TotalTokens()` returns the sum.
 
@@ -50,13 +51,14 @@ AI chunks carry: `Model`, `Text`, `ThinkingCount`, `ToolCalls`, `Items` ([]Displ
 
 Structured elements within an AI chunk's detail view. Built during `mergeAIBuffer` from ContentBlocks.
 
-Five item types:
+Six item types:
 
 - **ItemThinking** -- thinking block content.
 - **ItemOutput** -- text output block.
 - **ItemToolCall** -- tool invocation with matched result. Fields: `ToolName`, `ToolID`, `ToolInput`, `ToolSummary`, `ToolResult`, `ToolError`, `DurationMs`, `TokenCount`.
 - **ItemSubagent** -- subagent spawner invocation (detected when `ToolName == "Task"` or `"Agent"`). Extra fields: `SubagentType`, `SubagentDesc`.
 - **ItemTeammateMessage** -- teammate agent message. Extra field: `TeammateID`.
+- **ItemMemoryLoad** -- a nested memory file load ("Loaded claude-code/CLAUDE.md"). `Text` holds the display path. No expansion content.
 
 Tool results are matched to their originating `tool_use` via `ToolID`. Unmatched `tool_result` blocks become `ItemOutput`.
 
@@ -83,6 +85,7 @@ Metadata for the session picker: `Path`, `SessionID`, `ModTime`, `FirstMessage` 
   3. Synthetic assistant messages: `model == "<synthetic>"`
   4. Empty stdout/stderr, interruption messages
   5. Sidechain messages (`IsSidechain=true`) are dropped unconditionally
+- **Attachment entries (`type=attachment`) are discriminated, not blanket-dropped.** Only `attachment.type=="nested_memory"` surfaces (as `MemoryLoadMsg`). All other Claude Code 2.1+ attachment subtypes — `async_hook_response`, `hook_success`, `output_style`, `skill_listing`, `command_permissions`, `deferred_tools_delta`, `mcp_instructions_delta`, etc. — are dropped silently. Unknown future subtypes drop the same way, so the schema can grow without breaking the parser.
 - **Expanded prompt extraction.** `BuildChunks` detects expanded skill/command prompts: when a `UserMsg` starts with `/` and the next classified message is `AIMsg{IsMeta: true}` with only text blocks (no `tool_result`), the text is consumed as `Chunk.ExpandedPrompt` instead of entering the AI buffer. Detection: `extractExpandedPrompt()`.
 - **AI buffer merging.** `BuildChunks` buffers consecutive `AIMsg` entries and flushes them into a single `AIChunk` when a `UserMsg` or `SystemMsg` appears (or at end of input). `TeammateMsg` folds into the buffer as a synthetic `AIMsg` with a `"teammate"` content block.
 - **Tool result matching.** `mergeAIBuffer` tracks pending `tool_use` blocks by `ToolID`. When a `tool_result` block arrives in a meta message, it fills in `ToolResult`, `ToolError`, and `DurationMs` on the matching `DisplayItem`.

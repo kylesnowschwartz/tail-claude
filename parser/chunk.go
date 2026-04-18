@@ -23,6 +23,7 @@ const (
 	ItemToolCall
 	ItemSubagent        // Task tool spawned subagent
 	ItemTeammateMessage // message from a teammate agent
+	ItemMemoryLoad      // nested memory file loaded into context ("Loaded X")
 )
 
 // DisplayItem is a structured element within an AI chunk's detail view.
@@ -143,6 +144,18 @@ func BuildChunks(msgs []ClassifiedMsg) []Chunk {
 					Text:          m.Text,
 					TeammateID:    m.TeammateID,
 					TeammateColor: m.Color,
+				}},
+			})
+		case MemoryLoadMsg:
+			// Same fold pattern as TeammateMsg. Memory loads happen mid-turn
+			// (after the user submits, before the assistant replies) and
+			// belong with the surrounding AI turn, not as a standalone chunk.
+			aiBuf = append(aiBuf, AIMsg{
+				Timestamp: m.Timestamp,
+				IsMeta:    true,
+				Blocks: []ContentBlock{{
+					Type:        "memory_load",
+					DisplayPath: m.DisplayPath,
 				}},
 			})
 		case CompactMsg:
@@ -295,6 +308,11 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 						TeammateID:    b.TeammateID,
 						TeammateColor: b.TeammateColor,
 						TokenCount:    len(b.Text) / 4,
+					})
+				case "memory_load":
+					items = append(items, DisplayItem{
+						Type: ItemMemoryLoad,
+						Text: b.DisplayPath,
 					})
 				}
 			}

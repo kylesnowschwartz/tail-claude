@@ -41,6 +41,17 @@ type Entry struct {
 	// the compression title in Summary rather than message.content.
 	LeafUUID string `json:"leafUuid"`
 	Summary  string `json:"summary"`
+
+	// Attachment payload for type=attachment entries. Claude Code 2.1+ emits
+	// these for various UI side-events; we currently surface only
+	// attachment.type == "nested_memory" (the "Loaded X" pill).
+	// Other subtypes (hook responses, skill listings, permission snapshots)
+	// are dropped silently by Classify. The content body is intentionally
+	// omitted — we display the path, not the loaded file contents.
+	Attachment struct {
+		Type        string `json:"type"`
+		DisplayPath string `json:"displayPath"`
+	} `json:"attachment"`
 }
 
 // ToolUseResultMap attempts to parse ToolUseResult as a JSON object.
