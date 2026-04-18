@@ -173,6 +173,173 @@ func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 	})
 }
 
+// ListAllProjectDirs returns every Claude Code project directory under
+// ~/.claude/projects. Used for name-based session lookup that spans projects;
+// name resolution inside a single project should prefer CurrentProjectDir.
+func ListAllProjectDirs() ([]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	root := filepath.Join(home, ".claude", "projects")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	dirs := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dirs = append(dirs, filepath.Join(root, e.Name()))
+	}
+	return dirs, nil
+}
+
+// SessionTitleRef is a lightweight session reference for name-based lookup.
+// It carries only the fields needed to open or display the session; full
+// metadata requires DiscoverProjectSessions.
+type SessionTitleRef struct {
+	Path      string
+	SessionID string
+	Title     string
+	ModTime   time.Time
+}
+
+// scanSessionTitle reads a session file and returns its effective title
+// (custom-title wins over ai-title; last occurrence of each wins). It
+// avoids the full scanSessionMetadata pipeline — no preview extraction,
+// no ongoing detection, no turn counting, no JSON parsing of content
+// lines. Lines over titleLineCap bytes or lacking the "title" substring
+// are rejected before unmarshaling, so content-bearing entries cost only
+// a length check and a byte scan.
+func scanSessionTitle(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	const titleLineCap = 512 // title entries are tiny; real content is KB+
+
+	lr := newLineReader(f)
+	var custom, ai string
+	for {
+		line, ok := lr.next()
+		if !ok {
+			break
+		}
+		if len(line) > titleLineCap {
+			continue
+		}
+		if !strings.Contains(line, `"custom-title"`) && !strings.Contains(line, `"ai-title"`) {
+			continue
+		}
+		var raw struct {
+			Type        string `json:"type"`
+			CustomTitle string `json:"customTitle"`
+			AITitle     string `json:"aiTitle"`
+		}
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			continue
+		}
+		switch raw.Type {
+		case "custom-title":
+			if raw.CustomTitle != "" {
+				custom = raw.CustomTitle
+			}
+		case "ai-title":
+			if raw.AITitle != "" {
+				ai = raw.AITitle
+			}
+		}
+	}
+	if custom != "" {
+		return custom
+	}
+	return ai
+}
+
+// discoverSessionTitles lists every titled session in a project directory.
+// Untitled sessions are omitted — they can't match a name lookup. Much
+// cheaper than DiscoverProjectSessions because it uses scanSessionTitle
+// instead of scanSessionMetadata.
+func discoverSessionTitles(projectDir string) ([]SessionTitleRef, error) {
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return nil, err
+	}
+	var refs []SessionTitleRef
+	for _, de := range entries {
+		if de.IsDir() {
+			continue
+		}
+		name := de.Name()
+		if !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		if strings.HasPrefix(name, "agent_") {
+			continue
+		}
+		info, err := de.Info()
+		if err != nil {
+			continue
+		}
+		path := filepath.Join(projectDir, name)
+		title := scanSessionTitle(path)
+		if title == "" {
+			continue
+		}
+		refs = append(refs, SessionTitleRef{
+			Path:      path,
+			SessionID: strings.TrimSuffix(name, ".jsonl"),
+			Title:     title,
+			ModTime:   info.ModTime(),
+		})
+	}
+	return refs, nil
+}
+
+// FindTitleMatches searches the given project directories for titled sessions
+// whose Title (custom-title or ai-title) matches the query case-insensitively.
+// Exact matches win over substring matches; within a tier, newest-first order.
+//
+// This function reads only the title metadata from each session — it does not
+// scan conversation content — so cost scales with the number of session files,
+// not their total size.
+func FindTitleMatches(query string, projectDirs []string) ([]SessionTitleRef, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+	var all []SessionTitleRef
+	for _, d := range projectDirs {
+		refs, err := discoverSessionTitles(d)
+		if err != nil {
+			continue // missing dir or permission error — skip
+		}
+		all = append(all, refs...)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].ModTime.After(all[j].ModTime)
+	})
+	lower := strings.ToLower(query)
+	var exact, partial []SessionTitleRef
+	for _, r := range all {
+		t := strings.ToLower(r.Title)
+		switch {
+		case t == lower:
+			exact = append(exact, r)
+		case strings.Contains(t, lower):
+			partial = append(partial, r)
+		}
+	}
+	if len(exact) > 0 {
+		return exact, nil
+	}
+	return partial, nil
+}
+
 // DiscoverAllProjectSessions finds sessions across multiple project directories
 // (main + worktree dirs). Calls DiscoverProjectSessions on each, merges results,
 // and sorts by ModTime descending. Missing directories are silently skipped.

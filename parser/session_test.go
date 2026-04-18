@@ -3,6 +3,7 @@ package parser_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
@@ -146,4 +147,135 @@ func TestReadSession_NoiseFiltered(t *testing.T) {
 	if len(ai.ToolCalls) != 1 {
 		t.Errorf("AI ToolCalls = %d, want 1", len(ai.ToolCalls))
 	}
+}
+
+// writeTitledSession writes a minimal JSONL session with an optional
+// custom-title and ai-title. Returns the written path.
+func writeTitledSession(t *testing.T, dir, name, customTitle, aiTitle string) string {
+	t.Helper()
+	var lines []string
+	if customTitle != "" {
+		lines = append(lines, `{"type":"custom-title","customTitle":"`+customTitle+`","sessionId":"`+name+`"}`)
+	}
+	if aiTitle != "" {
+		lines = append(lines, `{"type":"ai-title","aiTitle":"`+aiTitle+`","sessionId":"`+name+`"}`)
+	}
+	// A real conversation turn so turnCount > 0 (else the session is skipped as a ghost).
+	lines = append(lines,
+		`{"uuid":"u1","type":"user","timestamp":"2025-01-15T10:00:00Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"hello"}}`,
+		`{"uuid":"a1","type":"assistant","timestamp":"2025-01-15T10:00:01Z","isSidechain":false,"isMeta":false,"message":{"role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-4-6","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}}`,
+	)
+	path := filepath.Join(dir, name+".jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestFindTitleMatches(t *testing.T) {
+	root := t.TempDir()
+	projA := filepath.Join(root, "-Users-x-proj-a")
+	projB := filepath.Join(root, "-Users-x-proj-b")
+	if err := os.MkdirAll(projA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(projB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTitledSession(t, projA, "11111111-1111-1111-1111-111111111111", "worklog-cron-config", "")
+	writeTitledSession(t, projA, "22222222-2222-2222-2222-222222222222", "", "auto-named-thing")
+	writeTitledSession(t, projB, "33333333-3333-3333-3333-333333333333", "plugin-stuff", "")
+	writeTitledSession(t, projB, "44444444-4444-4444-4444-444444444444", "Worklog-Cron-Config", "") // case clash
+	writeTitledSession(t, projB, "55555555-5555-5555-5555-555555555555", "", "")                    // no title
+
+	dirs := []string{projA, projB}
+
+	t.Run("exact match is case-insensitive and unique", func(t *testing.T) {
+		got, err := parser.FindTitleMatches("WORKLOG-CRON-CONFIG", dirs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("len(got) = %d, want 2 (both case variants)", len(got))
+		}
+	})
+
+	t.Run("substring match wins when no exact", func(t *testing.T) {
+		got, err := parser.FindTitleMatches("plugin", dirs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Title != "plugin-stuff" {
+			t.Fatalf("got %+v, want single plugin-stuff match", got)
+		}
+	})
+
+	t.Run("ai-title is searchable", func(t *testing.T) {
+		got, err := parser.FindTitleMatches("auto-named-thing", dirs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("len(got) = %d, want 1", len(got))
+		}
+	})
+
+	t.Run("exact match preferred over substring", func(t *testing.T) {
+		writeTitledSession(t, projA, "66666666-6666-6666-6666-666666666666", "plug", "")
+		got, err := parser.FindTitleMatches("plug", dirs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Title != "plug" {
+			t.Fatalf("got %+v, want exact 'plug' only", got)
+		}
+	})
+
+	t.Run("no match returns empty", func(t *testing.T) {
+		got, err := parser.FindTitleMatches("no-such-thing", dirs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("got %d, want 0", len(got))
+		}
+	})
+
+	t.Run("scanner skips large content lines", func(t *testing.T) {
+		// A real session has many KB-sized content lines. The title scanner
+		// must not parse them — it should reject by length and substring.
+		// This session has one huge bogus assistant line and the title at
+		// the bottom, mimicking a late /rename.
+		heavy := filepath.Join(root, "-heavy-proj")
+		if err := os.MkdirAll(heavy, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		huge := strings.Repeat("x", 200_000)
+		content := []string{
+			`{"uuid":"u1","type":"user","timestamp":"2025-01-15T10:00:00Z","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"` + huge + `"}}`,
+			`{"type":"custom-title","customTitle":"late-rename","sessionId":"huge"}`,
+		}
+		if err := os.WriteFile(filepath.Join(heavy, "huge.jsonl"),
+			[]byte(strings.Join(content, "\n")+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := parser.FindTitleMatches("late-rename", []string{heavy})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Title != "late-rename" {
+			t.Fatalf("got %+v, want one late-rename match", got)
+		}
+	})
+
+	t.Run("empty query returns nil", func(t *testing.T) {
+		got, err := parser.FindTitleMatches("  ", dirs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != nil {
+			t.Fatalf("got %+v, want nil for empty query", got)
+		}
+	})
 }

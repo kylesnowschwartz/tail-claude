@@ -971,6 +971,84 @@ func runAndMaybeResume(p *tea.Program) {
 	syscall.Exec(claudePath, []string{"claude", "--resume", m.resumeSession.SessionID}, os.Environ())
 }
 
+// resolveSessionName maps a non-path positional argument to a session file
+// by matching the session's Title (custom-title or ai-title). It first
+// searches the current project and its worktrees (cheap — usually dozens
+// of files), then falls back to every Claude project directory on disk.
+// This biases the common case — "find the session I just named here" —
+// toward a fast answer while still supporting cross-project lookup.
+func resolveSessionName(name string) (string, error) {
+	localDirs := localProjectDirsForResolver()
+
+	matches, err := parser.FindTitleMatches(name, localDirs)
+	if err != nil {
+		return "", fmt.Errorf("tail-claude: searching local projects: %w", err)
+	}
+	if len(matches) == 0 && len(localDirs) > 0 {
+		all, err := parser.ListAllProjectDirs()
+		if err != nil {
+			return "", fmt.Errorf("tail-claude: listing projects: %w", err)
+		}
+		remainder := excludeDirs(all, localDirs)
+		matches, err = parser.FindTitleMatches(name, remainder)
+		if err != nil {
+			return "", fmt.Errorf("tail-claude: searching all projects: %w", err)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("tail-claude: no session found matching %q (not a readable file and no session title matched)", name)
+	case 1:
+		return matches[0].Path, nil
+	default:
+		var b strings.Builder
+		fmt.Fprintf(&b, "tail-claude: %d sessions match %q:\n", len(matches), name)
+		for _, m := range matches {
+			fmt.Fprintf(&b, "  %s  %-40s  %s\n", m.ModTime.Format("2006-01-02 15:04"), m.Title, m.Path)
+		}
+		b.WriteString("Narrow the query or pass the path directly.")
+		return "", fmt.Errorf("%s", b.String())
+	}
+}
+
+// localProjectDirsForResolver returns the current project's session directory
+// plus any worktree directories. Returns nil when the CWD isn't inside a
+// tracked project — the resolver then jumps straight to global search.
+func localProjectDirsForResolver() []string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	projectDir, err := parser.CurrentProjectDir()
+	if err != nil || projectDir == "" {
+		return nil
+	}
+	dirs := []string{projectDir}
+	for _, wt := range discoverWorktreeDirs(cwd) {
+		if wtDir, err := parser.ProjectDirForPath(wt); err == nil && wtDir != projectDir {
+			dirs = append(dirs, wtDir)
+		}
+	}
+	return dedup(dirs)
+}
+
+// excludeDirs returns the elements of all that are not in exclude.
+func excludeDirs(all, exclude []string) []string {
+	skip := make(map[string]struct{}, len(exclude))
+	for _, d := range exclude {
+		skip[d] = struct{}{}
+	}
+	out := make([]string, 0, len(all))
+	for _, d := range all {
+		if _, ok := skip[d]; ok {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
 func main() {
 	// Detect terminal background ONCE, before Bubble Tea takes over.
 	// lipgloss queries via OSC 11 which can fail in alt-screen mode.
@@ -998,6 +1076,10 @@ the interactive TUI.
 
 Pass a JSONL path to view a specific session:
   tail-claude ~/.claude/projects/-Users-me-Code-foo/abc123.jsonl
+
+Pass a session name (custom-title or ai-title, case-insensitive) to find
+a session by the name shown in /rename or --name across all projects:
+  tail-claude worklog-cron-config
 
 Flags:
   --dump          Print rendered output to stdout (no interactive TUI)
@@ -1040,6 +1122,20 @@ Flags:
 			os.Exit(1)
 		default:
 			sessionPath = arg
+		}
+	}
+
+	// A non-file positional arg is a name. Resolve it against session titles
+	// across all Claude project dirs. Exact title match wins; otherwise
+	// substring match. Zero matches → error; multiple → list and exit.
+	if sessionPath != "" {
+		if _, err := os.Stat(sessionPath); err != nil {
+			resolved, rerr := resolveSessionName(sessionPath)
+			if rerr != nil {
+				fmt.Fprintln(os.Stderr, rerr)
+				os.Exit(1)
+			}
+			sessionPath = resolved
 		}
 	}
 
