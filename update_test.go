@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/kylesnowschwartz/tail-claude/parser"
@@ -640,6 +641,121 @@ func TestUpdateDetail_TreeCursor(t *testing.T) {
 			t.Errorf("detailCursor = %d, want 4 (clamped at last)", got.detailCursor)
 		}
 	})
+}
+
+// --- TestTickMsg ----------------------------------------------------------
+
+// The animation clock is driven by `tickMsg`. Its cadence must be independent
+// of `sessionOngoing` so subagent spinners keep animating while the parent
+// session looks idle. Spinner visibility is gated at the callsite, not here.
+
+func TestTickMsg_AdvancesFrameWhenWatchingWithoutSessionOngoing(t *testing.T) {
+	m := testModel()
+	m.watching = true
+	m.sessionOngoing = false
+	m.tickSeq = 1
+	m.animFrame = 5
+
+	result, cmd := m.Update(tickMsg{seq: 1})
+	got := asModel(result)
+
+	if got.animFrame != 6 {
+		t.Errorf("animFrame = %d, want 6 (advanced even without sessionOngoing)", got.animFrame)
+	}
+	if cmd == nil {
+		t.Error("cmd = nil, want non-nil (tick chain must survive)")
+	}
+}
+
+func TestTickMsg_ContinuesTickingAfterIdleTimeout(t *testing.T) {
+	m := testModel()
+	m.watching = true
+	m.sessionOngoing = true
+	m.lastTailUpdate = time.Now().Add(-30 * time.Second)
+	m.tickSeq = 1
+
+	result, cmd := m.Update(tickMsg{seq: 1})
+	got := asModel(result)
+
+	if got.sessionOngoing {
+		t.Error("sessionOngoing = true, want false (idle failsafe must still fire)")
+	}
+	if cmd == nil {
+		t.Error("cmd = nil, want non-nil (chain must survive idle timeout)")
+	}
+}
+
+func TestTickMsg_DoesNotTickWhenNotWatching(t *testing.T) {
+	m := testModel()
+	m.watching = false
+	m.tickSeq = 1
+	m.animFrame = 5
+
+	result, cmd := m.Update(tickMsg{seq: 1})
+	got := asModel(result)
+
+	if got.animFrame != 5 {
+		t.Errorf("animFrame = %d, want 5 (no advance when not watching)", got.animFrame)
+	}
+	if cmd != nil {
+		t.Error("cmd != nil, want nil (chain must not arm when not watching)")
+	}
+}
+
+func TestTickMsg_IgnoresStaleSeq(t *testing.T) {
+	m := testModel()
+	m.watching = true
+	m.tickSeq = 5
+	m.animFrame = 5
+
+	result, cmd := m.Update(tickMsg{seq: 3})
+	got := asModel(result)
+
+	if got.animFrame != 5 {
+		t.Errorf("animFrame = %d, want 5 (stale tick must be ignored)", got.animFrame)
+	}
+	if cmd != nil {
+		t.Error("cmd != nil, want nil (stale tick must not rearm)")
+	}
+}
+
+func TestInit_StartsTickChainWhenWatching(t *testing.T) {
+	m := testModel()
+	m.watching = true
+	m.sessionOngoing = false
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("Init cmd = nil, want non-nil (tick chain must start on watching alone)")
+	}
+
+	// The returning tickMsg must match the stored model's tickSeq. Init is a
+	// value-receiver method: any m.tickSeq++ inside it is discarded, so the
+	// scheduled tick must use the seq the stored model already holds.
+	// Dispatching that tick back through Update must pass the seq guard and
+	// rearm the chain — otherwise the spinner freezes at startup.
+	result, next := m.Update(tickMsg{seq: m.tickSeq})
+	got := asModel(result)
+	if got.animFrame != m.animFrame+1 {
+		t.Errorf("animFrame = %d, want %d (Init's tick was rejected as stale)", got.animFrame, m.animFrame+1)
+	}
+	if next == nil {
+		t.Error("follow-up cmd = nil, want non-nil (chain died after one tick)")
+	}
+}
+
+func TestTailUpdate_DoesNotRearmRunningTickChain(t *testing.T) {
+	m := testModel()
+	m.watching = true
+	m.tickSeq = 7
+	m.sessionOngoing = false // would have triggered the old rising-edge rearm
+
+	result, _ := m.Update(tailUpdateMsg{ongoing: true})
+	got := asModel(result)
+
+	if got.tickSeq != 7 {
+		t.Errorf("tickSeq = %d, want 7 (tail update must not bump an already-running chain)", got.tickSeq)
+	}
 }
 
 // --- TestUpdateListMouse --------------------------------------------------

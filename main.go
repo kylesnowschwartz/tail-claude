@@ -92,16 +92,6 @@ func ongoingGraceCmd(seq int) tea.Cmd {
 	})
 }
 
-// pickerOngoingGraceExpiredMsg fires when the picker's ongoing grace period
-// elapses. Stops the spinner only if no newer ongoing session has appeared.
-type pickerOngoingGraceExpiredMsg struct{ seq int }
-
-func pickerOngoingGraceCmd(seq int) tea.Cmd {
-	return tea.Tick(ongoingGracePeriod, func(time.Time) tea.Msg {
-		return pickerOngoingGraceExpiredMsg{seq: seq}
-	})
-}
-
 // gitDirtyTickMsg triggers a periodic check of the git working-tree state.
 type gitDirtyTickMsg struct{}
 
@@ -258,19 +248,17 @@ type model struct {
 	pickerWorktreeMode  bool     // true = show sessions from all worktrees
 
 	// Session picker state
-	sessionCache          *parser.SessionCache
-	pickerSessions        []parser.SessionInfo
-	pickerItems           []pickerItem
-	pickerCursor          int
-	pickerScroll          int
-	pickerWatcher         *pickerWatcher
-	pickerAnimFrame       int          // spinner frame counter, incremented each tick
-	pickerHasOngoing      bool         // true when any session is still in progress
-	pickerTickActive      bool         // true while the picker tick loop is running
-	pickerLoading         bool         // true while initial session discovery is in progress
-	pickerOngoingGraceSeq int          // sequence counter for picker grace timers (stale timers ignored)
-	pickerExpanded        map[int]bool // tab-expanded previews in picker
-	pickerUniformModel    bool         // all sessions share the same model family
+	sessionCache       *parser.SessionCache
+	pickerSessions     []parser.SessionInfo
+	pickerItems        []pickerItem
+	pickerCursor       int
+	pickerScroll       int
+	pickerWatcher      *pickerWatcher
+	pickerAnimFrame    int          // spinner frame counter, incremented each tick
+	pickerHasOngoing   bool         // true when any session is still in progress
+	pickerLoading      bool         // true while initial session discovery is in progress
+	pickerExpanded     map[int]bool // tab-expanded previews in picker
+	pickerUniformModel bool         // all sessions share the same model family
 
 	// Team task board state
 	teams      []parser.TeamSnapshot
@@ -436,10 +424,12 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.tailSub = w.sub
 	m.tailErrc = w.errc
 
-	cmds := []tea.Cmd{waitForTailUpdate(m.tailSub), waitForWatcherErr(m.tailErrc)}
-	if m.sessionOngoing {
-		m.tickSeq++
-		cmds = append(cmds, tickCmd(m.tickSeq))
+	// Start the tick chain unconditionally — see Init for the rationale.
+	m.tickSeq++
+	cmds := []tea.Cmd{
+		waitForTailUpdate(m.tailSub),
+		waitForWatcherErr(m.tailErrc),
+		tickCmd(m.tickSeq),
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -464,11 +454,14 @@ func (m model) Init() tea.Cmd {
 		cmds = append(cmds,
 			waitForTailUpdate(m.tailSub),
 			waitForWatcherErr(m.tailErrc),
+			// Init is called with a value receiver; any `m.tickSeq++` here
+			// would be thrown away when Init returns, and the returning tick
+			// would be dropped as stale. Fire the tick with the current seq
+			// (zero at startup) so it matches the stored model's seq and the
+			// chain self-perpetuates. switchSession handles the bump on
+			// re-arm because Update-returned models persist.
+			tickCmd(m.tickSeq),
 		)
-		if m.sessionOngoing {
-			m.tickSeq++
-			cmds = append(cmds, tickCmd(m.tickSeq))
-		}
 	}
 
 	// When starting in picker view (e.g. stale session or empty project),
@@ -504,14 +497,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		if msg.seq != m.tickSeq || !m.watching || !m.sessionOngoing {
+		if msg.seq != m.tickSeq || !m.watching {
 			return m, nil
 		}
 		// Failsafe: if no file activity in ongoingIdleTimeout, clear the
-		// indicator. The next tailUpdateMsg re-enables it if genuinely ongoing.
+		// sessionOngoing flag so renderers hide the parent activity indicator.
+		// The chain keeps ticking because subagents may still be active; their
+		// own predicates gate spinner visibility.
 		if !m.lastTailUpdate.IsZero() && time.Since(m.lastTailUpdate) > ongoingIdleTimeout {
 			m.sessionOngoing = false
-			return m, nil
 		}
 		m.animFrame++
 		if m.view == viewList {
@@ -567,20 +561,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.computeDetailMaxScroll()
 		}
 
-		// Ongoing indicator with grace period.
-		// Rising edge (false->true): immediate. Falling edge (true->false):
-		// delayed by ongoingGracePeriod so the indicator stays steady between
-		// API round-trips.
+		// Ongoing indicator with grace period. The tick chain is already
+		// running (armed at load/Init), so rising edges only need to flip the
+		// flag; falling edges delay the flip by ongoingGracePeriod so the
+		// indicator stays steady between API round-trips.
 		cmds := []tea.Cmd{waitForTailUpdate(m.tailSub)}
 		if msg.ongoing {
-			if !m.sessionOngoing {
-				m.tickSeq++
-				cmds = append(cmds, tickCmd(m.tickSeq))
-			}
 			m.sessionOngoing = true
 			m.ongoingGraceSeq++ // cancel any pending grace timer
 		} else if m.sessionOngoing {
-			// Content says done, but indicator is showing. Start grace timer.
 			m.ongoingGraceSeq++
 			cmds = append(cmds, ongoingGraceCmd(m.ongoingGraceSeq))
 		}
@@ -591,26 +580,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForWatcherErr(m.tailErrc)
 
 	case pickerTickMsg:
-		// Keep spinning as long as the tick is active (covers both genuine
-		// ongoing and the grace period). Grace expiry turns off pickerTickActive.
-		if m.view == viewPicker && m.pickerTickActive {
+		// Picker spinner visibility is gated per-session by s.IsOngoing at the
+		// render site; the tick chain just advances the frame counter while
+		// we're in picker view. View-switch drops the chain naturally.
+		if m.view == viewPicker {
 			m.pickerAnimFrame++
 			return m, pickerTickCmd()
-		}
-		m.pickerTickActive = false
-		return m, nil
-
-	case pickerOngoingGraceExpiredMsg:
-		// Grace period elapsed. Stop spinner only if no newer ongoing session
-		// appeared (seq mismatch means a rising edge already cancelled this timer).
-		if msg.seq == m.pickerOngoingGraceSeq {
-			m.pickerTickActive = false
 		}
 		return m, nil
 
 	case pickerSessionsMsg:
 		m.pickerLoading = false
-		m.pickerTickActive = false // reset; updatePickerSessionState re-enables if needed
 		if msg.err != nil {
 			// Fall back to list view on error.
 			return m, nil
@@ -630,11 +610,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Derive ongoing/uniform state and start tick if needed.
-		var cmds []tea.Cmd
-		if tickCmd := m.updatePickerSessionState(); tickCmd != nil {
-			cmds = append(cmds, tickCmd)
-		}
+		m.updatePickerSessionState()
+		cmds := []tea.Cmd{pickerTickCmd()}
 
 		// Start picker directory watcher for live refresh.
 		if m.pickerWatcher == nil && len(m.projectDirs) > 0 {
@@ -667,13 +644,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.ensurePickerVisible()
 
-		// Refresh ongoing/uniform state.
-		var cmds []tea.Cmd
-		if tickCmd := m.updatePickerSessionState(); tickCmd != nil {
-			cmds = append(cmds, tickCmd)
-		}
+		m.updatePickerSessionState()
 
 		// Re-subscribe for next refresh.
+		var cmds []tea.Cmd
 		if m.pickerWatcher != nil {
 			cmds = append(cmds, waitForPickerRefresh(m.pickerWatcher.sub))
 		}
@@ -1205,7 +1179,6 @@ Flags:
 		m.sessionCache = parser.NewSessionCache()
 		m.view = viewPicker
 		m.pickerLoading = true
-		m.pickerTickActive = true
 
 		p := tea.NewProgram(m)
 		runAndMaybeResume(p)
@@ -1277,7 +1250,6 @@ Flags:
 			if time.Since(info.ModTime()) > staleSessionThreshold {
 				m.view = viewPicker
 				m.pickerLoading = true
-				m.pickerTickActive = true
 			}
 		}
 	}

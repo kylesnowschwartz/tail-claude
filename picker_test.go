@@ -70,20 +70,19 @@ func TestPickerSessionsMsgClearsLoading(t *testing.T) {
 	t.Run("pickerSessionsMsg clears loading state", func(t *testing.T) {
 		m := pickerModel()
 		m.pickerLoading = true
-		m.pickerTickActive = true
 		m.projectDirs = []string{"/tmp/fake-project"}
 
 		msg := pickerSessionsMsg{
 			sessions: []parser.SessionInfo{
 				{
-					Path:    "/tmp/fake.jsonl",
-					ModTime: time.Now(),
+					Path:         "/tmp/fake.jsonl",
+					ModTime:      time.Now(),
 					FirstMessage: "hello",
 				},
 			},
 		}
 
-		result, _ := m.Update(msg)
+		result, cmd := m.Update(msg)
 		got := result.(model)
 
 		if got.pickerLoading {
@@ -92,12 +91,14 @@ func TestPickerSessionsMsgClearsLoading(t *testing.T) {
 		if len(got.pickerItems) == 0 {
 			t.Error("pickerItems should be populated")
 		}
+		if cmd == nil {
+			t.Error("pickerSessionsMsg should return a cmd (picker tick chain starts on entry)")
+		}
 	})
 
 	t.Run("pickerSessionsMsg with error clears loading state", func(t *testing.T) {
 		m := pickerModel()
 		m.pickerLoading = true
-		m.pickerTickActive = true
 
 		msg := pickerSessionsMsg{
 			err: errForTest("discovery failed"),
@@ -111,51 +112,40 @@ func TestPickerSessionsMsgClearsLoading(t *testing.T) {
 		}
 	})
 
-	t.Run("pickerSessionsMsg stops tick when no ongoing sessions", func(t *testing.T) {
+	t.Run("pickerTickMsg advances frame regardless of ongoing state", func(t *testing.T) {
+		// The picker tick chain runs unconditionally while in picker view.
+		// Spinner visibility is gated per-session at the render site, so the
+		// chain must keep ticking even when no session is currently ongoing —
+		// otherwise the spinner freezes during quiet moments between tool calls.
 		m := pickerModel()
-		m.pickerLoading = true
-		m.pickerTickActive = true
+		m.view = viewPicker
+		m.pickerHasOngoing = false
+		m.pickerAnimFrame = 5
 
-		msg := pickerSessionsMsg{
-			sessions: []parser.SessionInfo{
-				{
-					Path:      "/tmp/fake.jsonl",
-					ModTime:   time.Now(),
-					FirstMessage: "hello",
-					IsOngoing: false,
-				},
-			},
-		}
-
-		result, _ := m.Update(msg)
+		result, cmd := m.Update(pickerTickMsg(time.Now()))
 		got := result.(model)
 
-		if got.pickerTickActive {
-			t.Error("pickerTickActive should be false when no ongoing sessions")
+		if got.pickerAnimFrame != 6 {
+			t.Errorf("pickerAnimFrame = %d, want 6 (tick must advance even without ongoing)", got.pickerAnimFrame)
+		}
+		if cmd == nil {
+			t.Error("pickerTickMsg should return a cmd to self-perpetuate the chain")
 		}
 	})
 
-	t.Run("pickerSessionsMsg keeps tick running for ongoing sessions", func(t *testing.T) {
+	t.Run("pickerTickMsg dies when view is not picker", func(t *testing.T) {
 		m := pickerModel()
-		m.pickerLoading = true
-		m.pickerTickActive = true
+		m.view = viewList
+		m.pickerAnimFrame = 5
 
-		msg := pickerSessionsMsg{
-			sessions: []parser.SessionInfo{
-				{
-					Path:      "/tmp/fake.jsonl",
-					ModTime:   time.Now(),
-					FirstMessage: "hello",
-					IsOngoing: true,
-				},
-			},
-		}
-
-		result, _ := m.Update(msg)
+		result, cmd := m.Update(pickerTickMsg(time.Now()))
 		got := result.(model)
 
-		if !got.pickerTickActive {
-			t.Error("pickerTickActive should be true when ongoing sessions exist")
+		if got.pickerAnimFrame != 5 {
+			t.Errorf("pickerAnimFrame = %d, want 5 (tick must not advance outside picker)", got.pickerAnimFrame)
+		}
+		if cmd != nil {
+			t.Error("pickerTickMsg should return nil cmd when leaving picker view")
 		}
 	})
 }

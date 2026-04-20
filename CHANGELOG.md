@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix detail-view subagent spinners stalling to ~5s cadence
+- Fix picker session spinners only advancing when the session is actively writing
+
 ## v0.11.0 (2026-04-18)
 
 ## v0.10.0 (2026-04-16)

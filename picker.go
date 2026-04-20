@@ -197,7 +197,6 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.pickerWatcher = nil
 		}
 		m.pickerLoading = true
-		m.pickerTickActive = true
 		return m, tea.Batch(loadPickerSessionsCmd(m.projectDirs, m.sessionCache), pickerTickCmd())
 	case "y":
 		if s := m.pickerSelectedSession(); s != nil {
@@ -409,12 +408,11 @@ func (m *model) ensurePickerVisible() {
 	}
 }
 
-// updatePickerSessionState sets derived state: ongoing flag, uniform model, tick.
-// Called when sessions arrive or refresh. Uses the same rising/falling-edge
-// grace period as the main session watcher to avoid spinner churn when a
-// session briefly appears not-ongoing between API round-trips.
-func (m *model) updatePickerSessionState() tea.Cmd {
-	hadOngoing := m.pickerHasOngoing
+// updatePickerSessionState refreshes derived render state from the current
+// session list. The picker tick chain runs unconditionally while in picker
+// view (see the pickerTickMsg handler), so this function has no cmd to
+// return — spinner visibility is gated per-session at the render site.
+func (m *model) updatePickerSessionState() {
 	m.pickerHasOngoing = false
 	for _, s := range m.pickerSessions {
 		if s.IsOngoing {
@@ -423,7 +421,6 @@ func (m *model) updatePickerSessionState() tea.Cmd {
 		}
 	}
 
-	// Uniform model: all non-empty models share the same family.
 	m.pickerUniformModel = true
 	firstFamily := ""
 	for _, s := range m.pickerSessions {
@@ -438,21 +435,6 @@ func (m *model) updatePickerSessionState() tea.Cmd {
 			break
 		}
 	}
-
-	if m.pickerHasOngoing {
-		// Rising edge: cancel any pending grace timer, start tick if not running.
-		m.pickerOngoingGraceSeq++
-		if !m.pickerTickActive {
-			m.pickerTickActive = true
-			return pickerTickCmd()
-		}
-	} else if hadOngoing && m.pickerTickActive {
-		// Falling edge: don't stop immediately — start grace period so the
-		// spinner stays visible across short gaps between tool-call round-trips.
-		m.pickerOngoingGraceSeq++
-		return pickerOngoingGraceCmd(m.pickerOngoingGraceSeq)
-	}
-	return nil
 }
 
 // modelFamily extracts the family name from a model string (e.g. "opus" from "claude-opus-4-6").
