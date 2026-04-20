@@ -36,6 +36,10 @@ run-file path: build
 race:
     go build -race -ldflags "-X main.version=$(cat VERSION)" -o ./tail-claude . && ./tail-claude
 
+# Update to the latest released version via go install
+update:
+    go install github.com/kylesnowschwartz/tail-claude@latest
+
 # Bump version (patch, minor, or major)
 bump version:
     #!/usr/bin/env zsh

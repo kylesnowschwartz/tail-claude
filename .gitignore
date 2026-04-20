@@ -5,6 +5,7 @@ tail-claude
 .agent-history/
 .cloned-sources/
 .worktrees/
+.ralph-ban
 
 # IDE
 .idea/
