@@ -6,7 +6,7 @@ build:
 
 # Build, vet, and static analysis
 check:
-    go build ./... && go vet ./... && staticcheck ./...
+    go build ./... && go vet ./... && go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 
 # Run tests
 test:
