@@ -48,6 +48,7 @@ const (
 	viewPicker                  // session picker
 	viewDebug                   // debug log viewer
 	viewTeam                    // team task board
+	viewStats                   // per-session tool usage stats
 )
 
 // staleSessionThreshold controls when an auto-discovered session is
@@ -152,7 +153,8 @@ type message struct {
 	toolCallCount    int
 	outputCount      int
 	tokensRaw        int
-	contextTokens    int // input + cache tokens (context window snapshot, excludes output)
+	contextTokens    int                  // input + cache tokens (context window snapshot, excludes output)
+	contextDelta     *parser.ContextDelta // per-chunk window evolution; nil when no token data
 	durationMs       int64
 	timestamp        string
 	items            []displayItem
@@ -744,6 +746,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDebug(msg)
 		case viewTeam:
 			return m.updateTeam(msg)
+		case viewStats:
+			return m.updateStats(msg)
 		default:
 			return m.updateList(msg)
 		}
@@ -788,6 +792,8 @@ func (m model) View() tea.View {
 			content = m.viewDebugLog()
 		case viewTeam:
 			content = m.viewTeamBoard()
+		case viewStats:
+			content = m.viewStats()
 		default:
 			content = m.viewList()
 		}

@@ -939,6 +939,9 @@ func detailHeaderMeta(msg message) string {
 	if msg.tokensRaw > 0 {
 		parts = append(parts, Icon.Token.Render()+" "+StyleSecondary.Render(formatTokens(msg.tokensRaw)))
 	}
+	if ctx := formatContextDelta(msg.contextDelta); ctx != "" {
+		parts = append(parts, ctx)
+	}
 	if msg.durationMs > 0 {
 		parts = append(parts, Icon.Clock.Render()+" "+StyleSecondary.Render(formatDuration(msg.durationMs)))
 	}
@@ -946,6 +949,44 @@ func detailHeaderMeta(msg message) string {
 		parts = append(parts, StyleDim.Render(msg.timestamp))
 	}
 	return strings.Join(parts, "  ")
+}
+
+// formatContextDelta renders the per-chunk context-window indicator:
+//
+//	ctx 67%             -- single cycle, no growth
+//	ctx 31% → 67% (+220k) -- multi-cycle with growth
+//
+// Color tracks the LAST cycle's usage so the user sees the current state.
+// Returns "" when delta is nil (no token data for this chunk).
+func formatContextDelta(d *parser.ContextDelta) string {
+	if d == nil {
+		return ""
+	}
+	color := contextUsageColor(d.LastUsagePct)
+	style := lipgloss.NewStyle().Foreground(color)
+
+	if d.DeltaTokens == 0 && d.FirstInputTokens == d.LastInputTokens {
+		return style.Render(fmt.Sprintf("ctx %.0f%%", d.LastUsagePct))
+	}
+	return style.Render(fmt.Sprintf(
+		"ctx %.0f%% → %.0f%% (+%s)",
+		d.FirstUsagePct,
+		d.LastUsagePct,
+		formatTokens(d.DeltaTokens),
+	))
+}
+
+// contextUsageColor maps a window-usage percentage to the theme's three
+// context-pressure colors. Thresholds match the spec: 50/80.
+func contextUsageColor(pct float64) color.Color {
+	switch {
+	case pct >= 80:
+		return ColorContextCrit
+	case pct >= 50:
+		return ColorContextWarn
+	default:
+		return ColorContextOk
+	}
 }
 
 // -- Debug log rendering ------------------------------------------------------

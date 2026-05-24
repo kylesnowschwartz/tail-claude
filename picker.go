@@ -704,9 +704,10 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(durStr))
 	}
 
-	if s.ContextTokens > 0 {
-		tokStr := fmt.Sprintf("%6s", formatTokens(s.ContextTokens))
-		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(tokStr+" ctx"))
+	if pct, _, ok := parser.ContextUsagePct(s.ContextTokens, s.Model); ok {
+		pctStr := fmt.Sprintf("%3.0f%% ctx", pct)
+		pctStr = fmt.Sprintf("%9s", pctStr) // right-align in the column
+		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(contextUsageColor(pct)).Render(pctStr))
 	}
 
 	if s.SessionID != "" {

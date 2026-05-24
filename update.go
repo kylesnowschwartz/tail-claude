@@ -96,6 +96,9 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		// Open session picker
 		return m, loadPickerSessionsCmd(m.projectDirs, m.sessionCache)
+	case "S":
+		// Open per-session tool-usage stats view
+		m.view = viewStats
 	case "J", "ctrl+d":
 		// Scroll viewport down (half page)
 		m.scroll += m.height / 2

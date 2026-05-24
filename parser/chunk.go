@@ -62,6 +62,25 @@ const (
 	CompactChunk // context compression boundary
 )
 
+// InferenceCycle is one LLM call plus the tool calls it dispatched. Tool
+// results arrive as meta entries within the cycle's item range; the next
+// non-meta assistant entry starts the next cycle.
+//
+// Cycles index into Chunk.Items via StartItem (inclusive) and EndItem
+// (exclusive). The items themselves keep their existing flat ordering --
+// this is a derived view, not a replacement structure.
+type InferenceCycle struct {
+	Index       int    // 0-based, per chunk
+	StartItem   int    // inclusive index into Chunk.Items
+	EndItem     int    // exclusive
+	Model       string // model that produced this response
+	Usage       Usage  // context-window snapshot for this call
+	StopReason  string
+	HasThinking bool
+	ToolCount   int   // ItemToolCall + ItemSubagent in range
+	DurationMs  int64 // wall time from this assistant entry to the next, or to chunk end
+}
+
 // Chunk is the output of the pipeline. Each chunk represents one visible unit
 // in the conversation timeline.
 type Chunk struct {
@@ -77,7 +96,8 @@ type Chunk struct {
 	Text          string
 	ThinkingCount int
 	ToolCalls     []ToolCall
-	Items         []DisplayItem // structured detail, nil until populated
+	Items         []DisplayItem    // structured detail, nil until populated
+	Cycles        []InferenceCycle // one per non-meta assistant entry; nil for non-AI chunks
 	Usage         Usage
 	StopReason    string
 	DurationMs    int64 // first to last message timestamp in chunk
@@ -210,7 +230,12 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 	pending := make(map[string]pendingTool) // ToolID -> pending info
 	hasBlocks := false
 
-	for _, m := range buf {
+	// Per-message item-start positions, recorded BEFORE the message's blocks
+	// are appended to items. Used to derive InferenceCycle ranges below.
+	itemStarts := make([]int, len(buf))
+
+	for i, m := range buf {
+		itemStarts[i] = len(items)
 		// --- Flat field accumulation (unchanged) ---
 		if m.Text != "" {
 			texts = append(texts, m.Text)
@@ -339,6 +364,8 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 		finalItems = items
 	}
 
+	cycles := buildCycles(buf, itemStarts, items)
+
 	// Usage snapshot: last non-meta assistant message's usage. The Claude API
 	// reports input_tokens as the full context window per call, so the last
 	// call is the correct per-turn metric (not the sum across round trips).
@@ -358,10 +385,75 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 		ThinkingCount: thinking,
 		ToolCalls:     toolCalls,
 		Items:         finalItems,
+		Cycles:        cycles,
 		Usage:         usage,
 		StopReason:    stop,
 		DurationMs:    dur,
 	}
+}
+
+// buildCycles derives one InferenceCycle per non-meta AIMsg. Each cycle's
+// item range starts where its source message began appending and ends where
+// the next non-meta message began (or at len(items) for the last cycle).
+// Duration is the wall-clock gap to the next non-meta message, or to the
+// final buffer timestamp for the last cycle.
+//
+// Returns nil when buf has no non-meta messages (rare: meta-only chunks).
+func buildCycles(buf []AIMsg, itemStarts []int, items []DisplayItem) []InferenceCycle {
+	// Indices of non-meta messages, in order.
+	nonMeta := make([]int, 0, len(buf))
+	for i, m := range buf {
+		if !m.IsMeta {
+			nonMeta = append(nonMeta, i)
+		}
+	}
+	if len(nonMeta) == 0 {
+		return nil
+	}
+
+	cycles := make([]InferenceCycle, len(nonMeta))
+	lastTS := buf[len(buf)-1].Timestamp
+
+	for i, msgIdx := range nonMeta {
+		msg := buf[msgIdx]
+		startItem := itemStarts[msgIdx]
+
+		var endItem int
+		var endTS time.Time
+		if i+1 < len(nonMeta) {
+			next := nonMeta[i+1]
+			endItem = itemStarts[next]
+			endTS = buf[next].Timestamp
+		} else {
+			endItem = len(items)
+			endTS = lastTS
+		}
+
+		var dur int64
+		if !msg.Timestamp.IsZero() && !endTS.IsZero() {
+			dur = endTS.Sub(msg.Timestamp).Milliseconds()
+		}
+
+		toolCount := 0
+		for j := startItem; j < endItem; j++ {
+			if items[j].Type == ItemToolCall || items[j].Type == ItemSubagent {
+				toolCount++
+			}
+		}
+
+		cycles[i] = InferenceCycle{
+			Index:       i,
+			StartItem:   startItem,
+			EndItem:     endItem,
+			Model:       msg.Model,
+			Usage:       msg.Usage,
+			StopReason:  msg.StopReason,
+			HasThinking: msg.ThinkingCount > 0,
+			ToolCount:   toolCount,
+			DurationMs:  dur,
+		}
+	}
+	return cycles
 }
 
 // suppressInflatedDurations zeroes out non-Task tool durations that are
