@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.12.0 (2026-05-24)
+
 ## v0.11.1 (2026-04-20)
 
 - Fix detail-view subagent spinners stalling to ~5s cadence
