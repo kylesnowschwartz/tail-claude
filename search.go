@@ -308,10 +308,12 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "j", "down":
 		m.pickerSearchCursorDown()
+		m.ensureSearchPickerVisible()
 		cmd := m.schedulePreviewLoad()
 		return m, cmd
 	case "k", "up":
 		m.pickerSearchCursorUp()
+		m.ensureSearchPickerVisible()
 		cmd := m.schedulePreviewLoad()
 		return m, cmd
 	case "G":
@@ -322,6 +324,7 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		m.ensureSearchPickerVisible()
 		cmd := m.schedulePreviewLoad()
 		return m, cmd
 	case "g":
@@ -333,6 +336,7 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		m.ensureSearchPickerVisible()
 		cmd := m.schedulePreviewLoad()
 		return m, cmd
 	}
@@ -358,6 +362,53 @@ func (m *model) pickerSearchCursorUp() {
 			m.pickerCursor = i
 			return
 		}
+	}
+}
+
+// searchPickerItemHeight returns the rendered line count of an item in the
+// search left pane, mirroring renderSearchPickerItems: headers are a text line
+// plus a trailing blank (plus a leading blank when not first); sessions are
+// preview + metadata + separator. pickerItemHeight can't be used here — it
+// indexes m.pickerItems, which is the unfiltered list.
+func searchPickerItemHeight(index int, typ pickerItemType) int {
+	if typ == pickerItemHeader && index == 0 {
+		return 2
+	}
+	return 3
+}
+
+// searchPickerTotalLines returns the total rendered line count of the active
+// (possibly filtered) item list in the search left pane.
+func (m model) searchPickerTotalLines() int {
+	items := m.activePickerItems()
+	total := 0
+	for i, item := range items {
+		total += searchPickerItemHeight(i, item.typ)
+	}
+	return total
+}
+
+// ensureSearchPickerVisible adjusts pickerScroll so the cursor stays inside
+// the search left pane viewport. Search-mode counterpart of
+// ensurePickerVisible, computed against the filtered active item list.
+func (m *model) ensureSearchPickerVisible() {
+	items := m.activePickerItems()
+	viewHeight := m.contentHeight(1, 0)
+
+	cursorLineStart := 0
+	for i := 0; i < m.pickerCursor && i < len(items); i++ {
+		cursorLineStart += searchPickerItemHeight(i, items[i].typ)
+	}
+	cursorLineEnd := cursorLineStart
+	if m.pickerCursor >= 0 && m.pickerCursor < len(items) {
+		cursorLineEnd += searchPickerItemHeight(m.pickerCursor, items[m.pickerCursor].typ) - 1
+	}
+
+	if cursorLineStart < m.pickerScroll {
+		m.pickerScroll = cursorLineStart
+	}
+	if cursorLineEnd >= m.pickerScroll+viewHeight {
+		m.pickerScroll = cursorLineEnd - viewHeight + 1
 	}
 }
 
@@ -458,23 +509,9 @@ func (m model) viewPickerSearch() string {
 	// --- Compose split view ---
 	divider := StyleMuted.Render("\u2502")
 
-	// Pad/truncate both panes to viewHeight.
-	leftLines = padLines(leftLines, viewHeight)
-	rightLines = padLines(rightLines, viewHeight)
-
-	// Scroll left pane.
-	if m.pickerScroll > 0 && m.pickerScroll < len(leftLines) {
-		leftLines = leftLines[m.pickerScroll:]
-	}
-	if len(leftLines) > viewHeight {
-		leftLines = leftLines[:viewHeight]
-	}
-	leftLines = padLines(leftLines, viewHeight)
-
-	// Truncate right pane.
-	if len(rightLines) > viewHeight {
-		rightLines = rightLines[:viewHeight]
-	}
+	// Scroll the left pane before padding — padLines truncates, so padding
+	// first would discard everything past the first screenful.
+	leftLines = padLines(scrollWindow(leftLines, viewHeight, m.pickerScroll), viewHeight)
 	rightLines = padLines(rightLines, viewHeight)
 
 	// Join side by side.

@@ -4,7 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/kylesnowschwartz/tail-claude/parser"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // Realistic current-format lines: the type field sits ~100+ bytes in,
@@ -172,5 +178,141 @@ func TestRenderPreviewPaneNilCache(t *testing.T) {
 	m.pickerPreviewRender = nil
 	if lines := m.renderPreviewPane(60, 100); len(lines) == 0 {
 		t.Error("nil cache produced no output")
+	}
+}
+
+// --- search left-pane scrolling ----------------------------------------------
+
+// searchScrollModel builds a picker model in committed search mode with n
+// filtered session results, sized so the result list overflows the viewport.
+func searchScrollModel(n int) model {
+	m := pickerModel()
+	m.height = 20 // small viewport to force overflow
+
+	now := time.Now()
+	sessions := make([]parser.SessionInfo, n)
+	for i := range sessions {
+		sessions[i] = parser.SessionInfo{
+			Path:         fmt.Sprintf("/tmp/result-%02d.jsonl", i),
+			FirstMessage: fmt.Sprintf("needle result %02d", i),
+			ModTime:      now.Add(-time.Duration(i) * time.Minute),
+		}
+	}
+
+	m.pickerSearchMode = true
+	m.pickerSearchTyping = false
+	m.pickerSearchQuery = "needle"
+	m.pickerSearchResults = rebuildPickerItems(sessions)
+	for i, item := range m.pickerSearchResults {
+		if item.typ == pickerItemSession {
+			m.pickerCursor = i
+			break
+		}
+	}
+	return m
+}
+
+func TestViewPickerSearchScrollShowsLaterResults(t *testing.T) {
+	m := searchScrollModel(20)
+
+	// Sanity: an unscrolled view shows early results but not late ones.
+	unscrolled := m.viewPickerSearch()
+	if !strings.Contains(unscrolled, "result 00") {
+		t.Fatal("unscrolled view missing first result")
+	}
+	if strings.Contains(unscrolled, "result 19") {
+		t.Fatal("unscrolled view unexpectedly shows the last result; viewport too tall for this test")
+	}
+
+	// Regression: padLines used to truncate BEFORE the scroll slice, so any
+	// scrolled view showed only blank padding past the first screenful.
+	m.pickerScroll = m.searchPickerTotalLines() - m.contentHeight(1, 0)
+	scrolled := m.viewPickerSearch()
+	if !strings.Contains(scrolled, "result 19") {
+		t.Error("scrolled view does not show the last result")
+	}
+	if strings.Contains(scrolled, "result 00") {
+		t.Error("scrolled view still shows the first result; scroll not applied")
+	}
+}
+
+func TestPickerSearchNavKeepsCursorVisible(t *testing.T) {
+	t.Run("G scrolls to keep the last result visible", func(t *testing.T) {
+		m := searchScrollModel(20)
+
+		result, _ := m.updatePickerSearchNav(key("G"))
+		got := result.(model)
+
+		if got.pickerScroll == 0 {
+			t.Fatal("G did not adjust pickerScroll")
+		}
+		if !strings.Contains(got.viewPickerSearch(), "result 19") {
+			t.Error("cursor row not visible after G")
+		}
+	})
+
+	t.Run("j past the viewport edge scrolls down", func(t *testing.T) {
+		m := searchScrollModel(20)
+
+		var got model = m
+		for i := 0; i < 19; i++ {
+			result, _ := got.updatePickerSearchNav(key("j"))
+			got = result.(model)
+		}
+
+		if got.pickerScroll == 0 {
+			t.Fatal("j navigation never adjusted pickerScroll")
+		}
+		if !strings.Contains(got.viewPickerSearch(), "result 19") {
+			t.Error("cursor row not visible after navigating to the last result")
+		}
+	})
+
+	t.Run("k back to the top scrolls up and g resets scroll", func(t *testing.T) {
+		m := searchScrollModel(20)
+
+		result, _ := m.updatePickerSearchNav(key("G"))
+		got := result.(model)
+		for i := 0; i < 19; i++ {
+			r, _ := got.updatePickerSearchNav(key("k"))
+			got = r.(model)
+		}
+		// Like the main picker, k only guarantees the cursor row is visible
+		// (the group header above it may stay scrolled off).
+		if !strings.Contains(got.viewPickerSearch(), "result 00") {
+			t.Errorf("first result not visible after k back to top (pickerScroll = %d)", got.pickerScroll)
+		}
+
+		r, _ := got.updatePickerSearchNav(key("G"))
+		got = r.(model)
+		r, _ = got.updatePickerSearchNav(key("g"))
+		got = r.(model)
+		if got.pickerScroll != 0 {
+			t.Errorf("pickerScroll = %d after g, want 0", got.pickerScroll)
+		}
+	})
+}
+
+func TestPickerSearchMouseWheelClampsToFilteredList(t *testing.T) {
+	// The unfiltered pickerItems list is long, but the search results are
+	// short; the wheel clamp must use the filtered list or it scrolls into
+	// blank padding.
+	m := searchScrollModel(2)
+	now := time.Now()
+	var unfiltered []parser.SessionInfo
+	for i := 0; i < 50; i++ {
+		unfiltered = append(unfiltered, parser.SessionInfo{
+			Path:         fmt.Sprintf("/tmp/all-%02d.jsonl", i),
+			FirstMessage: fmt.Sprintf("haystack %02d", i),
+			ModTime:      now.Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	m.pickerItems = rebuildPickerItems(unfiltered)
+
+	result, _ := m.updatePickerMouse(mouseScroll(tea.MouseWheelDown))
+	got := result.(model)
+
+	if got.pickerScroll != 0 {
+		t.Errorf("pickerScroll = %d, want 0 (2 results fit on screen; nothing to scroll)", got.pickerScroll)
 	}
 }
