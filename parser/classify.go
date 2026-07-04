@@ -2,6 +2,7 @@ package parser
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -153,6 +154,18 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 
 	ts := parseTimestamp(e.Timestamp)
 
+	// Compaction boundaries (Claude Code 2.1.18x+). type=summary entries no
+	// longer exist; the compaction signal is now a system entry with
+	// subtype=compact_boundary. Checked before the noise filter, which drops
+	// every other system subtype.
+	if e.Type == "system" && e.Subtype == "compact_boundary" {
+		text := "Conversation compacted"
+		if detail := compactDetail(e.CompactMetadata.Trigger, e.CompactMetadata.PreTokens); detail != "" {
+			text += " (" + detail + ")"
+		}
+		return CompactMsg{Timestamp: ts, Text: text}, true
+	}
+
 	// 1. Hard noise: structural metadata types.
 	if noiseEntryTypes[e.Type] {
 		return nil, false
@@ -300,6 +313,12 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 		if e.Message.StopReason != nil {
 			stopReason = *e.Message.StopReason
 		}
+		// Context-window fields (input + cache) come from the last iteration
+		// when the usage carries an iterations array — the top-level counts on
+		// multi-iteration messages are a merge across cycles and overstate the
+		// live window. OutputTokens stays top-level: it's the message's total
+		// output, not a window snapshot.
+		ctx := e.Message.Usage.ContextUsage()
 		return AIMsg{
 			Timestamp:     ts,
 			Model:         e.Message.Model,
@@ -308,13 +327,22 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 			ToolCalls:     toolCalls,
 			Blocks:        blocks,
 			Usage: Usage{
-				InputTokens:         e.Message.Usage.InputTokens,
+				InputTokens:         ctx.InputTokens,
 				OutputTokens:        e.Message.Usage.OutputTokens,
-				CacheReadTokens:     e.Message.Usage.CacheReadInputTokens,
-				CacheCreationTokens: e.Message.Usage.CacheCreationInputTokens,
+				CacheReadTokens:     ctx.CacheReadInputTokens,
+				CacheCreationTokens: ctx.CacheCreationInputTokens,
 			},
 			StopReason: stopReason,
 		}, true
+	}
+
+	// Only user entries may fall through to the meta-AIMsg fallback. Claude
+	// Code keeps adding uuid-bearing internal entry types (last-prompt carries
+	// a leafUuid today); without this gate each one would surface as a phantom
+	// empty AI turn. Unknown non-user types drop — same invariant as unknown
+	// attachment subtypes.
+	if e.Type != "user" {
+		return nil, false
 	}
 
 	// Fallback: remaining user messages -> AI message.
@@ -329,6 +357,21 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 		IsMeta:    true,
 		Blocks:    blocks,
 	}, true
+}
+
+// compactDetail formats compact_boundary metadata for the divider text:
+// "auto, 165k tokens", "manual", or "" when neither field is present.
+func compactDetail(trigger string, preTokens int) string {
+	var parts []string
+	if trigger != "" {
+		parts = append(parts, trigger)
+	}
+	if preTokens >= 1000 {
+		parts = append(parts, strconv.Itoa(preTokens/1000)+"k tokens")
+	} else if preTokens > 0 {
+		parts = append(parts, strconv.Itoa(preTokens)+" tokens")
+	}
+	return strings.Join(parts, ", ")
 }
 
 // extractTeammateID extracts the teammate_id attribute from a teammate-message XML tag.
@@ -464,6 +507,13 @@ func extractAssistantDetails(raw json.RawMessage) (int, []ToolCall, []ContentBlo
 		switch b.Type {
 		case "thinking":
 			thinking++
+			// Opus 4.7+/Claude 5 models omit thinking text from transcripts
+			// (only the encrypted signature persists). Keep the count so the
+			// "N thoughts" badge stays truthful, but don't emit a block — an
+			// empty block renders as a dead, unexpandable row.
+			if strings.TrimSpace(b.Thinking) == "" {
+				continue
+			}
 			contentBlocks = append(contentBlocks, ContentBlock{
 				Type: "thinking",
 				Text: b.Thinking,

@@ -2,10 +2,38 @@ package parser
 
 import "encoding/json"
 
+// EntryUsage holds the token counts reported for one API response. Since
+// Claude Code 2.1.19x the usage object can also carry an iterations array:
+// one element per inference cycle when the server collapses several cycles
+// (retries, server-side compaction) into a single assistant entry. Iteration
+// elements have the same token fields, so the type nests recursively.
+//
+// The top-level counts on a multi-iteration message are a merge across
+// cycles; the live context window is the LAST iteration's snapshot (this
+// mirrors Claude Code's own context-window math).
+type EntryUsage struct {
+	InputTokens              int          `json:"input_tokens"`
+	OutputTokens             int          `json:"output_tokens"`
+	CacheReadInputTokens     int          `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int          `json:"cache_creation_input_tokens"`
+	Iterations               []EntryUsage `json:"iterations"`
+}
+
+// ContextUsage returns the usage record that represents the live context
+// window: the last iteration when iterations are present, otherwise the
+// record itself.
+func (u EntryUsage) ContextUsage() EntryUsage {
+	if n := len(u.Iterations); n > 0 {
+		return u.Iterations[n-1]
+	}
+	return u
+}
+
 // Entry represents a raw JSONL line from a Claude Code session file.
 // Fields map directly to the on-disk format at ~/.claude/projects/{project}/{session}.jsonl.
 type Entry struct {
 	Type        string `json:"type"`
+	Subtype     string `json:"subtype"` // system entries: "compact_boundary", "turn_duration", ...
 	UUID        string `json:"uuid"`
 	Timestamp   string `json:"timestamp"`
 	IsSidechain bool   `json:"isSidechain"`
@@ -15,13 +43,15 @@ type Entry struct {
 		Content    json.RawMessage `json:"content"`
 		Model      string          `json:"model"`
 		StopReason *string         `json:"stop_reason"`
-		Usage      struct {
-			InputTokens              int `json:"input_tokens"`
-			OutputTokens             int `json:"output_tokens"`
-			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-		} `json:"usage"`
+		Usage      EntryUsage      `json:"usage"`
 	} `json:"message"`
+
+	// Compaction metadata on type=system subtype=compact_boundary entries.
+	// Replaces the pre-2.1.18x type=summary entries as the compaction signal.
+	CompactMetadata struct {
+		Trigger   string `json:"trigger"` // "auto" or "manual"
+		PreTokens int    `json:"preTokens"`
+	} `json:"compactMetadata"`
 
 	// Session-level metadata. Present on most entry types.
 	Cwd            string `json:"cwd"`

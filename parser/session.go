@@ -94,6 +94,9 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 		return msgs, offset + lr.BytesRead(), err
 	}
 
+	// Inline externalized tool results ({projectDir}/{session}/tool-results/).
+	resolvePersistedOutputs(msgs, filepath.Dir(path))
+
 	return msgs, offset + lr.BytesRead(), nil
 }
 
@@ -402,6 +405,12 @@ func discoverSessions(projectDir string, scan scanFn) ([]SessionInfo, error) {
 		if isOngoing && time.Since(info.ModTime()) > OngoingStalenessThreshold {
 			isOngoing = false
 		}
+		// A background Workflow run keeps working while the parent file goes
+		// silent — the parent-derived signal above misses it in both
+		// directions (stale parent, or a turn that "ended" with the launch).
+		if !isOngoing && ScanWorkflowActivity(path).Active(OngoingStalenessThreshold) {
+			isOngoing = true
+		}
 
 		// Resolve title: custom (user rename) wins over AI-generated.
 		title := meta.customTitle
@@ -570,7 +579,7 @@ func scanSessionMetadata(path string) sessionMetadata {
 
 		// --- Context token tracking (last assistant message's window snapshot) ---
 		if raw.Type == "assistant" && !raw.IsSidechain && raw.Message.Model != "<synthetic>" {
-			u := raw.Message.Usage
+			u := raw.Message.Usage.ContextUsage()
 			meta.contextTokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 		}
 
@@ -682,12 +691,7 @@ type metadataScanEntry struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 		Model   string          `json:"model"`
-		Usage   struct {
-			InputTokens              int `json:"input_tokens"`
-			OutputTokens             int `json:"output_tokens"`
-			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-		} `json:"usage"`
+		Usage   EntryUsage      `json:"usage"`
 	} `json:"message"`
 }
 
@@ -731,13 +735,14 @@ func scanOngoingAssistant(e *metadataScanEntry, activityIndex *int,
 	for _, b := range blocks {
 		switch b.Type {
 		case "thinking":
-			if strings.TrimSpace(b.Thinking) != "" {
-				*hasAny = true
-				if *lastEndingIndex >= 0 {
-					*hasAfter = true
-				}
-				*activityIndex++
+			// Counts even when the text is empty: Opus 4.7+/Claude 5 models
+			// persist redacted thinking blocks (signature only), and a
+			// thinking block of either kind means Claude is working.
+			*hasAny = true
+			if *lastEndingIndex >= 0 {
+				*hasAfter = true
 			}
+			*activityIndex++
 		case "tool_use":
 			if b.ID == "" {
 				continue
