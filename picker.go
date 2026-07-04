@@ -222,9 +222,7 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if preview == "" {
 				preview = s.FirstMessage
 			}
-			if len(preview) > 50 {
-				preview = preview[:47] + "..."
-			}
+			preview = parser.Truncate(preview, 50)
 			if preview == "" {
 				preview = formatSessionName(s.SessionID)
 			}
@@ -702,10 +700,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 
 	if s.GitBranch != "" {
 		branchIcon := Icon.Branch.WithColor(ColorPickerMeta)
-		branchName := s.GitBranch
-		if len(branchName) > 20 {
-			branchName = branchName[:17] + "..."
-		}
+		branchName := parser.Truncate(s.GitBranch, 20)
 		branchStr := lipgloss.NewStyle().Foreground(metaColor).Render(branchName)
 		metaParts = append(metaParts, branchIcon+branchStr)
 	}

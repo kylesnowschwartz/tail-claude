@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
 )
@@ -213,6 +214,24 @@ func TestScanPreview_TruncatesLongPreview(t *testing.T) {
 	// Parser caps at 500 chars; TUI handles display truncation.
 	if len(preview) > 500 {
 		t.Errorf("preview length = %d, should be <= 500", len(preview))
+	}
+}
+
+func TestScanPreview_TruncatesOnRuneBoundary(t *testing.T) {
+	// 600 three-byte CJK runes: a byte-based cut at 500 would split a rune
+	// and every downstream preview would render a U+FFFD replacement char.
+	longText := strings.Repeat("日", 600)
+	dir := t.TempDir()
+	path := writeJSONL(t, dir, "session.jsonl",
+		userEntry("u1", "2025-01-15T10:00:00Z", longText),
+	)
+
+	preview, _ := parser.ScanSessionPreview(path)
+	if !utf8.ValidString(preview) {
+		t.Errorf("preview is not valid UTF-8: %q", preview)
+	}
+	if got := utf8.RuneCountInString(preview); got > 500 {
+		t.Errorf("preview rune count = %d, should be <= 500", got)
 	}
 }
 

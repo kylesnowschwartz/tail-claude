@@ -645,8 +645,10 @@ func scanSessionMetadata(path string) sessionMetadata {
 		if sanitized == "" {
 			continue
 		}
-		if len(sanitized) > 500 {
-			sanitized = sanitized[:500]
+		// Cut on rune boundaries: a byte slice can split a multi-byte rune
+		// and corrupt every downstream preview of this message.
+		if r := []rune(sanitized); len(r) > 500 {
+			sanitized = string(r[:500])
 		}
 		meta.firstMsg = sanitized
 		previewFound = true
