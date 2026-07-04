@@ -284,6 +284,7 @@ type model struct {
 	pickerAnimFrame    int          // spinner frame counter, incremented each tick
 	pickerHasOngoing   bool         // true when any session is still in progress
 	pickerLoading      bool         // true while initial session discovery is in progress
+	pickerLoadGen      int          // generation counter to drop stale discovery results
 	pickerExpanded     map[int]bool // tab-expanded previews in picker
 	pickerUniformModel bool         // all sessions share the same model family
 
@@ -537,7 +538,10 @@ func (m model) Init() tea.Cmd {
 	// When starting in picker view (e.g. stale session or empty project),
 	// kick off session discovery across all project dirs (main + worktrees).
 	if m.view == viewPicker && len(m.projectDirs) > 0 {
-		cmds = append(cmds, loadPickerSessionsCmd(m.projectDirs, m.sessionCache))
+		// Init's value receiver means a gen bump here would be thrown away
+		// (see tickCmd note above); dispatch with the current gen (zero at
+		// startup) so the result matches the stored model's pickerLoadGen.
+		cmds = append(cmds, loadPickerSessionsCmd(m.pickerLoadGen, m.projectDirs, m.sessionCache))
 		if m.pickerLoading {
 			cmds = append(cmds, pickerTickCmd())
 		}
@@ -564,6 +568,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.md.reset()
 		m.layoutList()
 		m.ensureCursorVisible()
+		// A taller viewport shrinks maxScroll; without clamping, a list
+		// scrolled to the old bottom shows phantom blank rows after resize.
+		m.clampListScroll()
 		if m.view == viewDetail {
 			m.computeDetailMaxScroll()
 		}
@@ -681,35 +688,70 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case pickerSessionsMsg:
-		m.pickerLoading = false
-		if msg.err != nil {
-			// Fall back to list view on error.
+		// Drop stale results from a superseded scan (e.g. the pre-toggle
+		// discovery landing after `b` switched worktree mode); it must not
+		// clear loading or replace the newer scan's list.
+		if msg.gen != m.pickerLoadGen {
 			return m, nil
 		}
+		m.pickerLoading = false
+		if msg.err != nil {
+			// Fall back to the list view on error, but only from a still-empty
+			// picker with a session to return to — never yank another view.
+			if m.view == viewPicker && len(m.pickerItems) == 0 && len(m.messages) > 0 {
+				m.view = viewList
+			}
+			return m, nil
+		}
+
+		// Discovery is async, so the user may already be navigating the
+		// picker when this lands (e.g. a second queued discovery). Capture
+		// the selection BEFORE rebuilding the items so it can be preserved.
+		oldSession := m.pickerSelectedSession()
 		m.pickerSessions = msg.sessions
 		m.pickerItems = rebuildPickerItems(msg.sessions)
-		m.pickerScroll = 0
-		m.pickerExpanded = make(map[int]bool)
-		m.view = viewPicker
 
-		// Set cursor to first session item (skip header).
-		m.pickerCursor = 0
-		for i, item := range m.pickerItems {
-			if item.typ == pickerItemSession {
-				m.pickerCursor = i
-				break
+		if oldSession != nil {
+			// Restore cursor by session ID and keep scroll where the user
+			// left it, the same way pickerRefreshMsg does.
+			for i, item := range m.pickerItems {
+				if item.typ == pickerItemSession && item.session.SessionID == oldSession.SessionID {
+					m.pickerCursor = i
+					break
+				}
+			}
+			if m.pickerCursor >= len(m.pickerItems) {
+				m.pickerCursorLast()
+			}
+			m.ensurePickerVisible()
+		} else {
+			// First load: set cursor to first session item (skip header).
+			m.pickerScroll = 0
+			m.pickerExpanded = make(map[int]bool)
+			m.pickerCursor = 0
+			for i, item := range m.pickerItems {
+				if item.typ == pickerItemSession {
+					m.pickerCursor = i
+					break
+				}
 			}
 		}
 
 		m.updatePickerSessionState()
-		cmds := []tea.Cmd{pickerTickCmd()}
 
-		// Start picker directory watcher for live refresh.
-		if m.pickerWatcher == nil && len(m.projectDirs) > 0 {
-			pw := newPickerWatcher(m.projectDirs, m.sessionCache)
-			go pw.run()
-			m.pickerWatcher = pw
-			cmds = append(cmds, waitForPickerRefresh(pw.sub))
+		// The view flips at dispatch time (openPicker / Init); forcing it
+		// here would hijack whatever the user navigated to while discovery
+		// ran. Tick chain and watcher only matter while the picker is shown.
+		var cmds []tea.Cmd
+		if m.view == viewPicker {
+			cmds = append(cmds, pickerTickCmd())
+			// Start picker directory watcher for live refresh.
+			if m.pickerWatcher == nil && len(m.projectDirs) > 0 {
+				pw := newPickerWatcher(m.projectDirs, m.sessionCache)
+				go pw.run()
+				m.pickerWatcher = pw
+				cmds = append(cmds, waitForPickerRefresh(pw.sub))
+			}
 		}
 
 		return m, tea.Batch(cmds...)
@@ -850,6 +892,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
+		// Modal popup captures all input when active — same gate as key
+		// events, so wheel/clicks can't mutate the view hidden behind it.
+		if m.popup != nil {
+			return m, nil
+		}
 		switch m.view {
 		case viewPicker:
 			return m.updatePickerMouse(msg)
@@ -859,6 +906,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDebugMouse(msg)
 		case viewTeam:
 			return m.updateTeamMouse(msg)
+		case viewStats:
+			// Read-only view with no scroll state; swallow mouse input so
+			// wheel events don't scroll the list underneath.
+			return m, nil
 		default:
 			return m.updateListMouse(msg)
 		}

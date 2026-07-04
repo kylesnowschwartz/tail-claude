@@ -19,13 +19,23 @@ func (m *model) resetDetailState() {
 	m.detailChildExpanded = make(map[visibleRowKey]bool)
 }
 
+// openPicker switches to the picker view and kicks off async session
+// discovery. The view flips at dispatch time so a slow discovery result
+// can't hijack whatever view the user navigates to in the meantime.
+func (m model) openPicker() (tea.Model, tea.Cmd) {
+	m.view = viewPicker
+	m.pickerLoading = true
+	m.pickerLoadGen++
+	return m, tea.Batch(loadPickerSessionsCmd(m.pickerLoadGen, m.projectDirs, m.sessionCache), pickerTickCmd())
+}
+
 // updateList handles key events in the message list view.
 func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "q", "esc", "escape", "backspace":
-		return m, loadPickerSessionsCmd(m.projectDirs, m.sessionCache)
+		return m.openPicker()
 	case "j":
 		m.moveListCursor(m.cursor + 1)
 		m.ensureCursorVisible()
@@ -87,7 +97,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.ensureCursorVisible()
 	case "s":
 		// Open session picker
-		return m, loadPickerSessionsCmd(m.projectDirs, m.sessionCache)
+		return m.openPicker()
 	case "S":
 		// Open per-session tool-usage stats view
 		m.view = viewStats

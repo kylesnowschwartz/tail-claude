@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
+	zone "github.com/lrstanley/bubblezone/v2"
 )
 
 func TestNewRendered(t *testing.T) {
@@ -353,4 +354,36 @@ func TestDebugVisibleLines(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- TestInfoBarHeightMatchesRender -------------------------------------------
+
+func TestInfoBarHeightMatchesRender(t *testing.T) {
+	initZone.Do(zone.NewGlobal)
+
+	t.Run("flash collapses colored-mode bar to one line", func(t *testing.T) {
+		m := testModel()
+		m.sessionMode = "plan"
+
+		if h := m.infoBarHeight(); h != 3 {
+			t.Fatalf("infoBarHeight = %d, want 3 for plan mode", h)
+		}
+		m.flashStatus = "Copied: /tmp/x.jsonl"
+		if h := m.infoBarHeight(); h != 1 {
+			t.Errorf("infoBarHeight = %d, want 1 while flash is active", h)
+		}
+	})
+
+	t.Run("reported height matches rendered height", func(t *testing.T) {
+		for _, mode := range []string{"", "default", "plan", "acceptEdits", "bypassPermissions"} {
+			for _, flash := range []string{"", "Copied: /tmp/x.jsonl"} {
+				m := testModel()
+				m.sessionMode = mode
+				m.flashStatus = flash
+				if got, want := lipgloss.Height(m.renderInfoBar()), m.infoBarHeight(); got != want {
+					t.Errorf("mode=%q flash=%q: rendered height %d != infoBarHeight %d", mode, flash, got, want)
+				}
+			}
+		}
+	})
 }
