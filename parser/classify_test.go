@@ -742,6 +742,39 @@ func TestClassify_ToolPipelineEndToEnd(t *testing.T) {
 	}
 }
 
+func TestClassify_LastPromptEntryDropped(t *testing.T) {
+	// Real shape from Claude Code 2.1+: leafUuid only, no uuid, no timestamp,
+	// no message. Must drop in Classify rather than fall through to the meta
+	// fallback and become an empty AI chunk.
+	line := []byte(`{"type":"last-prompt","leafUuid":"5d6dbd0c-c88d-47a9-8b59-046bcb7e3fc3","sessionId":"fe87e29a-d2ae-4e55-95af-a84976dd8c52"}`)
+	e, ok := parser.ParseEntry(line)
+	if !ok {
+		t.Fatal("ParseEntry should accept last-prompt entries (leafUuid present)")
+	}
+
+	if msg, classified := parser.Classify(e); classified {
+		t.Fatalf("last-prompt entry should be filtered out, got %T", msg)
+	}
+
+	// End-to-end: a session ending with a last-prompt line must not grow a
+	// trailing empty AI chunk.
+	eUser := makeEntry("user", "u1", "2025-01-15T10:00:00Z",
+		json.RawMessage(`"hello"`))
+	eAssistant := makeEntry("assistant", "a1", "2025-01-15T10:00:01Z",
+		json.RawMessage(`[{"type":"text","text":"hi"}]`), withModel("claude-sonnet-4-6"))
+
+	var msgs []parser.ClassifiedMsg
+	for _, entry := range []parser.Entry{eUser, eAssistant, e} {
+		if msg, classified := parser.Classify(entry); classified {
+			msgs = append(msgs, msg)
+		}
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks) = %d, want 2 (user + AI, no empty trailing AI chunk)", len(chunks))
+	}
+}
+
 func TestClassify_SummaryEmptyContent(t *testing.T) {
 	e := makeEntry("summary", "s1", "2025-01-15T10:00:00Z",
 		json.RawMessage(`""`))

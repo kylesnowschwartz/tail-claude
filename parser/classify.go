@@ -350,6 +350,12 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 	// entries where isMeta is null in the JSONL. extractMetaBlocks handles both:
 	// if the content has tool_result blocks it extracts them; otherwise it returns
 	// a text fallback that mergeAIBuffer silently ignores.
+	// Gated on type=user so unknown entry types (e.g. Claude Code 2.1+'s
+	// last-prompt bookkeeping lines) drop instead of becoming empty meta
+	// AIMsgs that render as blank AI chunks and skew turn durations.
+	if e.Type != "user" {
+		return nil, false
+	}
 	blocks := extractMetaBlocks(e.Message.Content, contentStr)
 	return AIMsg{
 		Timestamp: ts,
