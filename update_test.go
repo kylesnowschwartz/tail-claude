@@ -758,6 +758,34 @@ func TestTailUpdate_DoesNotRearmRunningTickChain(t *testing.T) {
 	}
 }
 
+func TestTailUpdate_DropsUpdateFromPreviousWatcher(t *testing.T) {
+	m := testModel()
+	m.watching = true
+	m.sessionPath = "/sessions/current.jsonl"
+	m.tailSub = make(chan tailUpdateMsg, 1)
+
+	// Stale message from a stopped watcher. Reloading even the SAME session
+	// path creates a new watcher (and sub channel), so identity is the
+	// channel, not the path.
+	stale := tailUpdateMsg{
+		sub:      make(chan tailUpdateMsg, 1),
+		messages: []message{{content: "old watcher content"}},
+		ongoing:  true,
+	}
+	result, cmd := m.Update(stale)
+	got := asModel(result)
+
+	if len(got.messages) != len(m.messages) {
+		t.Errorf("messages len = %d, want %d (stale update must not replace messages)", len(got.messages), len(m.messages))
+	}
+	if got.sessionOngoing {
+		t.Error("sessionOngoing = true, want false (stale update must not flip the flag)")
+	}
+	if cmd != nil {
+		t.Error("cmd != nil, want nil (stale update must not re-arm the tail subscription)")
+	}
+}
+
 // --- TestUpdateListMouse --------------------------------------------------
 
 func TestUpdateListMouse(t *testing.T) {

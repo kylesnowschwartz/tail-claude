@@ -423,6 +423,9 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.liveBranch = checkGitBranch(m.gitCwd)
 	m.sessionMode = result.meta.PermissionMode
 	m.liveDirty = checkGitDirty(m.gitCwd)
+	// Reset the idle-failsafe clock: it still holds the previous session's last
+	// update time, which would immediately clear the new session's ongoing flag.
+	m.lastTailUpdate = time.Now()
 	m.animFrame = 0
 	m.view = viewList
 	m.layoutList()
@@ -537,6 +540,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, gitDirtyTickCmd()
 
 	case tailUpdateMsg:
+		// An update from the previous watcher may already be queued when the
+		// user switches (or reloads the same) session. Compare channel identity
+		// rather than path so a stopped watcher's update is dropped even when
+		// the new session has the same path. Drop without re-arming: the new
+		// watcher's sub was armed by switchSession, and re-arming here would
+		// add a duplicate receiver.
+		if msg.sub != m.tailSub {
+			return m, nil
+		}
 		m.lastTailUpdate = time.Now()
 
 		// Auto-follow only when the user is in the list view AND the cursor
