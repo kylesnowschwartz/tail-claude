@@ -387,6 +387,96 @@ func TestReadSessionIncremental_IncrementalRead(t *testing.T) {
 	}
 }
 
+// Regression test: an EOF-truncated trailing line (Claude Code appending a
+// large entry while we read) must be excluded from both the returned messages
+// and the offset, so the completed line is re-read intact on the next call.
+// Previously the offset advanced past the partial bytes, permanently losing
+// the entry during live tailing.
+func TestReadSessionIncremental_PartialTrailingLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+
+	line1 := userEntry("u1", "2025-01-15T10:00:00Z", "Hello")
+	line2 := assistantEntry("a1", "2025-01-15T10:00:01Z", "Hi")
+
+	// Simulate a write in progress: line2 is half-flushed, no trailing \n.
+	partial := line2[:len(line2)/2]
+	if err := os.WriteFile(path, []byte(line1+"\n"+partial), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs1, offset1, err := parser.ReadSessionIncremental(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs1) != 1 {
+		t.Fatalf("first read: len(msgs) = %d, want 1 (partial line excluded)", len(msgs1))
+	}
+	if want := int64(len(line1) + 1); offset1 != want {
+		t.Fatalf("first read: offset = %d, want %d (must not consume partial line)", offset1, want)
+	}
+
+	// The append completes.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(line2[len(partial):] + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	msgs2, offset2, err := parser.ReadSessionIncremental(path, offset1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs2) != 1 {
+		t.Fatalf("second read: len(msgs) = %d, want 1 (completed line re-read)", len(msgs2))
+	}
+	if want := offset1 + int64(len(line2)+1); offset2 != want {
+		t.Errorf("second read: offset = %d, want %d", offset2, want)
+	}
+}
+
+// A complete final record without a trailing newline must NOT be treated as
+// an in-progress append: it parses as valid JSON, so it is returned and its
+// bytes are consumed. Guards ReadSession/loadSession on valid JSONL files
+// whose last line lacks \n (e.g. a one-line session).
+func TestReadSessionIncremental_CompleteFinalLineNoNewline(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+
+	line1 := userEntry("u1", "2025-01-15T10:00:00Z", "Hello")
+	line2 := assistantEntry("a1", "2025-01-15T10:00:01Z", "Hi")
+	if err := os.WriteFile(path, []byte(line1+"\n"+line2), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, offset, err := parser.ReadSessionIncremental(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("len(msgs) = %d, want 2 (complete unterminated tail kept)", len(msgs))
+	}
+	if want := int64(len(line1) + 1 + len(line2)); offset != want {
+		t.Errorf("offset = %d, want %d (tail bytes consumed)", offset, want)
+	}
+
+	// One-line session with no trailing newline must not load as empty.
+	single := filepath.Join(dir, "single.jsonl")
+	if err := os.WriteFile(single, []byte(line1), 0644); err != nil {
+		t.Fatal(err)
+	}
+	chunks, err := parser.ReadSession(single)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("ReadSession one-line file: len(chunks) = %d, want 1", len(chunks))
+	}
+}
+
 func TestReadSessionIncremental_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "empty.jsonl")
