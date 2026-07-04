@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.14.1 (2026-07-04)
+
+- Add expand chevron to picker session rows, signalling the tab-expandable first/last prompt preview
+
 ## v0.14.0 (2026-07-04)
 
 Quality release: a full-codebase bug, performance, and maintainability hunt — 65 findings confirmed by cross-model audit, all applied — plus UX refinements from hands-on QA.
