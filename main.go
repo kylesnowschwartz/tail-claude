@@ -545,6 +545,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// Old-size renderers are dead weight after a resize; drop them so the
+		// per-width cache stays bounded.
+		m.md.reset()
 		m.layoutList()
 		m.ensureCursorVisible()
 		if m.view == viewDetail {
