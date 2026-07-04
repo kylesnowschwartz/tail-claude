@@ -22,6 +22,13 @@ const watcherDebounce = 500 * time.Millisecond
 // We send the complete list (not a diff) because BuildChunks merges consecutive
 // AI messages -- the last chunk can grow as new tool calls or text arrive.
 type tailUpdateMsg struct {
+	// sub identifies the watcher this update came from (stamped by
+	// waitForTailUpdate). An update queued by the old watcher can arrive after
+	// switchSession installs a new one; Update drops messages whose sub does
+	// not match m.tailSub so they can't overwrite the new session. Channel
+	// identity (not path) so reloading the same session path also invalidates
+	// updates from the stopped watcher.
+	sub            chan tailUpdateMsg
 	messages       []message
 	teams          []parser.TeamSnapshot
 	ongoing        bool   // whether the session appears to still be in progress
@@ -343,6 +350,7 @@ func waitForTailUpdate(sub chan tailUpdateMsg) tea.Cmd {
 		if !ok {
 			return nil
 		}
+		u.sub = sub // stamp watcher identity so Update can drop stale messages
 		return u
 	}
 }
