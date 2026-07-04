@@ -190,14 +190,36 @@ func TestLineReaderBytesReadNoTrailingNewline(t *testing.T) {
 	if lr.Err() != nil {
 		t.Fatalf("unexpected error: %v", lr.Err())
 	}
-	// "aaa\n" = 4 bytes, "bbb" = 3 bytes. bufio.ReadLine can't distinguish
-	// "line ended with \n" from "line ended at EOF", so the final line
-	// overcounts by 1 (adds +1 for a nonexistent \n). This matches the
-	// old bufio.Scanner behavior and is harmless for JSONL files which
-	// always end with \n.
-	wantBytes := int64(len(input)) + 1
-	if lr.BytesRead() != wantBytes {
-		t.Errorf("BytesRead() = %d, want %d", lr.BytesRead(), wantBytes)
+	// "aaa\n" = 4 bytes, "bbb" = 3 bytes. BytesRead counts everything
+	// consumed; TerminatedBytesRead stops at the last complete line so an
+	// in-progress append can be re-read intact by incremental callers.
+	if lr.BytesRead() != int64(len(input)) {
+		t.Errorf("BytesRead() = %d, want %d", lr.BytesRead(), len(input))
+	}
+	if lr.TerminatedBytesRead() != 4 {
+		t.Errorf("TerminatedBytesRead() = %d, want 4", lr.TerminatedBytesRead())
+	}
+	if lr.LastLineTerminated() {
+		t.Error("LastLineTerminated() = true, want false for EOF-truncated final line")
+	}
+}
+
+func TestLineReaderLastLineTerminated(t *testing.T) {
+	lr := newLineReaderWithMax(strings.NewReader("aaa\nbbb\n"), 100)
+
+	for {
+		_, ok := lr.next()
+		if !ok {
+			break
+		}
+		if !lr.LastLineTerminated() {
+			t.Error("LastLineTerminated() = false for a \\n-terminated line")
+		}
+	}
+
+	if lr.TerminatedBytesRead() != lr.BytesRead() {
+		t.Errorf("TerminatedBytesRead() = %d, want %d (all lines terminated)",
+			lr.TerminatedBytesRead(), lr.BytesRead())
 	}
 }
 

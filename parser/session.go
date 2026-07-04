@@ -80,6 +80,25 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 		if !ok {
 			break
 		}
+		if !lr.LastLineTerminated() {
+			// EOF-truncated tail. A JSONL line is one JSON object, so a
+			// half-written append can never parse as a complete entry
+			// (json.Unmarshal rejects both prefixes and trailing garbage).
+			// If the tail parses, the record is complete and the file just
+			// lacks a trailing newline -- keep it and consume its bytes.
+			// Otherwise it is an append still in progress: skip it and
+			// exclude it from the offset (TerminatedBytesRead below) so the
+			// next incremental read picks up the completed line intact.
+			entry, ok := ParseEntry([]byte(line))
+			if !ok {
+				break
+			}
+			if msg, ok := Classify(entry); ok {
+				msgs = append(msgs, msg)
+			}
+			resolvePersistedOutputs(msgs, filepath.Dir(path))
+			return msgs, offset + lr.BytesRead(), nil
+		}
 		entry, ok := ParseEntry([]byte(line))
 		if !ok {
 			continue
@@ -91,13 +110,13 @@ func ReadSessionIncremental(path string, offset int64) ([]ClassifiedMsg, int64, 
 		msgs = append(msgs, msg)
 	}
 	if err := lr.Err(); err != nil {
-		return msgs, offset + lr.BytesRead(), err
+		return msgs, offset + lr.TerminatedBytesRead(), err
 	}
 
 	// Inline externalized tool results ({projectDir}/{session}/tool-results/).
 	resolvePersistedOutputs(msgs, filepath.Dir(path))
 
-	return msgs, offset + lr.BytesRead(), nil
+	return msgs, offset + lr.TerminatedBytesRead(), nil
 }
 
 // ProjectDirForPath returns the Claude CLI projects directory for an absolute

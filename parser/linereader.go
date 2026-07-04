@@ -22,11 +22,13 @@ const (
 // Ported from agentsview's internal/parser/linereader.go with the addition
 // of BytesRead() for incremental offset tracking.
 type lineReader struct {
-	r         *bufio.Reader
-	maxLen    int // 0 means use maxLineSize constant
-	buf       []byte
-	err       error
-	bytesRead int64
+	r               *bufio.Reader
+	maxLen          int // 0 means use maxLineSize constant
+	buf             []byte
+	err             error
+	bytesRead       int64
+	terminatedBytes int64 // bytes consumed through the last \n-terminated line
+	lastTerminated  bool  // whether the most recently read line ended with \n
 }
 
 func newLineReader(r io.Reader) *lineReader {
@@ -79,76 +81,104 @@ func (lr *lineReader) Err() error {
 }
 
 // BytesRead returns the total bytes consumed from the reader, including
-// skipped lines and newline delimiters. Used by ReadSessionIncremental
-// for offset tracking during live tailing.
+// skipped lines, newline delimiters, and any EOF-truncated trailing line.
 func (lr *lineReader) BytesRead() int64 {
 	return lr.bytesRead
+}
+
+// TerminatedBytesRead returns the bytes consumed through the last
+// newline-terminated line, excluding an EOF-truncated tail. Used by
+// ReadSessionIncremental for offset tracking during live tailing: a
+// half-written trailing line must be re-read intact on the next call.
+func (lr *lineReader) TerminatedBytesRead() int64 {
+	return lr.terminatedBytes
+}
+
+// LastLineTerminated reports whether the most recently returned line ended
+// with a newline. False means the line was cut off at EOF -- during live
+// tailing that is typically an append still in progress.
+func (lr *lineReader) LastLineTerminated() bool {
+	return lr.lastTerminated
 }
 
 // readLine reads a full line, returning "" for blank/oversized lines and
 // a non-nil error only at EOF or read failure.
 //
-// Uses bufio.Reader.ReadLine() which returns isPrefix=true for partial
-// reads. When accumulated bytes exceed maxLineSize, the buffer is
-// discarded and the rest of the line is consumed (to keep bytesRead
-// accurate), then "" is returned so next() skips to the following line.
+// Uses bufio.Reader.ReadSlice('\n') rather than ReadLine because ReadSlice
+// reports whether the delimiter was actually found: a complete line returns
+// err == nil, while an EOF-truncated final line (a JSONL append still in
+// progress) returns io.EOF alongside the partial data. That distinction
+// drives lastTerminated/terminatedBytes so incremental readers can exclude
+// a half-written tail from their offset and re-read it intact later.
+//
+// When accumulated bytes exceed maxLineSize, the buffer is discarded and
+// the rest of the line is consumed (to keep bytesRead accurate), then ""
+// is returned so next() skips to the following line.
 func (lr *lineReader) readLine() (string, error) {
 	lr.buf = lr.buf[:0]
 	oversized := false
+	var lineBytes int64
 
-	for {
-		chunk, isPrefix, err := lr.r.ReadLine()
-		// Count data bytes from every chunk, including oversized lines.
-		lr.bytesRead += int64(len(chunk))
-
-		if err != nil {
-			if len(lr.buf) > 0 && err == io.EOF {
-				// Final line data was accumulated in previous iterations.
-				// No \n to count -- the line ended at EOF.
-				break
-			}
-			return "", err
-		}
-
-		// bufio.ReadLine strips the \n delimiter but we still consumed it
-		// from the underlying reader. Add +1 when the line is complete.
-		//
-		// Caveat: ReadLine can't distinguish "line ended with \n" from
-		// "line ended at EOF without \n" -- both return (data, false, nil).
-		// This means BytesRead may overcount by 1 on the final line if the
-		// file lacks a trailing newline. That's harmless for JSONL tailing:
-		// real entries always end with \n, and the overcount exactly skips
-		// the \n that the next append will prepend.
-		if !isPrefix {
-			lr.bytesRead++
-		}
-
-		if oversized {
-			if !isPrefix {
-				return "", nil // done skipping
-			}
-			continue
-		}
-
-		lr.buf = append(lr.buf, chunk...)
-
-		limit := maxLineSize
-		if lr.maxLen > 0 {
-			limit = lr.maxLen
-		}
-		if len(lr.buf) > limit {
-			oversized = true
-			lr.buf = lr.buf[:0]
-			if !isPrefix {
-				return "", nil
-			}
-			continue
-		}
-
-		if !isPrefix {
-			break
-		}
+	limit := maxLineSize
+	if lr.maxLen > 0 {
+		limit = lr.maxLen
 	}
 
-	return string(lr.buf), nil
+	for {
+		chunk, err := lr.r.ReadSlice('\n')
+		// Count data bytes from every chunk, including oversized lines.
+		lineBytes += int64(len(chunk))
+
+		switch err {
+		case bufio.ErrBufferFull:
+			// Partial read -- keep accumulating.
+			if !oversized {
+				lr.buf = append(lr.buf, chunk...)
+				if len(lr.buf) > limit {
+					oversized = true
+					lr.buf = lr.buf[:0]
+				}
+			}
+			continue
+
+		case nil:
+			// Delimiter found; chunk includes the trailing \n.
+			lr.bytesRead += lineBytes
+			lr.terminatedBytes = lr.bytesRead
+			lr.lastTerminated = true
+			if oversized {
+				return "", nil // done skipping
+			}
+			data := chunk[:len(chunk)-1]
+			if len(data) > 0 && data[len(data)-1] == '\r' {
+				data = data[:len(data)-1]
+			}
+			lr.buf = append(lr.buf, data...)
+			if len(lr.buf) > limit {
+				return "", nil
+			}
+			return string(lr.buf), nil
+
+		case io.EOF:
+			if lineBytes == 0 {
+				// Clean EOF at a line boundary.
+				return "", io.EOF
+			}
+			// Final line ended at EOF without \n. Count the bytes but
+			// leave terminatedBytes at the last complete line.
+			lr.bytesRead += lineBytes
+			lr.lastTerminated = false
+			if oversized {
+				return "", nil
+			}
+			lr.buf = append(lr.buf, chunk...)
+			if len(lr.buf) > limit {
+				return "", nil
+			}
+			return string(lr.buf), nil
+
+		default:
+			return "", err
+		}
+	}
 }
