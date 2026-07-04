@@ -128,14 +128,13 @@ func rebuildPickerItems(sessions []parser.SessionInfo) []pickerItem {
 // updatePicker handles key events in the session picker view.
 func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Delegate to search handler when search mode is active.
-	if m.pickerSearchMode {
+	if m.pickerSearchState != searchOff {
 		return m.updatePickerSearch(msg)
 	}
 
 	switch msg.String() {
 	case "/":
-		m.pickerSearchMode = true
-		m.pickerSearchTyping = true
+		m.pickerSearchState = searchTyping
 		m.pickerSearchQuery = ""
 		m.pickerSearchResults = nil
 		m.bumpSearchGen()
@@ -260,7 +259,7 @@ func (m model) updatePickerMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelDown:
 		m.pickerScroll += 3
 		totalLines := m.pickerTotalLines()
-		if m.pickerSearchMode {
+		if m.pickerSearchState != searchOff {
 			// Search filters the item list; clamping against the unfiltered
 			// total would allow scrolling past the results into blank padding.
 			totalLines = m.searchPickerTotalLines()
@@ -354,9 +353,12 @@ func (m model) pickerSelectedSession() *parser.SessionInfo {
 }
 
 // pickerCursorDown moves cursor to next session item (skipping headers).
+// Reads activePickerItems so the same walk serves both the full picker
+// list and filtered search results.
 func (m *model) pickerCursorDown() {
-	for i := m.pickerCursor + 1; i < len(m.pickerItems); i++ {
-		if m.pickerItems[i].typ == pickerItemSession {
+	items := m.activePickerItems()
+	for i := m.pickerCursor + 1; i < len(items); i++ {
+		if items[i].typ == pickerItemSession {
 			m.pickerCursor = i
 			return
 		}
@@ -365,8 +367,9 @@ func (m *model) pickerCursorDown() {
 
 // pickerCursorUp moves cursor to previous session item (skipping headers).
 func (m *model) pickerCursorUp() {
+	items := m.activePickerItems()
 	for i := m.pickerCursor - 1; i >= 0; i-- {
-		if m.pickerItems[i].typ == pickerItemSession {
+		if items[i].typ == pickerItemSession {
 			m.pickerCursor = i
 			return
 		}
@@ -375,8 +378,9 @@ func (m *model) pickerCursorUp() {
 
 // pickerCursorLast moves cursor to the last session item.
 func (m *model) pickerCursorLast() {
-	for i := len(m.pickerItems) - 1; i >= 0; i-- {
-		if m.pickerItems[i].typ == pickerItemSession {
+	items := m.activePickerItems()
+	for i := len(items) - 1; i >= 0; i-- {
+		if items[i].typ == pickerItemSession {
 			m.pickerCursor = i
 			return
 		}
@@ -385,9 +389,10 @@ func (m *model) pickerCursorLast() {
 
 // pickerCursorFirst moves cursor to the first session item.
 func (m *model) pickerCursorFirst() {
+	items := m.activePickerItems()
 	m.pickerScroll = 0
-	for i := 0; i < len(m.pickerItems); i++ {
-		if m.pickerItems[i].typ == pickerItemSession {
+	for i := 0; i < len(items); i++ {
+		if items[i].typ == pickerItemSession {
 			m.pickerCursor = i
 			return
 		}
@@ -507,7 +512,7 @@ func (m model) pickerTotalLines() int {
 // sub-state (search split-pane, empty list, or session list). Shared by
 // viewPicker and footerHeight so the measured bar matches the drawn one.
 func (m model) pickerKeybindPairs() []string {
-	if m.pickerSearchMode {
+	if m.pickerSearchState != searchOff {
 		return m.searchKeybindPairs()
 	}
 	if len(m.pickerItems) == 0 {
@@ -538,7 +543,7 @@ func (m model) pickerKeybindPairs() []string {
 
 // viewPicker renders the session picker screen.
 func (m model) viewPicker() string {
-	if m.pickerSearchMode {
+	if m.pickerSearchState != searchOff {
 		return m.viewPickerSearch()
 	}
 

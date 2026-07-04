@@ -315,8 +315,7 @@ type model struct {
 	updateAvailable string // non-empty when a newer version exists (e.g. "v0.9.0")
 
 	// Picker search mode state
-	pickerSearchMode    bool         // true when / search is active
-	pickerSearchTyping  bool         // true while text input is focused (all chars → input)
+	pickerSearchState   searchState  // off / typing / navigating
 	pickerSearchQuery   string       // current search text
 	pickerSearchResults []pickerItem // filtered picker items when search active
 	pickerSearchGen     int          // generation counter to cancel stale scans
