@@ -493,14 +493,23 @@ func editorCmd(filePath string) *exec.Cmd {
 	return exec.Command(editor, filePath)
 }
 
+// debugEntryLines returns the rendered line count of debug entry i: the
+// header line plus extra lines when expanded. Single source of the height
+// rule — debugVisibleLines, debugTotalLines, and debugCursorLine must all
+// agree or scroll math disagrees with the screen.
+func (m model) debugEntryLines(i int) int {
+	lines := 1 // header line
+	if m.debugExpanded[i] && m.debugFiltered[i].HasExtra() {
+		lines += m.debugFiltered[i].ExtraLineCount()
+	}
+	return lines
+}
+
 // debugTotalLines returns the total rendered lines in the debug view.
 func (m model) debugTotalLines() int {
 	total := 0
-	for i, entry := range m.debugFiltered {
-		total++ // header line
-		if m.debugExpanded[i] && entry.HasExtra() {
-			total += entry.ExtraLineCount()
-		}
+	for i := range m.debugFiltered {
+		total += m.debugEntryLines(i)
 	}
 	return total
 }
@@ -528,10 +537,7 @@ func (m model) debugFilterPromptHeight() int {
 func (m model) debugCursorLine() int {
 	line := 0
 	for i := 0; i < m.debugCursor && i < len(m.debugFiltered); i++ {
-		line++ // header line
-		if m.debugExpanded[i] && m.debugFiltered[i].HasExtra() {
-			line += m.debugFiltered[i].ExtraLineCount()
-		}
+		line += m.debugEntryLines(i)
 	}
 	return line
 }
