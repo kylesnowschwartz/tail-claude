@@ -121,7 +121,24 @@ func TestDiscoverSubagents_DurationSpansFinalChunk(t *testing.T) {
 	}
 }
 
-func TestDiscoverSubagents_AggregatesUsage(t *testing.T) {
+func TestIsAgentSessionFile(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"agent-ab5e9fff8705f512f.jsonl", true},
+		{"agent_123.jsonl", true},
+		{"d7d2a697-dfbb-4abe-aec1-27c83cf8e89b.jsonl", false},
+		{"my-agent-notes.jsonl", false},
+	}
+	for _, c := range cases {
+		if got := parser.IsAgentSessionFile(c.name); got != c.want {
+			t.Errorf("IsAgentSessionFile(%q) = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestDiscoverSubagents_PopulatesUsage(t *testing.T) {
 	sessionPath := filepath.Join("testdata", "test-session.jsonl")
 
 	procs, err := parser.DiscoverSubagents(sessionPath)

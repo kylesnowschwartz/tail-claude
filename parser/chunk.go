@@ -243,7 +243,7 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 
 	for i, m := range buf {
 		itemStarts[i] = len(items)
-		// --- Flat field accumulation (unchanged) ---
+		// --- Flat field accumulation ---
 		if m.Text != "" {
 			texts = append(texts, m.Text)
 		}

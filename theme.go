@@ -76,7 +76,7 @@ var (
 	// Picker
 	ColorPickerSelectedBg color.Color
 	ColorPickerMeta       color.Color // metadata icons in picker rows
-	ColorGitBranch        color.Color // purple: acceptEdits
+	ColorGitBranch        color.Color // purple: default branch icon color
 
 	// Tool category colors (per-category icons in detail view).
 	ColorToolRead  color.Color
