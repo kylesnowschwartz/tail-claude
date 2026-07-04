@@ -786,6 +786,27 @@ func TestTailUpdate_StaleListRepairedOnReturnToListView(t *testing.T) {
 	}
 }
 
+// Returning to the list view through enterList repairs a stale layout
+// immediately, without waiting for the next tick.
+func TestEnterList_RelaysOutStaleLayout(t *testing.T) {
+	m := testModel()
+	m.view = viewDetail
+	m.messages = append(m.messages, userMsg("arrived while in detail"))
+	m.listLayoutStale = true
+
+	m.enterList()
+
+	if m.view != viewList {
+		t.Fatalf("view = %v, want viewList", m.view)
+	}
+	if m.listLayoutStale {
+		t.Error("listLayoutStale = true, want false after enterList")
+	}
+	if len(m.listParts) != len(m.messages) {
+		t.Errorf("listParts len = %d, want %d (enterList must relayout a stale list)", len(m.listParts), len(m.messages))
+	}
+}
+
 func TestInit_StartsTickChainWhenWatching(t *testing.T) {
 	m := testModel()
 	m.watching = true

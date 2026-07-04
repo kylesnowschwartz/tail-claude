@@ -147,7 +147,7 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(m.messages) == 0 {
 			return m, tea.Quit
 		}
-		m.view = viewList
+		m.enterList()
 		return m, nil
 	case "ctrl+c":
 		m.stopPickerWatcher()

@@ -82,7 +82,7 @@ func (m model) updateStats(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	}
-	m.view = viewList
+	m.enterList()
 	return m, nil
 }
 

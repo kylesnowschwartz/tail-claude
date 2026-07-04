@@ -235,7 +235,7 @@ func (m model) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.savedDetail = nil
 			m.computeDetailMaxScroll()
 		} else {
-			m.view = viewList
+			m.enterList()
 			m.resetDetailState()
 		}
 	case "tab":
@@ -281,7 +281,7 @@ func (m model) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		} else {
-			m.view = viewList
+			m.enterList()
 			m.resetDetailState()
 		}
 	case "j":
@@ -365,7 +365,7 @@ func (m model) updateDebug(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.stopDebugWatcher()
-		m.view = viewList
+		m.enterList()
 	case "j":
 		if m.debugCursor < len(m.debugFiltered)-1 {
 			m.debugCursor++
@@ -475,6 +475,17 @@ func (m model) updateDebugFilter(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// enterList switches to the list view, re-running layout if a tail update
+// arrived while another view was active. layoutList only runs in list view,
+// so the cached layout can be stale on re-entry; every return-to-list
+// transition must route through here or it renders one stale frame.
+func (m *model) enterList() {
+	m.view = viewList
+	if m.listLayoutStale {
+		m.layoutList()
+	}
 }
 
 // editorCmd returns an *exec.Cmd to open filePath in the user's $EDITOR.
@@ -647,7 +658,7 @@ func (m model) updateTeam(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "q", "esc", "escape", "backspace":
-		m.view = viewList
+		m.enterList()
 	case "j", "down":
 		m.teamScroll += 3
 		m.clampTeamScroll()
