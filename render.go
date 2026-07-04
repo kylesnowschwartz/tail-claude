@@ -86,7 +86,6 @@ func selectionIndicator(selected bool) string {
 	return "  "
 }
 
-// userHeaderLine renders "timestamp  You {icon}" used in both list and detail views.
 // userHasExpandableContent returns true when a user message has content that
 // can be toggled: either an expanded skill prompt or long text that gets truncated.
 func userHasExpandableContent(msg message) bool {
@@ -96,6 +95,7 @@ func userHasExpandableContent(msg message) bool {
 	return strings.Count(msg.content, "\n") >= maxCollapsedLines
 }
 
+// userHeaderLine renders "timestamp  You {icon}" used in both list and detail views.
 func userHeaderLine(msg message, isExpanded bool) string {
 	chev := ""
 	if userHasExpandableContent(msg) {

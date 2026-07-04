@@ -188,7 +188,7 @@ func ResolveGitRoot(dir string) string {
 
 // DiscoverProjectSessions finds all session .jsonl files in a project directory,
 // scans each for metadata, and returns them sorted by modification time (newest first).
-// Subagent files (agent_*) are excluded.
+// Subagent files (see isAgentSessionFile) are excluded.
 func DiscoverProjectSessions(projectDir string) ([]SessionInfo, error) {
 	return discoverSessions(projectDir, func(path string, _ time.Time) sessionMetadata {
 		return scanSessionMetadata(path)
@@ -382,7 +382,7 @@ type sessionFile struct {
 }
 
 // listSessionFiles returns the session .jsonl files in a project directory,
-// skipping subdirectories, non-.jsonl files, and agent_* subagent files.
+// skipping subdirectories, non-.jsonl files, and agent-prefixed subagent files.
 // Single home for the walk filtering shared by discoverSessions and
 // discoverSessionTitles, so a filtering fix lands in both.
 func listSessionFiles(projectDir string) ([]sessionFile, error) {
@@ -399,7 +399,7 @@ func listSessionFiles(projectDir string) ([]sessionFile, error) {
 		if !strings.HasSuffix(name, ".jsonl") {
 			continue
 		}
-		if strings.HasPrefix(name, "agent_") {
+		if isAgentSessionFile(name) {
 			continue
 		}
 		info, err := de.Info()

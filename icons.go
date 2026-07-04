@@ -122,7 +122,7 @@ func initIcons() {
 		Expanded:  StyledIcon{"\uF078", ColorTextPrimary}, // nf-fa-chevron_down
 		Output:    StyledIcon{"\U000F0182", ColorAccent},  // nf-md-comment_outline
 		Selected:  StyledIcon{"\u2502", ColorAccent},      // box drawing vertical
-		Help:      StyledIcon{"󰘥", ColorAccent},           // nf-fa-circle_question
+		Help:      StyledIcon{"\U000F0625", ColorAccent},  // nf-md-help_circle_outline
 		Memory:    StyledIcon{"\U000F01C0", ColorTextDim}, // nf-md-book_open_variant
 		Session:   StyledIcon{"\U000F0237", ColorTextDim}, // nf-md-fingerprint
 		Subagent:  StyledIcon{glyphRobot, ColorAccent},

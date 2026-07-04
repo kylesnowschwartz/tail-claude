@@ -11,7 +11,7 @@ import (
 
 // SubagentProcess holds a parsed subagent and its computed metadata.
 // Discovery fills ID, FilePath, Chunks, timing, usage, and Model.
-// Linking (Phase 5B) fills Description, SubagentType, and ParentTaskID.
+// Linking (LinkSubagents) fills Description, SubagentType, and ParentTaskID.
 type SubagentProcess struct {
 	ID            string    // agentId from filename (agent-{id}.jsonl)
 	FilePath      string    // full path to subagent JSONL file
@@ -20,13 +20,23 @@ type SubagentProcess struct {
 	StartTime     time.Time // first message timestamp
 	EndTime       time.Time // last message timestamp
 	DurationMs    int64
-	Usage         Usage  // aggregated from all AI chunks
+	Usage         Usage  // last AI chunk's context-window snapshot (not a sum)
 	Model         string // model from first AI chunk (e.g. "claude-opus-4-6")
 	Description   string
 	SubagentType  string
 	ParentTaskID  string // tool_use_id of spawning Task call
 	TeamSummary   string // summary attr from first <teammate-message> (team agents only)
 	TeammateColor string // color attr from first <teammate-message> (team agents only)
+}
+
+// isAgentSessionFile reports whether a .jsonl filename is a subagent file
+// rather than a top-level session. Claude Code names subagent files
+// agent-{agentId}.jsonl (dash, see DiscoverSubagents); the underscore prefix
+// is kept from the picker's original filter as a defensive match, since the
+// encoding has varied across Claude Code versions. Shared by session
+// discovery and DiscoverTeamSessions so both skip the same files.
+func isAgentSessionFile(name string) bool {
+	return strings.HasPrefix(name, "agent-") || strings.HasPrefix(name, "agent_")
 }
 
 // DiscoverSubagents finds and parses subagent files for a session.
@@ -96,7 +106,7 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 		}
 
 		startTime, endTime, durationMs := chunkTiming(chunks)
-		usage := aggregateUsage(chunks)
+		usage := lastUsageSnapshot(chunks)
 
 		proc := SubagentProcess{
 			ID:            agentID,
@@ -303,10 +313,10 @@ func extractModel(chunks []Chunk) string {
 	return ""
 }
 
-// aggregateUsage returns the last AI chunk's usage snapshot. Each chunk already
-// holds the last assistant message's context-window snapshot, so the final
-// chunk's snapshot represents the subagent's context state at completion.
-func aggregateUsage(chunks []Chunk) Usage {
+// lastUsageSnapshot returns the last AI chunk's usage snapshot. Each chunk
+// already holds the last assistant message's context-window snapshot, so the
+// final chunk's snapshot represents the subagent's context state at completion.
+func lastUsageSnapshot(chunks []Chunk) Usage {
 	for i := len(chunks) - 1; i >= 0; i-- {
 		if chunks[i].Type == AIChunk && chunks[i].Usage.TotalTokens() > 0 {
 			return chunks[i].Usage
@@ -784,8 +794,8 @@ func DiscoverTeamSessions(sessionPath string, parentChunks []Chunk) ([]SubagentP
 		if name == parentBase {
 			continue
 		}
-		// Skip agent-*.jsonl files (handled by DiscoverSubagents).
-		if strings.HasPrefix(name, "agent-") {
+		// Skip agent-prefixed files (handled by DiscoverSubagents).
+		if isAgentSessionFile(name) {
 			continue
 		}
 
@@ -811,7 +821,7 @@ func DiscoverTeamSessions(sessionPath string, parentChunks []Chunk) ([]SubagentP
 		}
 
 		startTime, endTime, durationMs := chunkTiming(chunks)
-		usage := aggregateUsage(chunks)
+		usage := lastUsageSnapshot(chunks)
 
 		// Reject sessions from a different run: bounding BOTH ends means a
 		// stale file from an earlier run and a reused name from a future run

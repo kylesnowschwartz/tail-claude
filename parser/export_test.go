@@ -3,6 +3,7 @@ package parser
 // Exports for testing
 var ParseTimestamp = parseTimestamp
 var TeamSpecFromInput = teamSpecFromInput
+var IsAgentSessionFile = isAgentSessionFile
 
 // ScanSessionPreview wraps scanSessionMetadata to match the old (preview, turnCount)
 // signature used by external preview tests.
