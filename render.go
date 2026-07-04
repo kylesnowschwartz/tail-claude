@@ -1424,6 +1424,15 @@ func (m model) renderInfoBar() string {
 		leftParts = append(leftParts, StyleDim.Render(m.updateAvailable+" available (--update)"))
 	}
 
+	// Background workflow indicator: agents write outside the parent file,
+	// so without this the session looks idle while a workflow runs.
+	if m.view != viewPicker && m.sessionWorkflow.Active(parser.OngoingStalenessThreshold) {
+		label := fmt.Sprintf("workflow running %s %d agents",
+			Icon.Dot.Render(), m.sessionWorkflow.Agents)
+		leftParts = append(leftParts,
+			lipgloss.NewStyle().Foreground(ColorOngoing).Render(label))
+	}
+
 	// Context token count + help hint (right-aligned).
 	// Only show context usage when viewing a session, not on the picker.
 	var rightParts []string

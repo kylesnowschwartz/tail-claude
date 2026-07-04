@@ -215,7 +215,8 @@ type model struct {
 	watcher         *sessionWatcher
 	tailSub         chan tailUpdateMsg
 	tailErrc        chan error
-	sessionOngoing  bool      // whether the watched session is still in progress
+	sessionOngoing  bool                    // whether the watched session is still in progress
+	sessionWorkflow parser.WorkflowActivity // background Workflow runs (agent count, last write)
 	ongoingGraceSeq int       // sequence counter for grace period timers (stale timers ignored)
 	tickSeq         int       // sequence counter for tick chains (stale ticks from old chains ignored)
 	lastTailUpdate  time.Time // when the last tailUpdateMsg arrived (ongoing staleness failsafe)
@@ -334,6 +335,7 @@ type loadResult struct {
 	ongoing      bool
 	hasTeamTasks bool
 	meta         parser.SessionMeta // cwd, branch, permission mode
+	workflow     parser.WorkflowActivity
 }
 
 // loadSession reads a JSONL session file and converts chunks to display messages.
@@ -376,6 +378,11 @@ func loadSession(path string) (loadResult, error) {
 			}
 		}
 	}
+	// Background workflows keep working after the parent turn "ends".
+	workflow := parser.ScanWorkflowActivity(path)
+	if !ongoing && workflow.Active(parser.OngoingStalenessThreshold) {
+		ongoing = true
+	}
 
 	teams := parser.ReconstructTeams(chunks, allProcs)
 
@@ -388,6 +395,7 @@ func loadSession(path string) (loadResult, error) {
 		ongoing:      ongoing,
 		hasTeamTasks: hasTeamTaskItems(chunks),
 		meta:         parser.ExtractSessionMeta(path),
+		workflow:     workflow,
 	}, nil
 }
 
@@ -409,6 +417,7 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.scroll = 0
 	m.sessionPath = result.path
 	m.sessionOngoing = result.ongoing
+	m.sessionWorkflow = result.workflow
 	m.sessionCwd = result.meta.Cwd
 	m.sessionGitBranch = result.meta.GitBranch
 	m.liveBranch = checkGitBranch(m.gitCwd)
@@ -536,6 +545,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		wasAtEnd := m.view == viewList && m.cursor >= len(m.messages)-1
 		m.messages = msg.messages
 		m.teams = msg.teams
+		m.sessionWorkflow = msg.workflow
 		if msg.permissionMode != "" {
 			m.sessionMode = msg.permissionMode
 		}

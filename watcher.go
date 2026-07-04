@@ -1,7 +1,9 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +26,7 @@ type tailUpdateMsg struct {
 	teams          []parser.TeamSnapshot
 	ongoing        bool   // whether the session appears to still be in progress
 	permissionMode string // last-seen permissionMode from new entries; empty if unchanged
+	workflow       parser.WorkflowActivity
 }
 
 // watcherErrMsg reports errors from the file watcher goroutine.
@@ -59,6 +62,7 @@ type sessionWatcher struct {
 	// Set by run(), used by readAndRebuild to add newly discovered team files.
 	fsWatcher        *fsnotify.Watcher
 	watchedProcPaths map[string]bool // subagent/team file paths already watched
+	watchedWfDirs    map[string]bool // workflow dirs already watched (agents write here, not the parent file)
 }
 
 func newSessionWatcher(path string, initialClassified []parser.ClassifiedMsg, initialOffset int64) *sessionWatcher {
@@ -130,6 +134,8 @@ func (w *sessionWatcher) run() {
 	// Store fsnotify watcher so readAndRebuild can add team session files.
 	w.fsWatcher = watcher
 	w.watchedProcPaths = make(map[string]bool)
+	w.watchedWfDirs = make(map[string]bool)
+	w.watchWorkflowDirs()
 
 	for {
 		select {
@@ -172,6 +178,16 @@ func (w *sessionWatcher) run() {
 				}
 				w.teamDebounce = time.AfterFunc(2*time.Second, w.sendSignal)
 				w.mu.Unlock()
+			} else if w.watchedWfDirs[filepath.Dir(event.Name)] {
+				// Workflow agent activity (transcript writes, new run dirs).
+				// The parent file stays silent during a run, so these events
+				// are what keep the ongoing indicator and agent count live.
+				w.mu.Lock()
+				if w.teamDebounce != nil {
+					w.teamDebounce.Stop()
+				}
+				w.teamDebounce = time.AfterFunc(2*time.Second, w.sendSignal)
+				w.mu.Unlock()
 			}
 
 		case err, ok := <-watcher.Errors:
@@ -187,10 +203,46 @@ func (w *sessionWatcher) run() {
 	}
 }
 
+// watchWorkflowDirs registers fsnotify watches on the session's workflow
+// directories: the workflows root (so new wf_* run dirs surface as Create
+// events) and each run dir (so agent transcript writes surface). Idempotent —
+// already-watched dirs are skipped. Called at watcher start and after each
+// rebuild to pick up runs launched mid-session.
+func (w *sessionWatcher) watchWorkflowDirs() {
+	if w.fsWatcher == nil {
+		return
+	}
+	wfRoot := filepath.Join(strings.TrimSuffix(w.path, ".jsonl"), "subagents", "workflows")
+	dirs := []string{wfRoot}
+	if entries, err := os.ReadDir(wfRoot); err == nil {
+		for _, de := range entries {
+			if de.IsDir() {
+				dirs = append(dirs, filepath.Join(wfRoot, de.Name()))
+			}
+		}
+	}
+	for _, d := range dirs {
+		if !w.watchedWfDirs[d] {
+			if err := w.fsWatcher.Add(d); err == nil {
+				w.watchedWfDirs[d] = true
+			}
+		}
+	}
+}
+
 // readAndRebuild reads any new parent data, rebuilds chunks from all
 // classified messages, discovers subagents, and sends the update.
 // Only called from run() — no synchronization needed on data fields.
 func (w *sessionWatcher) readAndRebuild() {
+	// Staleness guard: Claude Code can rewrite a session file in place
+	// (resume dedupe, sanitization), leaving it shorter than our offset.
+	// Reading from a stale offset would yield garbage mid-line bytes, so
+	// restart from the top and rebuild the classified list from scratch.
+	if info, err := os.Stat(w.path); err == nil && info.Size() < w.offset {
+		w.offset = 0
+		w.allClassified = nil
+	}
+
 	newMsgs, newOffset, err := parser.ReadSessionIncremental(w.path, w.offset)
 	if err != nil {
 		select {
@@ -251,6 +303,14 @@ func (w *sessionWatcher) readAndRebuild() {
 		}
 	}
 
+	// Background workflows: the parent file goes silent while agents write
+	// under subagents/workflows/, so scan there and watch any new run dirs.
+	workflow := parser.ScanWorkflowActivity(w.path)
+	if !ongoing && workflow.Active(parser.OngoingStalenessThreshold) {
+		ongoing = true
+	}
+	w.watchWorkflowDirs()
+
 	teams := parser.ReconstructTeams(chunks, allProcs)
 
 	update := tailUpdateMsg{
@@ -258,6 +318,7 @@ func (w *sessionWatcher) readAndRebuild() {
 		teams:          teams,
 		ongoing:        ongoing,
 		permissionMode: permissionMode,
+		workflow:       workflow,
 	}
 
 	// Non-blocking send: drop stale update if receiver hasn't consumed yet.
