@@ -26,6 +26,10 @@ type debugLogWatcher struct {
 
 	mu       sync.Mutex
 	debounce *time.Timer
+
+	// fsWatcher is created by start() so init failures surface synchronously
+	// at the call site instead of dying silently inside the run() goroutine.
+	fsWatcher *fsnotify.Watcher
 }
 
 func newDebugLogWatcher(path string, initialOffset int64) *debugLogWatcher {
@@ -56,19 +60,29 @@ func (w *debugLogWatcher) sendSignal() {
 	}
 }
 
-// run starts the fsnotify watcher loop. Intended to be called as a goroutine.
+// start creates the fsnotify watcher and registers the debug file.
+// A returned error means run() would never deliver updates; callers should
+// surface it to the user rather than spawning a dead goroutine.
+func (w *debugLogWatcher) start() error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+	if err := watcher.Add(w.path); err != nil {
+		watcher.Close()
+		return err
+	}
+	w.fsWatcher = watcher
+	return nil
+}
+
+// run starts the fsnotify watcher loop. Intended to be called as a goroutine
+// after a successful start().
 func (w *debugLogWatcher) run() {
 	defer close(w.sub)
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return
-	}
+	watcher := w.fsWatcher
 	defer watcher.Close()
-
-	if err := watcher.Add(w.path); err != nil {
-		return
-	}
 
 	for {
 		select {

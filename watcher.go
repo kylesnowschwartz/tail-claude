@@ -38,8 +38,21 @@ type tailUpdateMsg struct {
 
 // watcherErrMsg reports errors from the file watcher goroutine.
 type watcherErrMsg struct {
-	err error
+	// errc identifies the watcher this error came from (stamped by
+	// waitForWatcherErr). An error queued by the old watcher can arrive
+	// after switchSession installs a new one; Update drops mismatches so a
+	// stale fatal error can't mark the new session's watcher as dead.
+	errc  chan error
+	err   error
+	fatal bool // run() exited before its watch loop; tailing will never work
 }
+
+// fatalWatcherErr wraps errors sent before the watch loop started. run()
+// has already returned when one of these arrives, so the session can never
+// receive tail updates — the TUI must stop presenting it as live.
+type fatalWatcherErr struct{ err error }
+
+func (e fatalWatcherErr) Error() string { return e.err.Error() }
 
 // sessionWatcher monitors a JSONL session file for appended lines and pushes
 // rebuilt message lists through a channel. Also watches the project directory
@@ -123,13 +136,13 @@ func (w *sessionWatcher) run() {
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		w.errc <- err
+		w.errc <- fatalWatcherErr{err}
 		return
 	}
 	defer watcher.Close()
 
 	if err := watcher.Add(w.path); err != nil {
-		w.errc <- err
+		w.errc <- fatalWatcherErr{err}
 		return
 	}
 
@@ -342,6 +355,11 @@ func waitForWatcherErr(errc chan error) tea.Cmd {
 		if !ok {
 			return nil
 		}
-		return watcherErrMsg{err: err}
+		msg := watcherErrMsg{errc: errc, err: err}
+		if fe, isFatal := err.(fatalWatcherErr); isFatal {
+			msg.err = fe.err
+			msg.fatal = true
+		}
+		return msg
 	}
 }
