@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -29,11 +30,33 @@ type pickerPreviewLoadedMsg struct {
 // pickerPreviewTickMsg fires after a debounce delay to trigger preview loading.
 type pickerPreviewTickMsg struct{ gen int }
 
+// pickerSearchTickMsg fires after a debounce delay to trigger a content scan.
+type pickerSearchTickMsg struct{ gen int }
+
+// searchDebounceCmd returns a tick that fires after 150ms for search
+// debouncing, so rapid keystrokes don't each spawn a full-corpus scan.
+func searchDebounceCmd(gen int) tea.Cmd {
+	return tea.Tick(150*time.Millisecond, func(time.Time) tea.Msg {
+		return pickerSearchTickMsg{gen: gen}
+	})
+}
+
+// bumpSearchGen invalidates pending and in-flight search work. The atomic
+// mirror is shared with running scan goroutines: a copied gen alone can only
+// discard a stale result after the scan finishes, whereas the mirror lets the
+// scan observe the bump mid-run and bail between files.
+func (m *model) bumpSearchGen() {
+	m.pickerSearchGen++
+	if m.pickerSearchLiveGen != nil {
+		m.pickerSearchLiveGen.Store(int64(m.pickerSearchGen))
+	}
+}
+
 // searchSessionsCmd scans sessions for a case-insensitive query match.
 // Checks metadata first (FirstMessage, Cwd, GitBranch), then falls back to
 // scanning the JSONL file line by line. Returns results preserving the
 // original date-group order.
-func searchSessionsCmd(query string, sessions []parser.SessionInfo, gen int) tea.Cmd {
+func searchSessionsCmd(query string, sessions []parser.SessionInfo, gen int, liveGen *atomic.Int64) tea.Cmd {
 	return func() tea.Msg {
 		if query == "" {
 			return pickerSearchResultMsg{
@@ -46,6 +69,11 @@ func searchSessionsCmd(query string, sessions []parser.SessionInfo, gen int) tea
 		var matched []parser.SessionInfo
 
 		for _, s := range sessions {
+			// Bail between files once a newer generation owns the results;
+			// the discarded partial scan would fail the staleness check anyway.
+			if liveGen != nil && int(liveGen.Load()) != gen {
+				return nil
+			}
 			if matchesSessionMetadata(s, lower) || matchesSessionContent(s.Path, lower) {
 				matched = append(matched, s)
 			}
@@ -216,10 +244,10 @@ func (m model) updatePickerSearchTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	case "backspace":
 		if len(m.pickerSearchQuery) > 0 {
 			m.pickerSearchQuery = m.pickerSearchQuery[:len(m.pickerSearchQuery)-1]
-			m.pickerSearchGen++
+			m.bumpSearchGen()
 			m.pickerCursor = 0
 			m.pickerScroll = 0
-			return m, searchSessionsCmd(m.pickerSearchQuery, m.pickerSessions, m.pickerSearchGen)
+			return m, searchDebounceCmd(m.pickerSearchGen)
 		}
 		// Empty backspace exits search mode.
 		m.pickerSearchMode = false
@@ -238,10 +266,10 @@ func (m model) updatePickerSearchTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	default:
 		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
 			m.pickerSearchQuery += key
-			m.pickerSearchGen++
+			m.bumpSearchGen()
 			m.pickerCursor = 0
 			m.pickerScroll = 0
-			return m, searchSessionsCmd(m.pickerSearchQuery, m.pickerSessions, m.pickerSearchGen)
+			return m, searchDebounceCmd(m.pickerSearchGen)
 		}
 	}
 	return m, nil
@@ -418,6 +446,9 @@ func (m *model) ensureSearchPickerVisible() {
 func (m *model) schedulePreviewLoad() tea.Cmd {
 	s := m.pickerSearchSelectedSession()
 	if s == nil {
+		// Bump the gen so an in-flight load for a previous selection can't
+		// land later and repopulate the pane we just cleared.
+		m.pickerPreviewGen++
 		m.pickerPreviewMessages = nil
 		m.pickerPreviewPath = ""
 		m.pickerPreviewLoading = false
@@ -429,8 +460,10 @@ func (m *model) schedulePreviewLoad() tea.Cmd {
 		return nil
 	}
 
-	// Check cache first.
+	// Check cache first. Bump the gen so an in-flight load for a previously
+	// selected session can't land later and overwrite this cached preview.
 	if msgs, ok := m.lookupPreviewCache(s.Path); ok {
+		m.pickerPreviewGen++
 		m.pickerPreviewMessages = msgs
 		m.pickerPreviewPath = s.Path
 		m.pickerPreviewLoading = false
