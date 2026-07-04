@@ -271,6 +271,144 @@ func TestLayoutListAgreement(t *testing.T) {
 	})
 }
 
+// --- moveListCursor ---------------------------------------------------------
+
+func TestMoveListCursor(t *testing.T) {
+	t.Run("selective re-render matches a full relayout", func(t *testing.T) {
+		m := testModel()
+		m.moveListCursor(1)
+
+		want := testModel()
+		want.cursor = 1
+		want.layoutList()
+
+		if m.cursor != 1 {
+			t.Fatalf("cursor = %d, want 1", m.cursor)
+		}
+		for i := range want.listParts {
+			if m.listParts[i] != want.listParts[i] {
+				t.Errorf("message %d: selective re-render differs from full layoutList", i)
+			}
+		}
+		for i := range want.lineOffsets {
+			if m.lineOffsets[i] != want.lineOffsets[i] {
+				t.Errorf("message %d: lineOffsets = %d, want %d", i, m.lineOffsets[i], want.lineOffsets[i])
+			}
+		}
+		if m.totalRenderedLines != want.totalRenderedLines {
+			t.Errorf("totalRenderedLines = %d, want %d", m.totalRenderedLines, want.totalRenderedLines)
+		}
+	})
+
+	t.Run("out-of-range target is a no-op", func(t *testing.T) {
+		m := testModel()
+		m.moveListCursor(len(m.messages))
+		if m.cursor != 0 {
+			t.Errorf("cursor = %d, want 0 (unchanged)", m.cursor)
+		}
+		m.moveListCursor(-1)
+		if m.cursor != 0 {
+			t.Errorf("cursor = %d, want 0 (unchanged)", m.cursor)
+		}
+	})
+
+	t.Run("missing layout caches fall back to full relayout", func(t *testing.T) {
+		m := testModel()
+		m.listParts = nil // simulate a model whose layout never ran
+		m.moveListCursor(1)
+		if len(m.listParts) != len(m.messages) {
+			t.Errorf("listParts length = %d, want %d (full relayout)", len(m.listParts), len(m.messages))
+		}
+	})
+
+	t.Run("stale layout falls back to full relayout", func(t *testing.T) {
+		m := testModel()
+		// Same-length content change while another view was active: cache
+		// lengths still match, so only the stale flag reveals the drift.
+		m.messages[2].content = "changed while in detail view"
+		m.listLayoutStale = true
+		m.moveListCursor(1)
+
+		want := testModel()
+		want.messages[2].content = "changed while in detail view"
+		want.cursor = 1
+		want.layoutList()
+		if m.listParts[2] != want.listParts[2] {
+			t.Error("cursor move on a stale layout kept the stale render for an unselected row")
+		}
+		if m.listLayoutStale {
+			t.Error("listLayoutStale = true, want false after relayout")
+		}
+	})
+}
+
+// --- detail render cache -----------------------------------------------------
+
+func TestDetailRenderCache(t *testing.T) {
+	newDetail := func(items []displayItem) model {
+		m := initialModel([]message{claudeMsg(func(msg *message) {
+			msg.items = items
+		})}, true)
+		m.width = 120
+		m.height = 40
+		m.view = viewDetail
+		return m
+	}
+	plainItems := []displayItem{
+		{itemType: parser.ItemThinking, text: "thinking hard"},
+		{itemType: parser.ItemToolCall, toolName: "Read", toolSummary: "file.go"},
+	}
+
+	t.Run("computeDetailMaxScroll memoizes the render", func(t *testing.T) {
+		m := newDetail(plainItems)
+		m.computeDetailMaxScroll()
+		if !m.detailCacheValid {
+			t.Fatal("detailCacheValid = false, want true after computeDetailMaxScroll")
+		}
+		want := m.renderDetailContent(m.currentDetailMsg(), m.clampWidth())
+		if m.detailCache.content != want.content {
+			t.Error("cached content differs from a fresh renderDetailContent")
+		}
+	})
+
+	t.Run("matching key serves the cache", func(t *testing.T) {
+		m := newDetail(plainItems)
+		m.computeDetailMaxScroll()
+		msg := m.currentDetailMsg()
+		if got := m.detailContent(msg, m.clampWidth()); got != m.detailCache {
+			t.Error("detailContent did not serve the memoized render on a key match")
+		}
+	})
+
+	t.Run("cursor jump without recompute is not served stale", func(t *testing.T) {
+		m := newDetail(plainItems)
+		m.computeDetailMaxScroll() // cache rendered with detailCursor = 0
+		m.detailCursor = 1         // "g"-style jump that skips the recompute
+
+		msg := m.currentDetailMsg()
+		got := m.detailContent(msg, m.clampWidth())
+		want := m.renderDetailContent(msg, m.clampWidth())
+		if got != want {
+			t.Error("detailContent served the stale cursor-0 cache after a cursor jump")
+		}
+	})
+
+	t.Run("spinner frame advance is not served stale", func(t *testing.T) {
+		m := newDetail([]displayItem{
+			{itemType: parser.ItemSubagent, subagentType: "Explore", subagentOngoing: true},
+		})
+		m.computeDetailMaxScroll()
+		m.animFrame++ // animation tick between recomputes
+
+		msg := m.currentDetailMsg()
+		got := m.detailContent(msg, m.clampWidth())
+		want := m.renderDetailContent(msg, m.clampWidth())
+		if got != want {
+			t.Error("detailContent served a stale spinner frame from the cache")
+		}
+	})
+}
+
 // --- contentHeight -----------------------------------------------------------
 
 func TestContentHeight(t *testing.T) {

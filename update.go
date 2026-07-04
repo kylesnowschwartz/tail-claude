@@ -27,16 +27,10 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q", "esc", "escape", "backspace":
 		return m, loadPickerSessionsCmd(m.projectDirs, m.sessionCache)
 	case "j":
-		if m.cursor < len(m.messages)-1 {
-			m.cursor++
-		}
-		m.layoutList()
+		m.moveListCursor(m.cursor + 1)
 		m.ensureCursorVisible()
 	case "k":
-		if m.cursor > 0 {
-			m.cursor--
-		}
-		m.layoutList()
+		m.moveListCursor(m.cursor - 1)
 		m.ensureCursorVisible()
 	case "down":
 		m.scroll += 3
@@ -48,14 +42,12 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "G":
 		if len(m.messages) > 0 {
-			m.cursor = len(m.messages) - 1
-			m.layoutList()
+			m.moveListCursor(len(m.messages) - 1)
 			m.ensureCursorVisible()
 		}
 	case "g":
-		m.cursor = 0
+		m.moveListCursor(0)
 		m.scroll = 0
-		m.layoutList()
 	case "tab":
 		// Toggle expand/collapse for Claude and User messages
 		if m.cursor < len(m.messages) {
