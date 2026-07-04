@@ -32,6 +32,15 @@ func resolveVersion() string {
 	return "dev"
 }
 
+// isDevBuild reports whether this binary was built locally rather than
+// installed from a release. Release versions come from the module proxy
+// (vX.Y.Z); local builds resolve to "dev" or carry a justfile-stamped
+// "-dev-<sha>" suffix.
+func isDevBuild() bool {
+	v := resolveVersion()
+	return v == "dev" || strings.Contains(v, "-dev")
+}
+
 // Message roles
 const (
 	RoleClaude  = "claude"

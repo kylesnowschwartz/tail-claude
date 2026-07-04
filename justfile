@@ -1,8 +1,8 @@
 # tail-claude development commands
 
-# Build the binary
+# Build the binary (stamped -dev-<sha> so the TUI shows the red dev-mode label)
 build:
-    go build -ldflags "-X main.version=$(cat VERSION)" -o ./tail-claude .
+    go build -ldflags "-X main.version=$(cat VERSION)-dev-$(git rev-parse --short HEAD)" -o ./tail-claude .
 
 # Build, vet, and static analysis
 check:
@@ -34,7 +34,7 @@ run-file path: build
 
 # Build and run with race detector
 race:
-    go build -race -ldflags "-X main.version=$(cat VERSION)" -o ./tail-claude . && ./tail-claude
+    go build -race -ldflags "-X main.version=$(cat VERSION)-dev-$(git rev-parse --short HEAD)" -o ./tail-claude . && ./tail-claude
 
 # Update to the latest released version via go install
 update:

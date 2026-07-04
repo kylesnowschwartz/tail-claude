@@ -1367,8 +1367,11 @@ func (m model) renderInfoBar() string {
 
 	sep := " " + Icon.Dot.Render() + " "
 
-	// Build left metadata parts (path, branch).
+	// Build left metadata parts (dev label, path, branch).
 	var leftParts []string
+	if isDevBuild() {
+		leftParts = append(leftParts, StyleErrorBold.Render("dev-mode"))
+	}
 	if proj := shortPath(m.sessionCwd, m.sessionGitBranch); proj != "" {
 		leftParts = append(leftParts, StyleSecondary.Render(proj))
 	}

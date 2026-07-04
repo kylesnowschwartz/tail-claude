@@ -114,3 +114,23 @@ func TestBuildSessionState_Ongoing(t *testing.T) {
 		}
 	})
 }
+
+func TestIsDevBuild(t *testing.T) {
+	orig := version
+	defer func() { version = orig }()
+
+	cases := []struct {
+		version string
+		want    bool
+	}{
+		{"v0.12.0", false},
+		{"v0.12.0-dev-a17b50a", true},
+		{"dev", true},
+	}
+	for _, c := range cases {
+		version = c.version
+		if got := isDevBuild(); got != c.want {
+			t.Errorf("isDevBuild() with version %q = %v, want %v", c.version, got, c.want)
+		}
+	}
+}
