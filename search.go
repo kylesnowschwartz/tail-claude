@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/kylesnowschwartz/tail-claude/parser"
 
@@ -678,29 +679,63 @@ func (m model) renderPreviewPane(width, maxLines int) []string {
 // highlight style. Operates on plain text only (ANSI sequences will break
 // matching — call before styling the string).
 func highlightQuery(text, query string) string {
+	return highlightMatches(text, query, func(s string) string { return s }, StyleSearchHighlight)
+}
+
+// highlightMatches renders every case-insensitive occurrence of query in hl
+// and each unmatched segment through base. Matching runs on rune indices, not
+// byte offsets: lowercasing can change a rune's byte length (U+0130 "İ" is
+// 2 bytes but lowers to 1-byte "i"), so offsets found in the lowered string
+// can't safely slice the original.
+func highlightMatches(text, query string, base func(string) string, hl lipgloss.Style) string {
 	if query == "" {
-		return text
+		return base(text)
 	}
-	lower := strings.ToLower(text)
-	lowerQ := strings.ToLower(query)
-	qLen := len(lowerQ)
+	runes := []rune(text)
+	// unicode.ToLower is a 1:1 rune mapping (same as strings.ToLower), so
+	// lower and runes stay index-aligned.
+	lower := make([]rune, len(runes))
+	for i, r := range runes {
+		lower[i] = unicode.ToLower(r)
+	}
+	lowerQ := []rune(strings.ToLower(query))
 
 	var b strings.Builder
-	b.Grow(len(text) + len(text)/4) // rough estimate
+	b.Grow(len(text) + len(text)/4) // rough estimate incl. styling overhead
 	pos := 0
 	for {
-		idx := strings.Index(lower[pos:], lowerQ)
+		idx := indexRunes(lower[pos:], lowerQ)
 		if idx < 0 {
-			b.WriteString(text[pos:])
 			break
 		}
-		// Write text before match.
-		b.WriteString(text[pos : pos+idx])
-		// Write highlighted match (using the original case from text).
-		b.WriteString(StyleSearchHighlight.Render(text[pos+idx : pos+idx+qLen]))
-		pos += idx + qLen
+		if idx > 0 {
+			b.WriteString(base(string(runes[pos : pos+idx])))
+		}
+		// Highlight the match using the original case from text.
+		b.WriteString(hl.Render(string(runes[pos+idx : pos+idx+len(lowerQ)])))
+		pos += idx + len(lowerQ)
+	}
+	if pos < len(runes) {
+		b.WriteString(base(string(runes[pos:])))
 	}
 	return b.String()
+}
+
+// indexRunes returns the rune index of the first occurrence of q in s, or -1.
+func indexRunes(s, q []rune) int {
+	for i := 0; i+len(q) <= len(s); i++ {
+		match := true
+		for j := range q {
+			if s[i+j] != q[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+	return -1
 }
 
 // padLines pads or truncates a slice of lines to exactly n lines.
