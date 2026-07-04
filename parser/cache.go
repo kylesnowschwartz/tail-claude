@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"sort"
 	"sync"
 	"time"
 )
@@ -50,21 +49,7 @@ func (c *SessionCache) DiscoverProjectSessions(projectDir string) ([]SessionInfo
 }
 
 // DiscoverAllProjectSessions finds sessions across multiple project directories,
-// using cached metadata for unchanged files. Same merge-and-sort logic as the
-// standalone DiscoverAllProjectSessions.
+// using cached metadata for unchanged files.
 func (c *SessionCache) DiscoverAllProjectSessions(projectDirs []string) ([]SessionInfo, error) {
-	var all []SessionInfo
-	for _, dir := range projectDirs {
-		sessions, err := c.DiscoverProjectSessions(dir)
-		if err != nil {
-			continue
-		}
-		all = append(all, sessions...)
-	}
-
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].ModTime.After(all[j].ModTime)
-	})
-
-	return all, nil
+	return discoverAllSessions(projectDirs, c.DiscoverProjectSessions)
 }

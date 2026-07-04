@@ -70,6 +70,16 @@ func (u Usage) TotalTokens() int {
 	return u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheCreationTokens
 }
 
+// ContextTokens returns the full context-window snapshot reported by a single
+// usage record: input_tokens + cache_read + cache_creation. Under prompt
+// caching, input_tokens is only the new non-cached portion, so the window
+// size is the sum. Excludes output tokens, which aren't part of the window
+// the next call sees. Single home for the formula — all context-usage
+// displays must route through here so a new cache-token field can't drift.
+func (u Usage) ContextTokens() int {
+	return u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens
+}
+
 // SystemMsg represents command output (slash command results, bash mode, task notifications).
 type SystemMsg struct {
 	Timestamp time.Time

@@ -104,8 +104,7 @@ func IsOngoing(chunks []Chunk) bool {
 			// Claude mid-thought — AI activity, not silence.
 			if chunk.ThinkingCount > 0 {
 				hasItems = true
-				activities = append(activities, activity{typ: actThinking, index: actIdx})
-				actIdx++
+				activities = append(activities, actThinking)
 			}
 			continue
 		}

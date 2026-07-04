@@ -47,13 +47,6 @@ type ContextDelta struct {
 	LastUsagePct     float64
 }
 
-// contextSnapshot returns the full context-window size reported by a single
-// usage record: input_tokens + cache_read + cache_creation. Excludes output
-// tokens, which aren't part of the window the next call sees.
-func contextSnapshot(u Usage) int {
-	return u.InputTokens + u.CacheReadTokens + u.CacheCreationTokens
-}
-
 // ComputeContextDelta returns the first/last context snapshot across the
 // given cycles, expressed as a delta and as window percentages. Returns nil
 // if no cycle reports a non-zero snapshot.
@@ -63,7 +56,7 @@ func contextSnapshot(u Usage) int {
 func ComputeContextDelta(cycles []InferenceCycle) *ContextDelta {
 	first, last := -1, -1
 	for i, c := range cycles {
-		if contextSnapshot(c.Usage) > 0 {
+		if c.Usage.ContextTokens() > 0 {
 			if first == -1 {
 				first = i
 			}
@@ -75,8 +68,8 @@ func ComputeContextDelta(cycles []InferenceCycle) *ContextDelta {
 	}
 
 	window := ContextWindow(cycles[first].Model)
-	fIn := contextSnapshot(cycles[first].Usage)
-	lIn := contextSnapshot(cycles[last].Usage)
+	fIn := cycles[first].Usage.ContextTokens()
+	lIn := cycles[last].Usage.ContextTokens()
 
 	delta := max(lIn-fIn, 0)
 

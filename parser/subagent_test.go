@@ -1207,3 +1207,66 @@ func TestTeamSessionDiscoveryAndLinking(t *testing.T) {
 		}
 	}
 }
+
+func TestTeamSpecFromInput(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantTeam  string
+		wantAgent string
+		wantOK    bool
+	}{
+		{
+			name:      "both keys with values",
+			input:     `{"team_name":"analysis","name":"planner","prompt":"do work"}`,
+			wantTeam:  "analysis",
+			wantAgent: "planner",
+			wantOK:    true,
+		},
+		{
+			name:   "missing name key",
+			input:  `{"team_name":"analysis"}`,
+			wantOK: false,
+		},
+		{
+			name:   "missing team_name key",
+			input:  `{"name":"planner"}`,
+			wantOK: false,
+		},
+		{
+			// ok reports key presence (IsTeamTask semantics), not value
+			// validity — callers must check the strings themselves.
+			name:      "keys present but values empty",
+			input:     `{"team_name":"","name":""}`,
+			wantTeam:  "",
+			wantAgent: "",
+			wantOK:    true,
+		},
+		{
+			name:      "keys present but non-string values",
+			input:     `{"team_name":42,"name":true}`,
+			wantTeam:  "",
+			wantAgent: "",
+			wantOK:    true,
+		},
+		{
+			name:   "empty input",
+			input:  "",
+			wantOK: false,
+		},
+		{
+			name:   "malformed JSON",
+			input:  `{not valid`,
+			wantOK: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			team, agent, ok := parser.TeamSpecFromInput(json.RawMessage(tt.input))
+			if team != tt.wantTeam || agent != tt.wantAgent || ok != tt.wantOK {
+				t.Errorf("teamSpecFromInput(%s) = (%q, %q, %v), want (%q, %q, %v)",
+					tt.input, team, agent, ok, tt.wantTeam, tt.wantAgent, tt.wantOK)
+			}
+		})
+	}
+}

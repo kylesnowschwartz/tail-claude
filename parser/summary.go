@@ -170,30 +170,19 @@ func summaryGlob(f map[string]json.RawMessage) string {
 }
 
 func summaryTask(f map[string]json.RawMessage) string {
-	desc := getString(f, "description")
-	if desc == "" {
-		desc = getString(f, "prompt")
-	}
-	if desc == "" {
-		desc = getString(f, "args") // Skill tool
-	}
-	subType := getString(f, "subagentType")
-	if subType == "" {
-		subType = getString(f, "subagent_type")
-	}
-	if subType == "" {
-		subType = getString(f, "skill") // Skill tool
-	}
+	// Build from extractSubagentInfo so the one-line summary and the
+	// DisplayItem subagent fields decode Task input identically.
+	info := extractSubagentInfo(f)
 
 	typePrefix := ""
-	if subType != "" {
-		typePrefix = subType + " - "
+	if info.Type != "" {
+		typePrefix = info.Type + " - "
 	}
-	if desc != "" {
-		return typePrefix + Truncate(desc, 40)
+	if info.Description != "" {
+		return typePrefix + Truncate(info.Description, 40)
 	}
-	if subType != "" {
-		return subType
+	if info.Type != "" {
+		return info.Type
 	}
 	return "Task"
 }

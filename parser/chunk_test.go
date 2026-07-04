@@ -551,6 +551,38 @@ func TestBuildChunks_Items_TaskToolPromptFallback(t *testing.T) {
 	}
 }
 
+func TestBuildChunks_Items_TaskToolCamelCaseSubagentType(t *testing.T) {
+	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	// Some sessions carry camelCase "subagentType" instead of snake_case.
+	taskInput := json.RawMessage(`{"subagentType":"research","description":"Survey the docs"}`)
+
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: t0,
+			Model:     "claude-opus-4-6",
+			ToolCalls: []parser.ToolCall{{ID: "call_1", Name: "Task"}},
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "call_1", ToolName: "Task", ToolInput: taskInput},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	items := chunks[0].Items
+	if len(items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(items))
+	}
+
+	item := items[0]
+	if item.SubagentType != "research" {
+		t.Errorf("SubagentType = %q, want research", item.SubagentType)
+	}
+	// The summary prefix must agree with SubagentType — both decode
+	// through extractSubagentInfo.
+	if item.ToolSummary != "research - Survey the docs" {
+		t.Errorf("ToolSummary = %q, want 'research - Survey the docs'", item.ToolSummary)
+	}
+}
+
 func TestBuildChunks_Items_TaskToolWithResult(t *testing.T) {
 	t0 := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 	t1 := t0.Add(5 * time.Second)
