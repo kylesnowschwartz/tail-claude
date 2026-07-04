@@ -80,6 +80,46 @@ func TestDiscoverSubagents_ComputesTiming(t *testing.T) {
 	}
 }
 
+func TestDiscoverSubagents_DurationSpansFinalChunk(t *testing.T) {
+	// Consecutive assistant entries merge into one AI chunk whose Timestamp
+	// is the FIRST message. Duration must extend to the chunk's last message,
+	// not stop at time-to-first-token.
+	tmpDir := t.TempDir()
+	sessionPath := filepath.Join(tmpDir, "sess.jsonl")
+	if err := os.WriteFile(sessionPath, []byte(`{"uuid":"x","type":"user","timestamp":"2025-06-15T10:00:00Z","message":{"role":"user","content":"hi"}}`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	subDir := filepath.Join(tmpDir, "sess", "subagents")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	agent := strings.Join([]string{
+		`{"uuid":"u1","isSidechain":true,"type":"user","agentId":"longrun1","timestamp":"2025-06-15T10:00:00Z","message":{"role":"user","content":"do a long task"}}`,
+		`{"uuid":"a1","parentUuid":"u1","isSidechain":true,"type":"assistant","agentId":"longrun1","timestamp":"2025-06-15T10:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"working..."}],"model":"claude-sonnet-4-20250514"}}`,
+		`{"uuid":"a2","parentUuid":"a1","isSidechain":true,"type":"assistant","agentId":"longrun1","timestamp":"2025-06-15T10:05:00Z","message":{"role":"assistant","content":[{"type":"text","text":"done"}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn"}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(subDir, "agent-longrun1.jsonl"), []byte(agent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	procs, err := parser.DiscoverSubagents(sessionPath)
+	if err != nil {
+		t.Fatalf("DiscoverSubagents error: %v", err)
+	}
+	if len(procs) != 1 {
+		t.Fatalf("got %d subagents, want 1", len(procs))
+	}
+
+	p := procs[0]
+	wantEnd := time.Date(2025, 6, 15, 10, 5, 0, 0, time.UTC)
+	if !p.EndTime.Equal(wantEnd) {
+		t.Errorf("EndTime = %v, want %v", p.EndTime, wantEnd)
+	}
+	if want := int64(5 * 60 * 1000); p.DurationMs != want {
+		t.Errorf("DurationMs = %d, want %d", p.DurationMs, want)
+	}
+}
+
 func TestDiscoverSubagents_AggregatesUsage(t *testing.T) {
 	sessionPath := filepath.Join("testdata", "test-session.jsonl")
 
