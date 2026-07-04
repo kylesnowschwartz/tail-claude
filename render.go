@@ -1046,41 +1046,24 @@ func (m model) viewDebugLog() string {
 		}).assemble()
 	}
 
-	// Render all visible lines.
-	var lines []string
-	for i, entry := range m.debugFiltered {
-		isCursor := i == m.debugCursor
-		lines = append(lines, m.renderDebugEntry(entry, i, isCursor, width))
-		if m.debugExpanded[i] && entry.HasExtra() {
-			// Expanded multi-line content, indented.
-			extraLines := strings.Split(entry.Extra, "\n")
-			for _, el := range extraLines {
-				lines = append(lines, "  "+StyleDim.Render(el))
-			}
-		}
-	}
-
-	content := strings.Join(lines, "\n")
-	allLines := strings.Split(content, "\n")
-	totalLines := len(allLines)
-
 	viewHeight := m.contentHeight(0, filterPromptHeight)
 
-	// Apply scroll offset.
+	// Clamp scroll using entry metadata (each collapsed entry is one line,
+	// expanded extras via ExtraLineCount) so nothing is rendered just to
+	// count lines.
 	scroll := m.debugScroll
-	maxScroll := totalLines - viewHeight
+	maxScroll := m.debugTotalLines() - viewHeight
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
 	if scroll > maxScroll {
 		scroll = maxScroll
 	}
-	if scroll > 0 && scroll < totalLines {
-		allLines = allLines[scroll:]
+	if scroll < 0 {
+		scroll = 0
 	}
-	if len(allLines) > viewHeight {
-		allLines = allLines[:viewHeight]
-	}
+
+	allLines := m.debugVisibleLines(scroll, viewHeight, width)
 
 	var middle string
 	if m.debugFilterMode {
@@ -1095,6 +1078,47 @@ func (m model) viewDebugLog() string {
 		width:   m.width,
 		cw:      width,
 	}).assemble()
+}
+
+// debugVisibleLines renders only the debug entries intersecting the
+// [scroll, scroll+viewHeight) line window. Line offsets are computed from
+// entry metadata, so off-screen entries are never rendered -- on large
+// --debug logs a full render per keypress is prohibitively slow.
+func (m model) debugVisibleLines(scroll, viewHeight, width int) []string {
+	windowEnd := scroll + viewHeight
+	lines := make([]string, 0, max(viewHeight, 0))
+	lineNo := 0
+	for i, entry := range m.debugFiltered {
+		expanded := m.debugExpanded[i] && entry.HasExtra()
+		entryLines := 1
+		if expanded {
+			entryLines += entry.ExtraLineCount()
+		}
+		if lineNo+entryLines <= scroll {
+			lineNo += entryLines
+			continue
+		}
+		if lineNo >= windowEnd {
+			break
+		}
+		if lineNo >= scroll {
+			lines = append(lines, m.renderDebugEntry(entry, i, i == m.debugCursor, width))
+		}
+		lineNo++
+		if expanded {
+			// Expanded multi-line content, indented.
+			for _, el := range strings.Split(entry.Extra, "\n") {
+				if lineNo >= windowEnd {
+					break
+				}
+				if lineNo >= scroll {
+					lines = append(lines, "  "+StyleDim.Render(el))
+				}
+				lineNo++
+			}
+		}
+	}
+	return lines
 }
 
 // renderDebugFooter builds the footer for the debug view, including
