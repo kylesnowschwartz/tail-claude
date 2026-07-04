@@ -201,6 +201,40 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 		return nil, false
 	}
 
+	// 2. AI message: assistant responses. Handled before the user-type checks
+	// below so the content array — the bulk of a session's bytes (thinking
+	// blocks, tool inputs) — is JSON-decoded exactly once, by
+	// extractAssistantDetails; display text is derived from those blocks
+	// instead of re-decoding via ExtractText.
+	if e.Type == "assistant" {
+		thinking, toolCalls, blocks := extractAssistantDetails(e.Message.Content)
+		stopReason := ""
+		if e.Message.StopReason != nil {
+			stopReason = *e.Message.StopReason
+		}
+		// Context-window fields (input + cache) come from the last iteration
+		// when the usage carries an iterations array — the top-level counts on
+		// multi-iteration messages are a merge across cycles and overstate the
+		// live window. OutputTokens stays top-level: it's the message's total
+		// output, not a window snapshot.
+		ctx := e.Message.Usage.ContextUsage()
+		return AIMsg{
+			Timestamp:     ts,
+			Model:         e.Message.Model,
+			Text:          SanitizeContent(textFromBlocks(blocks, e.Message.Content)),
+			ThinkingCount: thinking,
+			ToolCalls:     toolCalls,
+			Blocks:        blocks,
+			Usage: Usage{
+				InputTokens:         ctx.InputTokens,
+				OutputTokens:        e.Message.Usage.OutputTokens,
+				CacheReadTokens:     ctx.CacheReadInputTokens,
+				CacheCreationTokens: ctx.CacheCreationInputTokens,
+			},
+			StopReason: stopReason,
+		}, true
+	}
+
 	// Get string content for user-type checks.
 	contentStr := ExtractText(e.Message.Content)
 
@@ -234,7 +268,7 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 		}
 	}
 
-	// 2. System message: user entry starting with command output tag.
+	// 3. System message: user entry starting with command output tag.
 	if e.Type == "user" {
 		trimmed := strings.TrimSpace(contentStr)
 		if strings.HasPrefix(trimmed, localCommandStdoutTag) || strings.HasPrefix(trimmed, localCommandStderrTag) {
@@ -284,7 +318,7 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 		}
 	}
 
-	// 3. User message: type=user, not isMeta, has real content, not system output.
+	// 4. User message: type=user, not isMeta, has real content, not system output.
 	if e.Type == "user" && !e.IsMeta {
 		trimmed := strings.TrimSpace(contentStr)
 
@@ -306,46 +340,7 @@ func Classify(e Entry) (ClassifiedMsg, bool) {
 		}
 	}
 
-	// 4. AI message: everything else (assistant messages, internal user messages with tool results).
-	if e.Type == "assistant" {
-		thinking, toolCalls, blocks := extractAssistantDetails(e.Message.Content)
-		stopReason := ""
-		if e.Message.StopReason != nil {
-			stopReason = *e.Message.StopReason
-		}
-		// Context-window fields (input + cache) come from the last iteration
-		// when the usage carries an iterations array — the top-level counts on
-		// multi-iteration messages are a merge across cycles and overstate the
-		// live window. OutputTokens stays top-level: it's the message's total
-		// output, not a window snapshot.
-		ctx := e.Message.Usage.ContextUsage()
-		return AIMsg{
-			Timestamp:     ts,
-			Model:         e.Message.Model,
-			Text:          SanitizeContent(ExtractText(e.Message.Content)),
-			ThinkingCount: thinking,
-			ToolCalls:     toolCalls,
-			Blocks:        blocks,
-			Usage: Usage{
-				InputTokens:         ctx.InputTokens,
-				OutputTokens:        e.Message.Usage.OutputTokens,
-				CacheReadTokens:     ctx.CacheReadInputTokens,
-				CacheCreationTokens: ctx.CacheCreationInputTokens,
-			},
-			StopReason: stopReason,
-		}, true
-	}
-
-	// Only user entries may fall through to the meta-AIMsg fallback. Claude
-	// Code keeps adding uuid-bearing internal entry types (last-prompt carries
-	// a leafUuid today); without this gate each one would surface as a phantom
-	// empty AI turn. Unknown non-user types drop — same invariant as unknown
-	// attachment subtypes.
-	if e.Type != "user" {
-		return nil, false
-	}
-
-	// Fallback: remaining user messages -> AI message.
+	// 5. Fallback: remaining user messages -> AI message.
 	// Covers both isMeta=true entries (slash commands etc.) and tool_result
 	// entries where isMeta is null in the JSONL. extractMetaBlocks handles both:
 	// if the content has tool_result blocks it extracts them; otherwise it returns
@@ -548,6 +543,24 @@ func extractAssistantDetails(raw json.RawMessage) (int, []ToolCall, []ContentBlo
 		}
 	}
 	return thinking, calls, contentBlocks
+}
+
+// textFromBlocks joins the text blocks already decoded by
+// extractAssistantDetails, mirroring ExtractText's join semantics so the
+// content array isn't JSON-decoded a second time just for display text.
+// Falls back to ExtractText when there are no decoded blocks (plain string
+// content, empty array, or unparseable content).
+func textFromBlocks(blocks []ContentBlock, raw json.RawMessage) string {
+	if blocks == nil {
+		return ExtractText(raw)
+	}
+	var parts []string
+	for _, b := range blocks {
+		if b.Type == "text" && b.Text != "" {
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // extractMetaBlocks parses isMeta user content (tool results) into ContentBlocks.

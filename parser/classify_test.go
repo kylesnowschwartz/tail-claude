@@ -108,6 +108,47 @@ func TestClassify_AssistantMessage(t *testing.T) {
 	}
 }
 
+func TestClassify_AssistantMultipleTextBlocks(t *testing.T) {
+	// Text must be derived from the decoded blocks with the same join
+	// semantics as ExtractText: text blocks joined by newline, empty and
+	// non-text blocks skipped.
+	content := json.RawMessage(`[
+		{"type":"text","text":"First part."},
+		{"type":"thinking","thinking":"hidden"},
+		{"type":"text","text":""},
+		{"type":"text","text":"Second part."}
+	]`)
+	e := makeEntry("assistant", "a1", "2025-01-15T10:00:00Z", content, withModel("claude-opus-4-6"))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed for assistant message")
+	}
+	ai := msg.(parser.AIMsg)
+	if want := "First part.\nSecond part."; ai.Text != want {
+		t.Errorf("Text = %q, want %q", ai.Text, want)
+	}
+}
+
+func TestClassify_AssistantStringContent(t *testing.T) {
+	// Rare shape: assistant content as a plain JSON string rather than a
+	// block array. Must still surface as Text via the ExtractText fallback.
+	content := json.RawMessage(`"plain string answer"`)
+	e := makeEntry("assistant", "a1", "2025-01-15T10:00:00Z", content, withModel("claude-opus-4-6"))
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed for assistant message")
+	}
+	ai := msg.(parser.AIMsg)
+	if ai.Text != "plain string answer" {
+		t.Errorf("Text = %q, want %q", ai.Text, "plain string answer")
+	}
+	if ai.Blocks != nil {
+		t.Errorf("Blocks = %v, want nil for string content", ai.Blocks)
+	}
+}
+
 func TestClassify_SystemMessage(t *testing.T) {
 	content := json.RawMessage(`"<local-command-stdout>Hello from command</local-command-stdout>"`)
 	e := makeEntry("user", "s1", "2025-01-15T10:00:06.000Z", content)
