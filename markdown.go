@@ -10,15 +10,17 @@ import (
 	"golang.org/x/term"
 )
 
-// mdRenderer caches a glamour terminal renderer at a specific width.
-// Recreates the renderer when the width changes.
+// mdRenderer caches glamour terminal renderers keyed by wrap width. A render
+// pass mixes several widths (Claude cards, user bubbles, detail insets), so a
+// single-width cache would rebuild the goldmark pipeline on nearly every
+// message; the map keeps one renderer per width instead. Only a handful of
+// widths exist per terminal size, and reset() on resize keeps the map bounded.
 //
 // hasDarkBg is detected once at construction time (before Bubble Tea takes over
 // the terminal) because termenv.HasDarkBackground() queries the terminal via
 // OSC 11, which can fail or default to "dark" once alt-screen is active.
 type mdRenderer struct {
-	renderer  *glamour.TermRenderer
-	width     int
+	renderers map[int]*glamour.TermRenderer
 	hasDarkBg bool
 }
 
@@ -27,8 +29,15 @@ type mdRenderer struct {
 // detection at a single point rather than scattered across packages.
 func newMdRenderer(hasDarkBg bool) *mdRenderer {
 	return &mdRenderer{
+		renderers: make(map[int]*glamour.TermRenderer),
 		hasDarkBg: hasDarkBg,
 	}
+}
+
+// reset drops all cached renderers. Called on terminal resize so widths from
+// the old terminal size don't accumulate.
+func (r *mdRenderer) reset() {
+	clear(r.renderers)
 }
 
 // glamourStyle returns the glamour style config matching the pre-detected
@@ -59,23 +68,25 @@ func (r *mdRenderer) glamourStyle() ansi.StyleConfig {
 func uintPtr(v uint) *uint { return &v }
 
 // renderMarkdown renders markdown content for terminal display.
-// Returns the original content on error. Recreates the renderer if width changed.
+// Returns the original content on error. Reuses the cached renderer for the
+// given width, constructing one on first use.
 func (r *mdRenderer) renderMarkdown(content string, width int) string {
 	if width <= 0 {
 		return content
 	}
-	if r.renderer == nil || r.width != width {
-		renderer, err := glamour.NewTermRenderer(
+	renderer, ok := r.renderers[width]
+	if !ok {
+		var err error
+		renderer, err = glamour.NewTermRenderer(
 			glamour.WithStyles(r.glamourStyle()),
 			glamour.WithWordWrap(width),
 		)
 		if err != nil {
 			return content
 		}
-		r.renderer = renderer
-		r.width = width
+		r.renderers[width] = renderer
 	}
-	out, err := r.renderer.Render(content)
+	out, err := renderer.Render(content)
 	if err != nil {
 		return content
 	}
