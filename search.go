@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -81,32 +80,33 @@ func matchesSessionContent(path, lowerQuery string) bool {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	// Allow up to 1MB per line (JSONL lines can be large).
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
+	found := false
+	// parser.ScanLines skips oversized lines instead of aborting the scan,
+	// so one huge line (e.g. pasted image data) can't hide later matches.
+	// A mid-file read error just means we searched what we could.
+	_ = parser.ScanLines(f, func(line string) bool {
 		// Only scan conversation messages, not system/meta/snapshot entries.
-		// Checking for type prefixes avoids parsing JSON on every line.
+		// Checking for type markers avoids parsing JSON on every line.
 		if !isConversationLine(line) {
-			continue
-		}
-		if strings.Contains(strings.ToLower(line), lowerQuery) {
 			return true
 		}
-	}
-	return false
+		if strings.Contains(strings.ToLower(line), lowerQuery) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // isConversationLine returns true if the JSONL line is a user or assistant
 // message (the actual conversation content worth searching).
 func isConversationLine(line string) bool {
-	// Fast prefix check: JSONL lines start with {"type":"...
-	// User messages: {"type":"user"
-	// Assistant messages: {"type":"assistant"
-	return strings.Contains(line[:min(30, len(line))], `"type":"user"`) ||
-		strings.Contains(line[:min(35, len(line))], `"type":"assistant"`)
+	// Match anywhere in the line: current sessions put the type field ~100+
+	// bytes in (after parentUuid, isSidechain, ...), older sessions order
+	// fields differently, so a fixed prefix window misses both.
+	return strings.Contains(line, `"type":"user"`) ||
+		strings.Contains(line, `"type":"assistant"`)
 }
 
 // loadPreviewCmd loads a session's messages for the preview pane.

@@ -36,6 +36,24 @@ func newLineReader(r io.Reader) *lineReader {
 	}
 }
 
+// ScanLines calls fn for each non-empty line of r, stopping early when fn
+// returns false. Lines exceeding maxLineSize are skipped rather than
+// aborting the scan — unlike bufio.Scanner, whose ErrTooLong permanently
+// kills iteration, so one huge line (e.g. pasted image data) would hide
+// every line after it. Returns the first I/O error encountered, or nil.
+func ScanLines(r io.Reader, fn func(line string) bool) error {
+	lr := newLineReader(r)
+	for {
+		line, ok := lr.next()
+		if !ok {
+			return lr.Err()
+		}
+		if !fn(line) {
+			return nil
+		}
+	}
+}
+
 // next returns the next non-empty line (without trailing newline) and true,
 // or ("", false) at EOF or I/O error. After the loop, call Err() to
 // distinguish EOF from I/O failure.
