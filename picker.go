@@ -256,7 +256,13 @@ func (m model) updatePickerMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseWheelDown:
 		m.pickerScroll += 3
-		maxScroll := m.pickerTotalLines() - m.contentHeight(1, 0)
+		totalLines := m.pickerTotalLines()
+		if m.pickerSearchMode {
+			// Search filters the item list; clamping against the unfiltered
+			// total would allow scrolling past the results into blank padding.
+			totalLines = m.searchPickerTotalLines()
+		}
+		maxScroll := totalLines - m.contentHeight(1, 0)
 		if maxScroll < 0 {
 			maxScroll = 0
 		}
