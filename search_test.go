@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -81,6 +82,115 @@ func TestMatchesSessionContent(t *testing.T) {
 			t.Error("expected false for missing file")
 		}
 	})
+}
+
+// --- search debounce & cancellation ------------------------------------------
+
+func TestSearchTypingDebouncesInsteadOfScanning(t *testing.T) {
+	m := pickerModel()
+	m.pickerSearchMode = true
+	m.pickerSearchTyping = true
+
+	result, cmd := m.updatePickerSearchTyping(key("a"))
+	got := result.(model)
+
+	if got.pickerSearchGen != m.pickerSearchGen+1 {
+		t.Errorf("pickerSearchGen = %d, want %d", got.pickerSearchGen, m.pickerSearchGen+1)
+	}
+	if live := int(got.pickerSearchLiveGen.Load()); live != got.pickerSearchGen {
+		t.Errorf("atomic mirror = %d, want %d", live, got.pickerSearchGen)
+	}
+	if cmd == nil {
+		t.Fatal("typing returned no command")
+	}
+	// The keystroke must schedule a debounce tick, not run the scan directly:
+	// a stale tick (superseded by a later keystroke) is dropped without scanning.
+	stale, staleCmd := got.Update(pickerSearchTickMsg{gen: got.pickerSearchGen - 1})
+	if staleCmd != nil {
+		t.Error("stale debounce tick produced a command")
+	}
+	_, freshCmd := stale.(model).Update(pickerSearchTickMsg{gen: got.pickerSearchGen})
+	if freshCmd == nil {
+		t.Error("current debounce tick did not start the scan")
+	}
+}
+
+func TestSearchSessionsCmdBailsWhenSuperseded(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	if err := os.WriteFile(path, []byte(modernUserLine+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sessions := []parser.SessionInfo{{Path: path, FirstMessage: "hello"}}
+
+	live := new(atomic.Int64)
+	live.Store(1)
+
+	if msg := searchSessionsCmd("flibbertigibbet", sessions, 1, live)(); msg == nil {
+		t.Error("current-generation scan returned nil, want results")
+	}
+
+	live.Store(2) // a newer keystroke superseded gen 1
+	if msg := searchSessionsCmd("flibbertigibbet", sessions, 1, live)(); msg != nil {
+		t.Errorf("superseded scan returned %T, want nil (bail)", msg)
+	}
+}
+
+// --- preview generation guard -------------------------------------------------
+
+func TestSchedulePreviewLoadCacheHitInvalidatesInFlightLoad(t *testing.T) {
+	m := pickerModel()
+	sessions := []parser.SessionInfo{
+		{Path: "/tmp/session-a.jsonl", FirstMessage: "session a", ModTime: time.Now()},
+		{Path: "/tmp/session-b.jsonl", FirstMessage: "session b", ModTime: time.Now()},
+	}
+	m.pickerSearchMode = true
+	m.pickerSearchResults = rebuildPickerItems(sessions)
+
+	// A load for session A is in flight at gen 1; session B is cached.
+	m.pickerPreviewGen = 1
+	m.pickerPreviewLoading = true
+	m.addPreviewCache("/tmp/session-b.jsonl", []message{{role: RoleUser, content: "cached b"}})
+
+	// Move the cursor onto session B and take the cache-hit path.
+	for i, item := range m.pickerSearchResults {
+		if item.typ == pickerItemSession && item.session.Path == "/tmp/session-b.jsonl" {
+			m.pickerCursor = i
+			break
+		}
+	}
+	if cmd := m.schedulePreviewLoad(); cmd != nil {
+		t.Fatal("cache hit scheduled a load command")
+	}
+	if m.pickerPreviewGen != 2 {
+		t.Fatalf("pickerPreviewGen = %d, want 2 (cache hit must invalidate in-flight load)", m.pickerPreviewGen)
+	}
+
+	// The in-flight load for A now lands stale and must not clobber B's preview.
+	result, _ := m.Update(pickerPreviewLoadedMsg{
+		path:     "/tmp/session-a.jsonl",
+		messages: []message{{role: RoleUser, content: "late a"}},
+		gen:      1,
+	})
+	got := result.(model)
+	if got.pickerPreviewPath != "/tmp/session-b.jsonl" {
+		t.Errorf("pickerPreviewPath = %q, want session B (stale load overwrote cache hit)", got.pickerPreviewPath)
+	}
+}
+
+func TestSchedulePreviewLoadNilSelectionInvalidatesInFlightLoad(t *testing.T) {
+	m := pickerModel()
+	m.pickerSearchMode = true
+	m.pickerSearchResults = []pickerItem{} // no results -> no selected session
+	m.pickerPreviewGen = 1
+	m.pickerPreviewLoading = true
+
+	if cmd := m.schedulePreviewLoad(); cmd != nil {
+		t.Fatal("nil selection scheduled a load command")
+	}
+	if m.pickerPreviewGen != 2 {
+		t.Errorf("pickerPreviewGen = %d, want 2 (clearing the pane must invalidate in-flight load)", m.pickerPreviewGen)
+	}
 }
 
 // --- renderPreviewPane ------------------------------------------------------

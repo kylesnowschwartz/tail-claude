@@ -138,7 +138,7 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.pickerSearchTyping = true
 		m.pickerSearchQuery = ""
 		m.pickerSearchResults = nil
-		m.pickerSearchGen++
+		m.bumpSearchGen()
 		// Load preview for whatever session is currently selected.
 		cmd := m.schedulePreviewLoad()
 		return m, cmd

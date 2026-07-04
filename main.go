@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -319,6 +320,9 @@ type model struct {
 	pickerSearchQuery   string       // current search text
 	pickerSearchResults []pickerItem // filtered picker items when search active
 	pickerSearchGen     int          // generation counter to cancel stale scans
+	// Atomic mirror of pickerSearchGen shared with in-flight scan goroutines,
+	// which can't see the copied model's field; bump both via bumpSearchGen.
+	pickerSearchLiveGen *atomic.Int64
 
 	// Picker preview pane (right side of search split view)
 	pickerPreviewMessages []message           // parsed messages for preview pane
@@ -515,6 +519,7 @@ func initialModel(msgs []message, hasDarkBg bool) model {
 		md:                  newMdRenderer(hasDarkBg),
 		jsonHL:              newJSONHL(hasDarkBg),
 		pickerPreviewRender: &previewRenderCache{},
+		pickerSearchLiveGen: new(atomic.Int64),
 	}
 }
 
@@ -814,6 +819,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, waitForDebugUpdate(m.debugWatcher.sub))
 		}
 		return m, tea.Batch(cmds...)
+
+	case pickerSearchTickMsg:
+		if msg.gen != m.pickerSearchGen {
+			return m, nil // stale debounce
+		}
+		return m, searchSessionsCmd(m.pickerSearchQuery, m.pickerSessions, msg.gen, m.pickerSearchLiveGen)
 
 	case pickerSearchResultMsg:
 		if msg.gen != m.pickerSearchGen {
