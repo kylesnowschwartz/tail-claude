@@ -20,6 +20,9 @@ func TestShortModel(t *testing.T) {
 		{"unknown", "unknown"},
 		{"claude-haiku-4-5", "haiku4.5"},
 		{"claude-haiku-4-5-20251201", "haiku4.5"},
+		{"claude-sonnet-5", "sonnet5"},
+		{"claude-sonnet-5-20260203", "sonnet5"},
+		{"claude-fable-5", "fable5"},
 		{"", ""},
 	}
 	for _, tt := range tests {
