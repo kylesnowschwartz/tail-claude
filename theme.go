@@ -29,7 +29,6 @@ import (
 // | ModelOpus           |   "1" | "204" | red           | coral          |
 // | ModelSonnet         |   "4" |  "75" | blue          | blue           |
 // | ModelHaiku          |   "2" | "114" | green         | green          |
-// | TokenHigh           |   "3" | "208" | gold          | orange (>150k) |
 // | Ongoing             |   "2" |  "76" | green dot     | green dot      |
 // | PickerSelectedBg    | "254" | "237" | subtle elev.  | subtle elev.   |
 // | PillBypass          |   "1" | "196" | red           | red            |
@@ -56,9 +55,6 @@ var (
 	ColorModelSonnet color.Color
 	ColorModelHaiku  color.Color
 	ColorModelFable  color.Color
-
-	// Token highlight
-	ColorTokenHigh color.Color
 
 	// Ongoing indicator
 	ColorOngoing color.Color
@@ -146,9 +142,6 @@ func initTheme(hasDarkBg bool) {
 	ColorModelSonnet = ld(lipgloss.Color("4"), lipgloss.Color("75"))
 	ColorModelHaiku = ld(lipgloss.Color("2"), lipgloss.Color("114"))
 	ColorModelFable = ld(lipgloss.Color("5"), lipgloss.Color("135"))
-
-	// Token highlight
-	ColorTokenHigh = ld(lipgloss.Color("3"), lipgloss.Color("208"))
 
 	// Ongoing indicator
 	ColorOngoing = ld(lipgloss.Color("2"), lipgloss.Color("76"))

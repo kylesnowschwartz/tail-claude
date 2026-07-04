@@ -14,9 +14,13 @@ import (
 // aggregateMessageStats walks the loaded TUI messages and returns
 // per-tool usage stats, sorted by call count descending.
 //
-// Mirrors parser.AggregateToolStats but consumes the TUI's []message rather
-// than []parser.Chunk -- the model doesn't keep the underlying chunks, and
-// the per-key-press cost of a 1000-item walk is negligible.
+// Consumes the TUI's []message rather than []parser.Chunk -- the model
+// doesn't keep the underlying chunks, and the per-key-press cost of a
+// 1000-item walk is negligible.
+//
+// Duration sums only include results where durationMs > 0. The concurrent-
+// task suppression already zeros inflated durations, so this is the right
+// floor for "trustworthy" totals.
 func aggregateMessageStats(msgs []message) []parser.ToolStats {
 	byName := make(map[string]*parser.ToolStats)
 	for _, m := range msgs {
@@ -55,8 +59,10 @@ func aggregateMessageStats(msgs []message) []parser.ToolStats {
 	return out
 }
 
-// statsName mirrors parser.toolStatsName for displayItem: subagents fold
-// into "Task", non-tool items return "" to skip.
+// statsName returns the name to attribute to a displayItem in the stats
+// aggregation: subagents fold into "Task" (they share the dispatch tool name
+// even when the underlying type is "Skill" or "Agent"), non-tool items
+// return "" to skip.
 func statsName(it displayItem) string {
 	switch it.itemType {
 	case parser.ItemToolCall:

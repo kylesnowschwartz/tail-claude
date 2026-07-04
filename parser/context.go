@@ -101,35 +101,12 @@ func (c *Chunk) ContextDelta() *ContextDelta {
 
 // ContextUsagePct returns a token snapshot as a percentage of the given
 // model's context window. ok is false when inputTokens <= 0.
-//
-// This is the low-level helper -- callers that already have a token count
-// and a model name (the picker, hooks views, etc.) should use it directly
-// rather than reconstructing a []Chunk just to call SessionContextUsage.
 func ContextUsagePct(inputTokens int, model string) (pct float64, window int, ok bool) {
 	if inputTokens <= 0 {
 		return 0, 0, false
 	}
 	w := ContextWindow(model)
 	return windowPct(inputTokens, w), w, true
-}
-
-// SessionContextUsage returns the last non-zero context snapshot
-// across all AI chunks in a session, expressed as a window percentage.
-// Used by code paths that hold a full []Chunk; lighter callers should use
-// ContextUsagePct with their pre-extracted token count + model.
-//
-// ok is false when no chunk in the session reports usage.
-func SessionContextUsage(chunks []Chunk) (pct float64, window int, ok bool) {
-	for i := len(chunks) - 1; i >= 0; i-- {
-		c := chunks[i]
-		if c.Type != AIChunk {
-			continue
-		}
-		if snap := contextSnapshot(c.Usage); snap > 0 {
-			return ContextUsagePct(snap, c.Model)
-		}
-	}
-	return 0, 0, false
 }
 
 func windowPct(n, window int) float64 {
