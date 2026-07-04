@@ -634,8 +634,21 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	indent := "  "
 	innerWidth := max(width-4, 20) // indent (2) + right gutter (2)
 
-	// --- Line 1: ongoing dot + preview text ---
+	// --- Line 1: expand chevron + ongoing dot + preview text ---
 	var line1Parts []string
+
+	// Chevron signals the tab-expandable first/last prompt preview.
+	// Background is baked in when selected for the same reason as the
+	// spinner and preview below.
+	chevIcon := Icon.Collapsed
+	if m.pickerExpanded[itemIndex] {
+		chevIcon = Icon.Expanded
+	}
+	chevStyle := lipgloss.NewStyle().Foreground(chevIcon.Color)
+	if isSelected {
+		chevStyle = chevStyle.Background(ColorPickerSelectedBg)
+	}
+	line1Parts = append(line1Parts, chevStyle.Render(chevIcon.Glyph+" "))
 
 	if s.IsOngoing {
 		frame := SpinnerFrames[m.pickerAnimFrame%len(SpinnerFrames)]
@@ -662,7 +675,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 		previewColor = ColorTextSecondary
 	}
 
-	previewMaxWidth := innerWidth
+	previewMaxWidth := innerWidth - 2 // chevron + space
 	if s.IsOngoing {
 		previewMaxWidth -= 2
 	}
