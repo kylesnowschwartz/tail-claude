@@ -365,39 +365,27 @@ func searchPickerItemHeight(index int, typ pickerItemType) int {
 	return 3
 }
 
+// searchPickerHeights returns the item count and per-item height function of
+// the active (possibly filtered) list in the search left pane, for the shared
+// picker scroll math (clampPickerScroll, totalItemLines).
+func (m model) searchPickerHeights() (int, func(int) int) {
+	items := m.activePickerItems()
+	return len(items), func(i int) int { return searchPickerItemHeight(i, items[i].typ) }
+}
+
 // searchPickerTotalLines returns the total rendered line count of the active
 // (possibly filtered) item list in the search left pane.
 func (m model) searchPickerTotalLines() int {
-	items := m.activePickerItems()
-	total := 0
-	for i, item := range items {
-		total += searchPickerItemHeight(i, item.typ)
-	}
-	return total
+	count, height := m.searchPickerHeights()
+	return totalItemLines(count, height)
 }
 
 // ensureSearchPickerVisible adjusts pickerScroll so the cursor stays inside
 // the search left pane viewport. Search-mode counterpart of
 // ensurePickerVisible, computed against the filtered active item list.
 func (m *model) ensureSearchPickerVisible() {
-	items := m.activePickerItems()
-	viewHeight := m.contentHeight(1, 0)
-
-	cursorLineStart := 0
-	for i := 0; i < m.pickerCursor && i < len(items); i++ {
-		cursorLineStart += searchPickerItemHeight(i, items[i].typ)
-	}
-	cursorLineEnd := cursorLineStart
-	if m.pickerCursor >= 0 && m.pickerCursor < len(items) {
-		cursorLineEnd += searchPickerItemHeight(m.pickerCursor, items[m.pickerCursor].typ) - 1
-	}
-
-	if cursorLineStart < m.pickerScroll {
-		m.pickerScroll = cursorLineStart
-	}
-	if cursorLineEnd >= m.pickerScroll+viewHeight {
-		m.pickerScroll = cursorLineEnd - viewHeight + 1
-	}
+	count, height := m.searchPickerHeights()
+	m.clampPickerScroll(count, height)
 }
 
 // schedulePreviewLoad starts a debounced preview load for the currently

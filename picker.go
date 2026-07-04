@@ -387,19 +387,20 @@ func (m *model) pickerCursorFirst() {
 	}
 }
 
-// ensurePickerVisible adjusts pickerScroll so the cursor is visible.
-// Uses pickerItemHeight for variable-height items (expanded previews, headers with gaps).
-func (m *model) ensurePickerVisible() {
+// clampPickerScroll adjusts pickerScroll so the cursor item stays inside the
+// viewport. Shared by the session picker and the search picker, which differ
+// only in item list and height rules — heightFn(i) returns the rendered line
+// count of item i in the caller's list.
+func (m *model) clampPickerScroll(itemCount int, heightFn func(int) int) {
 	viewHeight := m.contentHeight(1, 0)
 
-	// Compute line position of cursor item.
 	cursorLineStart := 0
-	for i := 0; i < m.pickerCursor && i < len(m.pickerItems); i++ {
-		cursorLineStart += m.pickerItemHeight(i)
+	for i := 0; i < m.pickerCursor && i < itemCount; i++ {
+		cursorLineStart += heightFn(i)
 	}
 	cursorLineEnd := cursorLineStart
-	if m.pickerCursor < len(m.pickerItems) {
-		cursorLineEnd += m.pickerItemHeight(m.pickerCursor) - 1
+	if m.pickerCursor >= 0 && m.pickerCursor < itemCount {
+		cursorLineEnd += heightFn(m.pickerCursor) - 1
 	}
 
 	if cursorLineStart < m.pickerScroll {
@@ -408,6 +409,21 @@ func (m *model) ensurePickerVisible() {
 	if cursorLineEnd >= m.pickerScroll+viewHeight {
 		m.pickerScroll = cursorLineEnd - viewHeight + 1
 	}
+}
+
+// totalItemLines sums heightFn over itemCount items.
+func totalItemLines(itemCount int, heightFn func(int) int) int {
+	total := 0
+	for i := 0; i < itemCount; i++ {
+		total += heightFn(i)
+	}
+	return total
+}
+
+// ensurePickerVisible adjusts pickerScroll so the cursor is visible.
+// Uses pickerItemHeight for variable-height items (expanded previews, headers with gaps).
+func (m *model) ensurePickerVisible() {
+	m.clampPickerScroll(len(m.pickerItems), m.pickerItemHeight)
 }
 
 // updatePickerSessionState refreshes derived render state from the current
@@ -487,11 +503,7 @@ func (m model) pickerIsFirstHeader(index int) bool {
 
 // pickerTotalLines returns the total line count of all picker items.
 func (m model) pickerTotalLines() int {
-	total := 0
-	for i := range m.pickerItems {
-		total += m.pickerItemHeight(i)
-	}
-	return total
+	return totalItemLines(len(m.pickerItems), m.pickerItemHeight)
 }
 
 // --- Picker rendering ---
