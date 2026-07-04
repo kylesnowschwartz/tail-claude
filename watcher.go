@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +16,11 @@ import (
 // triggering a rebuild. 500ms coalesces rapid writes (e.g. tool call
 // round-trips) into a single re-read, reducing visual churn.
 const watcherDebounce = 500 * time.Millisecond
+
+// workflowPollInterval is the cadence for scanning workflow directories.
+// Comfortably inside OngoingStalenessThreshold (2m), and a scan is a
+// handful of ReadDir/Stat calls — free for sessions without workflows.
+const workflowPollInterval = 2 * time.Second
 
 // tailUpdateMsg carries the full rebuilt message list after an incremental read.
 // We send the complete list (not a diff) because BuildChunks merges consecutive
@@ -82,7 +86,11 @@ type sessionWatcher struct {
 	// Set by run(), used by readAndRebuild to add newly discovered team files.
 	fsWatcher        *fsnotify.Watcher
 	watchedProcPaths map[string]bool // subagent/team file paths already watched
-	watchedWfDirs    map[string]bool // workflow dirs already watched (agents write here, not the parent file)
+
+	// Last workflow activity reported by a rebuild. The poll ticker compares
+	// fresh scans against this to signal rebuilds only on new activity.
+	// Only touched by run() — no synchronization needed.
+	lastWorkflow parser.WorkflowActivity
 }
 
 func newSessionWatcher(path string, initialClassified []parser.ClassifiedMsg, initialOffset int64) *sessionWatcher {
@@ -154,13 +162,26 @@ func (w *sessionWatcher) run() {
 	// Store fsnotify watcher so readAndRebuild can add team session files.
 	w.fsWatcher = watcher
 	w.watchedProcPaths = make(map[string]bool)
-	w.watchedWfDirs = make(map[string]bool)
-	w.watchWorkflowDirs()
+
+	// Workflow activity is polled, never fsnotify-watched: agents write under
+	// {session}/subagents/workflows/wf_*/ while the parent file stays silent,
+	// but macOS kqueue opens one file descriptor per file in a watched
+	// directory — a workflow-heavy session holds hundreds of transcripts,
+	// which exhausts the fd budget and breaks select(2)-based readers
+	// (FD_SETSIZE caps at 1024). ScanWorkflowActivity holds no descriptors.
+	wfPoll := time.NewTicker(workflowPollInterval)
+	defer wfPoll.Stop()
 
 	for {
 		select {
 		case <-w.done:
 			return
+
+		case <-wfPoll.C:
+			if act := parser.ScanWorkflowActivity(w.path); workflowAdvanced(w.lastWorkflow, act) {
+				w.lastWorkflow = act
+				w.sendSignal()
+			}
 
 		case <-w.signals:
 			// Debounced rebuild trigger. Read any new parent data,
@@ -198,16 +219,6 @@ func (w *sessionWatcher) run() {
 				}
 				w.teamDebounce = time.AfterFunc(2*time.Second, w.sendSignal)
 				w.mu.Unlock()
-			} else if w.watchedWfDirs[filepath.Dir(event.Name)] {
-				// Workflow agent activity (transcript writes, new run dirs).
-				// The parent file stays silent during a run, so these events
-				// are what keep the ongoing indicator and agent count live.
-				w.mu.Lock()
-				if w.teamDebounce != nil {
-					w.teamDebounce.Stop()
-				}
-				w.teamDebounce = time.AfterFunc(2*time.Second, w.sendSignal)
-				w.mu.Unlock()
 			}
 
 		case err, ok := <-watcher.Errors:
@@ -223,31 +234,11 @@ func (w *sessionWatcher) run() {
 	}
 }
 
-// watchWorkflowDirs registers fsnotify watches on the session's workflow
-// directories: the workflows root (so new wf_* run dirs surface as Create
-// events) and each run dir (so agent transcript writes surface). Idempotent —
-// already-watched dirs are skipped. Called at watcher start and after each
-// rebuild to pick up runs launched mid-session.
-func (w *sessionWatcher) watchWorkflowDirs() {
-	if w.fsWatcher == nil {
-		return
-	}
-	wfRoot := filepath.Join(strings.TrimSuffix(w.path, ".jsonl"), "subagents", "workflows")
-	dirs := []string{wfRoot}
-	if entries, err := os.ReadDir(wfRoot); err == nil {
-		for _, de := range entries {
-			if de.IsDir() {
-				dirs = append(dirs, filepath.Join(wfRoot, de.Name()))
-			}
-		}
-	}
-	for _, d := range dirs {
-		if !w.watchedWfDirs[d] {
-			if err := w.fsWatcher.Add(d); err == nil {
-				w.watchedWfDirs[d] = true
-			}
-		}
-	}
+// workflowAdvanced reports whether cur shows workflow activity that prev
+// hasn't already reported: a new run, a new agent transcript, or a fresher
+// write to any run file.
+func workflowAdvanced(prev, cur parser.WorkflowActivity) bool {
+	return cur.Runs != prev.Runs || cur.Agents != prev.Agents || cur.LastWrite.After(prev.LastWrite)
 }
 
 // readAndRebuild reads any new parent data, rebuilds chunks from all
@@ -307,9 +298,9 @@ func (w *sessionWatcher) readAndRebuild() {
 		}
 	}
 
-	// Workflow run dirs surfaced by the rebuild need fsnotify watches so the
-	// spinner stays alive while agents write under subagents/workflows/.
-	w.watchWorkflowDirs()
+	// Sync the poll baseline so the ticker doesn't re-signal activity this
+	// rebuild already reported.
+	w.lastWorkflow = state.workflow
 
 	update := tailUpdateMsg{
 		messages:       state.messages,
