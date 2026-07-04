@@ -441,16 +441,26 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 	}
 
 	// Phase 3: Positional fallback for non-team tasks (no wrap-around).
-	// Explicitly excludes team Task calls — they either matched in Phase 2
-	// or remain unmatched.
+	// Explicitly excludes team Task calls AND team processes — pairing an
+	// unlinked team worker (e.g. its toolUseResult hasn't arrived yet during
+	// live tailing) with a regular Task call would steal that call's metadata
+	// and displace the real subagent. Team processes carry "@" in their ID
+	// (DiscoverTeamSessions) or a TeamSummary (subagents/ team files).
 	var unmatchedProcs []*SubagentProcess
 	for i := range processes {
+		if matchedProcs[processes[i].ID] {
+			continue
+		}
 		// A process with a sidecar-provided ParentTaskID stays out of the
 		// positional fallback even when its Task item wasn't found in the
 		// parent chunks — re-pairing it positionally would be a mislink.
-		if !matchedProcs[processes[i].ID] && processes[i].ParentTaskID == "" {
-			unmatchedProcs = append(unmatchedProcs, &processes[i])
+		if processes[i].ParentTaskID != "" {
+			continue
 		}
+		if strings.Contains(processes[i].ID, "@") || processes[i].TeamSummary != "" {
+			continue
+		}
+		unmatchedProcs = append(unmatchedProcs, &processes[i])
 	}
 	var unmatchedTasks []*DisplayItem
 	for _, it := range taskItems {
@@ -725,6 +735,10 @@ func extractTeamSpecs(chunks []Chunk) []teamSpec {
 //
 // Discovery: scan the project directory for .jsonl files whose first entry has
 // teamName + agentName matching a team Task call in the parent chunks.
+// Candidates whose entry timestamps fall outside the parent's run (with a
+// small grace window) are rejected, and duplicate IDs keep only the latest
+// session — team/agent names are reused across runs, so name matching alone
+// would link files from a different parent session.
 // Each match is parsed via readSubagentSession and returned with
 // ID = "agentName@teamName" so Phase 1 of LinkSubagents can match it
 // against the parent's toolUseResult agent_id field.
@@ -740,6 +754,11 @@ func DiscoverTeamSessions(sessionPath string, parentChunks []Chunk) ([]SubagentP
 	for _, s := range specs {
 		wanted[specKey{s.teamName, s.agentName}] = true
 	}
+
+	// Team/agent names are commonly reused across runs ("planner@analysis"
+	// yesterday and today), so name matching alone can pick up files from a
+	// different parent session. The parent's own time range disambiguates.
+	parentStart, parentEnd, _ := chunkTiming(parentChunks)
 
 	projectDir := filepath.Dir(sessionPath)
 	parentBase := filepath.Base(sessionPath)
@@ -791,6 +810,13 @@ func DiscoverTeamSessions(sessionPath string, parentChunks []Chunk) ([]SubagentP
 		startTime, endTime, durationMs := chunkTiming(chunks)
 		usage := aggregateUsage(chunks)
 
+		// Reject sessions from a different run: bounding BOTH ends means a
+		// stale file from an earlier run and a reused name from a future run
+		// both fail, regardless of which parent session is being viewed.
+		if !withinParentRun(startTime, endTime, parentStart, parentEnd) {
+			continue
+		}
+
 		procs = append(procs, SubagentProcess{
 			ID:            agentName + "@" + teamName,
 			FilePath:      filePath,
@@ -805,9 +831,47 @@ func DiscoverTeamSessions(sessionPath string, parentChunks []Chunk) ([]SubagentP
 		})
 	}
 
+	// An ID can still collide when the same teammate is respawned within one
+	// run. scanAgentLinks keeps only the last spawn's tool_use_id, so keep
+	// the latest session per ID to match what Phase 1 will link against.
+	latest := make(map[string]int, len(procs))
+	for i := range procs {
+		if j, ok := latest[procs[i].ID]; !ok || procs[i].StartTime.After(procs[j].StartTime) {
+			latest[procs[i].ID] = i
+		}
+	}
+	if len(latest) < len(procs) {
+		deduped := make([]SubagentProcess, 0, len(latest))
+		for i := range procs {
+			if latest[procs[i].ID] == i {
+				deduped = append(deduped, procs[i])
+			}
+		}
+		procs = deduped
+	}
+
 	sort.Slice(procs, func(i, j int) bool {
 		return procs[i].StartTime.Before(procs[j].StartTime)
 	})
 
 	return procs, nil
+}
+
+// teamSpawnGrace pads the parent's time range when validating candidate team
+// session files. A teammate's first entry lands moments after the spawning
+// Task call, which can be the parent's very last entry — without the pad a
+// legitimate session starting seconds after the parent's final timestamp
+// would be rejected.
+const teamSpawnGrace = 2 * time.Minute
+
+// withinParentRun reports whether a candidate team session's [start, end]
+// overlaps the parent run's [parentStart, parentEnd] padded by teamSpawnGrace
+// on both sides. Zero timestamps on either side make the comparison
+// meaningless, so those pass — better to over-link than to hide a session
+// with missing timestamps.
+func withinParentRun(start, end, parentStart, parentEnd time.Time) bool {
+	if start.IsZero() || end.IsZero() || parentStart.IsZero() || parentEnd.IsZero() {
+		return true
+	}
+	return !start.After(parentEnd.Add(teamSpawnGrace)) && !end.Before(parentStart.Add(-teamSpawnGrace))
 }

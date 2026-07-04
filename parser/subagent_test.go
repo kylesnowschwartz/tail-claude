@@ -2,6 +2,7 @@ package parser_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -955,6 +956,125 @@ func TestDiscoverTeamSessions_ParsesChunksAndTiming(t *testing.T) {
 		if p.Usage.TotalTokens() == 0 {
 			t.Errorf("%s: expected non-zero usage", p.ID)
 		}
+	}
+}
+
+// writeTeamSessionFile writes a minimal team session JSONL whose first entry
+// carries teamName/agentName and whose entries span [start, end].
+func writeTeamSessionFile(t *testing.T, dir, name, teamName, agentName string, start, end time.Time) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	content := fmt.Sprintf(
+		`{"uuid":"t1","type":"user","timestamp":"%s","teamName":"%s","agentName":"%s","message":{"role":"user","content":"<teammate-message teammate_id=\"team-lead\">\nDo the work.\n</teammate-message>"}}`+"\n"+
+			`{"uuid":"t2","type":"assistant","timestamp":"%s","message":{"role":"assistant","content":[{"type":"text","text":"Done."}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":10}}}`+"\n",
+		start.Format(time.RFC3339), teamName, agentName, end.Format(time.RFC3339))
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestDiscoverTeamSessions_SkipsSessionsFromOtherRuns(t *testing.T) {
+	dir := t.TempDir()
+	parentPath := filepath.Join(dir, "parent.jsonl")
+	if err := os.WriteFile(parentPath, []byte(`{"uuid":"u1","type":"user","timestamp":"2025-06-15T10:00:00Z","message":{"role":"user","content":"go"}}`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Parent chunk timestamp is 2025-06-15T10:00:00Z (makeTeamTaskChunk).
+	chunks := []parser.Chunk{
+		makeTeamTaskChunk("toolu_01", "planner-type", "Plan work", "analysis", "planner"),
+	}
+
+	// Same team/agent name reused across three runs on the same day: only
+	// the session overlapping the parent's run should survive.
+	writeTeamSessionFile(t, dir, "planner-stale.jsonl", "analysis", "planner",
+		time.Date(2025, 6, 15, 6, 0, 0, 0, time.UTC), time.Date(2025, 6, 15, 6, 1, 0, 0, time.UTC))
+	current := writeTeamSessionFile(t, dir, "planner-current.jsonl", "analysis", "planner",
+		time.Date(2025, 6, 15, 10, 0, 5, 0, time.UTC), time.Date(2025, 6, 15, 10, 0, 15, 0, time.UTC))
+	writeTeamSessionFile(t, dir, "planner-future.jsonl", "analysis", "planner",
+		time.Date(2025, 6, 15, 14, 0, 0, 0, time.UTC), time.Date(2025, 6, 15, 14, 1, 0, 0, time.UTC))
+
+	procs, err := parser.DiscoverTeamSessions(parentPath, chunks)
+	if err != nil {
+		t.Fatalf("DiscoverTeamSessions: %v", err)
+	}
+
+	if len(procs) != 1 {
+		t.Fatalf("got %d team sessions, want 1 (stale and future runs must be rejected)", len(procs))
+	}
+	if procs[0].FilePath != current {
+		t.Errorf("FilePath = %q, want %q", procs[0].FilePath, current)
+	}
+}
+
+func TestDiscoverTeamSessions_DedupesRespawnedTeammate(t *testing.T) {
+	dir := t.TempDir()
+	parentPath := filepath.Join(dir, "parent.jsonl")
+	if err := os.WriteFile(parentPath, []byte(`{"uuid":"u1","type":"user","timestamp":"2025-06-15T10:00:00Z","message":{"role":"user","content":"go"}}`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	chunks := []parser.Chunk{
+		makeTeamTaskChunk("toolu_01", "planner-type", "Plan work", "analysis", "planner"),
+	}
+
+	// Both sessions fall within the parent's run (respawn scenario). The
+	// parent's toolUseResult only records the last spawn, so the later
+	// session must win.
+	writeTeamSessionFile(t, dir, "planner-first.jsonl", "analysis", "planner",
+		time.Date(2025, 6, 15, 10, 0, 5, 0, time.UTC), time.Date(2025, 6, 15, 10, 0, 10, 0, time.UTC))
+	respawn := writeTeamSessionFile(t, dir, "planner-respawn.jsonl", "analysis", "planner",
+		time.Date(2025, 6, 15, 10, 0, 30, 0, time.UTC), time.Date(2025, 6, 15, 10, 0, 40, 0, time.UTC))
+
+	procs, err := parser.DiscoverTeamSessions(parentPath, chunks)
+	if err != nil {
+		t.Fatalf("DiscoverTeamSessions: %v", err)
+	}
+
+	if len(procs) != 1 {
+		t.Fatalf("got %d team sessions, want 1 (duplicate IDs must dedupe)", len(procs))
+	}
+	if procs[0].FilePath != respawn {
+		t.Errorf("FilePath = %q, want %q (latest session wins)", procs[0].FilePath, respawn)
+	}
+}
+
+// --- Phase 3 must never positionally pair team processes ---
+
+func TestLinkSubagents_Phase3ExcludesTeamProcs(t *testing.T) {
+	// Two unlinked team procs (no toolUseResult yet, no summary match) and
+	// one unlinked regular proc. Phase 3 must pair the regular Task call
+	// with the regular proc, not the earlier-started team procs.
+	procs := []parser.SubagentProcess{
+		{ID: "planner@analysis", StartTime: time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)},
+		makeTeamSubagentWithSummary("hexteam1", time.Date(2025, 6, 15, 10, 0, 30, 0, time.UTC), "Summary that matches nothing"),
+		{ID: "regular1", StartTime: time.Date(2025, 6, 15, 10, 1, 0, 0, time.UTC)},
+	}
+
+	chunks := []parser.Chunk{
+		makeTeamTaskChunk("toolu_team", "team-type", "Team desc", "analysis", "planner"),
+		makeTaskChunk("tool-42", "general-purpose", "Fix the bug"),
+	}
+
+	// No toolUseResult entries -- Phase 1 matches nothing.
+	parentPath := writeParentSession(t, []string{
+		`{"uuid":"x","type":"user","timestamp":"2025-06-15T10:00:00Z","message":{"role":"user","content":"hi"}}`,
+	})
+
+	parser.LinkSubagents(procs, chunks, parentPath)
+
+	if procs[0].ParentTaskID != "" {
+		t.Errorf("team proc (@ ID) ParentTaskID = %q, want empty", procs[0].ParentTaskID)
+	}
+	if procs[1].ParentTaskID != "" {
+		t.Errorf("team proc (TeamSummary) ParentTaskID = %q, want empty", procs[1].ParentTaskID)
+	}
+	if procs[2].ParentTaskID != "tool-42" {
+		t.Errorf("regular proc ParentTaskID = %q, want %q", procs[2].ParentTaskID, "tool-42")
+	}
+	if procs[2].Description != "Fix the bug" {
+		t.Errorf("regular proc Description = %q, want %q", procs[2].Description, "Fix the bug")
 	}
 }
 
