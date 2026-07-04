@@ -272,10 +272,7 @@ func (m model) updatePickerSearchTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		m.exitPickerSearch()
 		return m, nil
 	case "ctrl+c":
-		if m.pickerWatcher != nil {
-			m.pickerWatcher.stop()
-			m.pickerWatcher = nil
-		}
+		m.stopPickerWatcher()
 		return m, tea.Quit
 	default:
 		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
@@ -307,10 +304,7 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.exitPickerSearch()
 		return m, nil
 	case "ctrl+c":
-		if m.pickerWatcher != nil {
-			m.pickerWatcher.stop()
-			m.pickerWatcher = nil
-		}
+		m.stopPickerWatcher()
 		return m, tea.Quit
 	case "/":
 		// Re-focus the text input for further typing.
@@ -318,10 +312,7 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		if s := m.pickerSearchSelectedSession(); s != nil {
-			if m.pickerWatcher != nil {
-				m.pickerWatcher.stop()
-				m.pickerWatcher = nil
-			}
+			m.stopPickerWatcher()
 			m.exitPickerSearch()
 			return m, loadSessionCmd(s.Path)
 		}

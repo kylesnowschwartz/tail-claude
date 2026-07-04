@@ -142,10 +142,7 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.schedulePreviewLoad()
 		return m, cmd
 	case "q", "esc", "escape", "backspace":
-		if m.pickerWatcher != nil {
-			m.pickerWatcher.stop()
-			m.pickerWatcher = nil
-		}
+		m.stopPickerWatcher()
 		// No session loaded — nothing to go back to, so quit.
 		if len(m.messages) == 0 {
 			return m, tea.Quit
@@ -153,10 +150,7 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.view = viewList
 		return m, nil
 	case "ctrl+c":
-		if m.pickerWatcher != nil {
-			m.pickerWatcher.stop()
-			m.pickerWatcher = nil
-		}
+		m.stopPickerWatcher()
 		return m, tea.Quit
 	case "j", "down":
 		m.pickerCursorDown()
@@ -179,10 +173,7 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if s := m.pickerSelectedSession(); s != nil {
-			if m.pickerWatcher != nil {
-				m.pickerWatcher.stop()
-				m.pickerWatcher = nil
-			}
+			m.stopPickerWatcher()
 			return m, loadSessionCmd(s.Path)
 		}
 	case "b":
@@ -195,10 +186,7 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.projectDirs = []string{m.projectDir}
 		}
-		if m.pickerWatcher != nil {
-			m.pickerWatcher.stop()
-			m.pickerWatcher = nil
-		}
+		m.stopPickerWatcher()
 		m.pickerLoading = true
 		m.pickerLoadGen++
 		return m, tea.Batch(loadPickerSessionsCmd(m.pickerLoadGen, m.projectDirs, m.sessionCache), pickerTickCmd())
