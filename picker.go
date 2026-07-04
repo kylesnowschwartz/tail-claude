@@ -20,7 +20,10 @@ func zoneSessionID(sessionID string) string {
 }
 
 // pickerSessionsMsg delivers discovered sessions to the model.
+// gen echoes the pickerLoadGen captured at dispatch time so overlapping
+// scans (e.g. worktree toggle mid-discovery) can't overwrite newer state.
 type pickerSessionsMsg struct {
+	gen      int
 	sessions []parser.SessionInfo
 	err      error
 }
@@ -43,8 +46,9 @@ func pickerTickCmd() tea.Cmd {
 
 // loadPickerSessionsCmd discovers sessions across the given project directories
 // (main repo + worktree dirs). When cache is non-nil, unchanged files return
-// cached metadata.
-func loadPickerSessionsCmd(projectDirs []string, cache *parser.SessionCache) tea.Cmd {
+// cached metadata. gen must be the model's pickerLoadGen at dispatch time;
+// the handler drops results whose gen no longer matches.
+func loadPickerSessionsCmd(gen int, projectDirs []string, cache *parser.SessionCache) tea.Cmd {
 	return func() tea.Msg {
 		var sessions []parser.SessionInfo
 		var err error
@@ -53,7 +57,7 @@ func loadPickerSessionsCmd(projectDirs []string, cache *parser.SessionCache) tea
 		} else {
 			sessions, err = parser.DiscoverAllProjectSessions(projectDirs)
 		}
-		return pickerSessionsMsg{sessions: sessions, err: err}
+		return pickerSessionsMsg{gen: gen, sessions: sessions, err: err}
 	}
 }
 
@@ -197,7 +201,8 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.pickerWatcher = nil
 		}
 		m.pickerLoading = true
-		return m, tea.Batch(loadPickerSessionsCmd(m.projectDirs, m.sessionCache), pickerTickCmd())
+		m.pickerLoadGen++
+		return m, tea.Batch(loadPickerSessionsCmd(m.pickerLoadGen, m.projectDirs, m.sessionCache), pickerTickCmd())
 	case "y":
 		if s := m.pickerSelectedSession(); s != nil {
 			m.flashStatus = "Copied: " + s.Path

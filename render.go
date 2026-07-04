@@ -43,6 +43,12 @@ const maxCollapsedLines = 12
 // Colored modes (bypassPermissions, acceptEdits, plan) render a 3-line
 // RoundedBorder chip; default mode renders a plain 1-line bar.
 func (m model) infoBarHeight() int {
+	// A flash status replaces the entire bar with a single line (see
+	// renderInfoBar); report that height or viewport math desyncs from the
+	// rendered footer for the flash duration.
+	if m.flashStatus != "" {
+		return 1
+	}
 	switch m.sessionMode {
 	case "bypassPermissions", "acceptEdits", "plan":
 		return 3

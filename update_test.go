@@ -966,3 +966,58 @@ func TestUpdateDetailMouse(t *testing.T) {
 		}
 	})
 }
+
+// --- TestMouseInputGuards ---------------------------------------------------
+
+func TestMouseInputGuards(t *testing.T) {
+	t.Run("popup captures mouse input", func(t *testing.T) {
+		m := testModel()
+		m.totalRenderedLines = 100
+		m.scroll = 3
+		m.popup = newPopup("Delete?", "x", func() (tea.Model, tea.Cmd) { return m, nil })
+
+		result, cmd := m.Update(mouseScroll(tea.MouseWheelDown))
+		got := asModel(result)
+
+		if got.scroll != 3 {
+			t.Errorf("scroll = %d, want 3 (popup must capture mouse input)", got.scroll)
+		}
+		if cmd != nil {
+			t.Error("cmd != nil, want nil (popup swallows mouse events)")
+		}
+	})
+
+	t.Run("stats view swallows mouse input", func(t *testing.T) {
+		m := testModel()
+		m.view = viewStats
+		m.totalRenderedLines = 100
+		m.scroll = 3
+
+		result, _ := m.Update(mouseScroll(tea.MouseWheelDown))
+		got := asModel(result)
+
+		if got.scroll != 3 {
+			t.Errorf("scroll = %d, want 3 (stats view must not scroll the hidden list)", got.scroll)
+		}
+	})
+}
+
+// --- TestWindowSizeClampsListScroll ------------------------------------------
+
+func TestWindowSizeClampsListScroll(t *testing.T) {
+	m := testModel()
+	// Over-scrolled state, as after pressing G in a short terminal that then
+	// grows: layoutList output is unchanged, so only an explicit clamp fixes it.
+	m.scroll = 10_000
+
+	result, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	got := asModel(result)
+
+	maxScroll := got.totalRenderedLines - got.contentHeight(0, got.activityIndicatorHeight())
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if got.scroll > maxScroll {
+		t.Errorf("scroll = %d, want <= %d (resize must clamp list scroll)", got.scroll, maxScroll)
+	}
+}

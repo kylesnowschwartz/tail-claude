@@ -150,6 +150,105 @@ func TestPickerSessionsMsgClearsLoading(t *testing.T) {
 	})
 }
 
+// --- TestPickerSessionsMsgViewAndSelection ----------------------------------
+
+func TestPickerSessionsMsgViewAndSelection(t *testing.T) {
+	sessions := []parser.SessionInfo{
+		{Path: "/tmp/a.jsonl", SessionID: "aaa", ModTime: time.Now(), FirstMessage: "first"},
+		{Path: "/tmp/b.jsonl", SessionID: "bbb", ModTime: time.Now().Add(-time.Minute), FirstMessage: "second"},
+	}
+
+	t.Run("does not hijack the view when the user navigated away", func(t *testing.T) {
+		m := pickerModel()
+		m.view = viewDetail // user moved on while discovery ran
+
+		result, _ := m.Update(pickerSessionsMsg{sessions: sessions})
+		got := result.(model)
+
+		if got.view != viewDetail {
+			t.Errorf("view = %v, want viewDetail (discovery result must not switch views)", got.view)
+		}
+		if len(got.pickerItems) == 0 {
+			t.Error("pickerItems should still refresh in the background")
+		}
+	})
+
+	t.Run("preserves selection when a refresh lands mid-navigation", func(t *testing.T) {
+		m := pickerModel()
+		m.pickerSessions = sessions
+		m.pickerItems = rebuildPickerItems(sessions)
+		for i, item := range m.pickerItems {
+			if item.typ == pickerItemSession && item.session.SessionID == "bbb" {
+				m.pickerCursor = i
+				break
+			}
+		}
+
+		// A second queued discovery lands with the same sessions.
+		result, _ := m.Update(pickerSessionsMsg{sessions: sessions})
+		got := result.(model)
+
+		selected := got.pickerSelectedSession()
+		if selected == nil || selected.SessionID != "bbb" {
+			t.Errorf("selection lost: got %+v, want session bbb", selected)
+		}
+	})
+
+	t.Run("stale discovery result is dropped", func(t *testing.T) {
+		m := pickerModel()
+		m.pickerLoading = true
+		// Simulate `b` toggling worktree mode mid-discovery: the toggle
+		// bumped the generation, then the pre-toggle scan lands late.
+		m.pickerLoadGen = 2
+
+		result, cmd := m.Update(pickerSessionsMsg{gen: 1, sessions: sessions})
+		got := result.(model)
+
+		if !got.pickerLoading {
+			t.Error("stale result must not clear pickerLoading for the in-flight scan")
+		}
+		if len(got.pickerItems) != 0 {
+			t.Error("stale result must not replace picker items")
+		}
+		if cmd != nil {
+			t.Error("stale result must not start the tick chain or watcher")
+		}
+	})
+
+	t.Run("current discovery result is applied", func(t *testing.T) {
+		m := pickerModel()
+		m.pickerLoading = true
+		m.pickerLoadGen = 2
+
+		result, _ := m.Update(pickerSessionsMsg{gen: 2, sessions: sessions})
+		got := result.(model)
+
+		if got.pickerLoading {
+			t.Error("matching-gen result should clear pickerLoading")
+		}
+		if len(got.pickerItems) == 0 {
+			t.Error("matching-gen result should populate picker items")
+		}
+	})
+
+	t.Run("q from list opens the picker at dispatch time", func(t *testing.T) {
+		m := testModel()
+
+		result, cmd := m.updateList(key("q"))
+		got := result.(model)
+
+		if got.view != viewPicker {
+			t.Errorf("view = %v, want viewPicker (switch happens on keypress, not on discovery)", got.view)
+		}
+		if !got.pickerLoading {
+			t.Error("pickerLoading should be true while discovery runs")
+		}
+		if cmd == nil {
+			t.Error("q should dispatch the discovery command")
+		}
+	})
+}
+
 // --- TestPickerInitFiresTick ----------------------------------------------
 
 func TestPickerInitFiresTick(t *testing.T) {
