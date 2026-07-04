@@ -540,15 +540,20 @@ func renderTraceHeader(parent displayItem) string {
 // Format: {cursor} {indicator} {name:<12} {summary}  {tokens} {duration}
 // isExpanded controls the cursor chevron direction (down vs right).
 func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isExpanded bool, width int) string {
-	// Cursor indicator: drillable items get a distinct arrow, expanded items
-	// get chevron-down, collapsed items get chevron-right.
+	// Cursor indicator: drillable items get a distinct arrow, expandable items
+	// get a chevron (down when open, right when closed), and items with nothing
+	// to expand get a neutral position bar so the chevron never promises an
+	// expansion that reveals nothing.
 	cursor := "  "
 	if index == cursorIndex {
-		if item.subagentProcess != nil {
+		switch {
+		case item.subagentProcess != nil:
 			cursor = Icon.DrillDown.RenderBold() + " "
-		} else if isExpanded {
+		case !hasExpandedContent(item):
+			cursor = Icon.Selected.RenderBold() + " "
+		case isExpanded:
 			cursor = Icon.Expanded.RenderBold() + " "
-		} else {
+		default:
 			cursor = Icon.Collapsed.Render() + " "
 		}
 	}
@@ -696,9 +701,27 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 	return spaceBetween(left, rightSide, width)
 }
 
+// hasExpandedContent reports whether expanding the item would reveal anything.
+// It must agree with renderDetailItemExpanded, which early-returns through it;
+// keep the two in sync when adding item types.
+func hasExpandedContent(item displayItem) bool {
+	switch item.itemType {
+	case parser.ItemThinking, parser.ItemOutput, parser.ItemTeammateMessage:
+		return strings.TrimSpace(item.text) != ""
+	case parser.ItemSubagent:
+		return item.subagentProcess != nil || item.toolInput != "" || item.toolResult != "" || item.toolError
+	case parser.ItemToolCall:
+		return item.toolInput != "" || item.toolResult != "" || item.toolError
+	}
+	return false
+}
+
 // renderDetailItemExpanded renders the expanded content for a detail item.
 // Indented 4 spaces, word-wrapped to width-8.
 func (m model) renderDetailItemExpanded(item displayItem, width int) rendered {
+	if !hasExpandedContent(item) {
+		return rendered{}
+	}
 	wrapWidth := max(width-8, 20)
 	indent := "    "
 

@@ -194,6 +194,11 @@ func (m *model) toggleDetailExpansion() {
 	visualRow := m.detailCursorLine() - m.detailScroll
 	row := rows[m.detailCursor]
 
+	// Nothing to reveal: don't record a meaningless "expanded" state.
+	if !hasExpandedContent(row.item) {
+		return
+	}
+
 	if row.childIndex == -1 {
 		// Parent row: toggle parent expansion.
 		m.detailExpanded[row.parentIndex] = !m.detailExpanded[row.parentIndex]

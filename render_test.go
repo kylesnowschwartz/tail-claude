@@ -387,3 +387,29 @@ func TestInfoBarHeightMatchesRender(t *testing.T) {
 		}
 	})
 }
+
+func TestHasExpandedContent(t *testing.T) {
+	cases := []struct {
+		name string
+		item displayItem
+		want bool
+	}{
+		{"thinking with text", displayItem{itemType: parser.ItemThinking, text: "let me think"}, true},
+		{"thinking empty", displayItem{itemType: parser.ItemThinking, text: "  \n"}, false},
+		{"output with text", displayItem{itemType: parser.ItemOutput, text: "done"}, true},
+		{"output empty", displayItem{itemType: parser.ItemOutput}, false},
+		{"tool call with input", displayItem{itemType: parser.ItemToolCall, toolInput: `{"file":"x"}`}, true},
+		{"tool call errored", displayItem{itemType: parser.ItemToolCall, toolError: true}, true},
+		{"tool call bare", displayItem{itemType: parser.ItemToolCall, toolName: "Read"}, false},
+		{"subagent linked", displayItem{itemType: parser.ItemSubagent, subagentProcess: &parser.SubagentProcess{}}, true},
+		{"subagent bare", displayItem{itemType: parser.ItemSubagent}, false},
+		{"memory load", displayItem{itemType: parser.ItemMemoryLoad, text: "MEMORY.md"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := hasExpandedContent(c.item); got != c.want {
+				t.Errorf("hasExpandedContent(%s) = %v, want %v", c.name, got, c.want)
+			}
+		})
+	}
+}
