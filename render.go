@@ -1101,10 +1101,7 @@ func (m model) debugVisibleLines(scroll, viewHeight, width int) []string {
 	lineNo := 0
 	for i, entry := range m.debugFiltered {
 		expanded := m.debugExpanded[i] && entry.HasExtra()
-		entryLines := 1
-		if expanded {
-			entryLines += entry.ExtraLineCount()
-		}
+		entryLines := m.debugEntryLines(i)
 		if lineNo+entryLines <= scroll {
 			lineNo += entryLines
 			continue
