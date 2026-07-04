@@ -251,10 +251,10 @@ type model struct {
 	tailErrc        chan error
 	sessionOngoing  bool                    // whether the watched session is still in progress
 	sessionWorkflow parser.WorkflowActivity // background Workflow runs (agent count, last write)
-	ongoingGraceSeq int       // sequence counter for grace period timers (stale timers ignored)
-	tickSeq         int       // sequence counter for tick chains (stale ticks from old chains ignored)
-	lastTailUpdate  time.Time // when the last tailUpdateMsg arrived (ongoing staleness failsafe)
-	animFrame       int       // animation frame counter for activity indicator
+	ongoingGraceSeq int                     // sequence counter for grace period timers (stale timers ignored)
+	tickSeq         int                     // sequence counter for tick chains (stale ticks from old chains ignored)
+	lastTailUpdate  time.Time               // when the last tailUpdateMsg arrived (ongoing staleness failsafe)
+	animFrame       int                     // animation frame counter for activity indicator
 
 	// Subagent trace drill-down state
 	traceMsg    *message          // non-nil when viewing a subagent's execution trace

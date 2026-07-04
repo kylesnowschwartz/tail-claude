@@ -16,9 +16,11 @@ func shortModel(m string) string {
 	if len(parts) == 2 {
 		modelFamily := parts[0]
 		// Keep major-minor only, drop patch/build metadata (e.g. "4-6-20250101" -> "4-6").
+		// Ids without a minor version ("sonnet-5-20260203") put the 8-digit date
+		// stamp second; a real minor version is 1-2 digits.
 		vParts := strings.SplitN(parts[1], "-", 3)
 		modelVersion := vParts[0]
-		if len(vParts) >= 2 {
+		if len(vParts) >= 2 && len(vParts[1]) <= 2 {
 			modelVersion = vParts[0] + "-" + vParts[1]
 		}
 		return modelFamily + strings.ReplaceAll(modelVersion, "-", ".")
@@ -29,6 +31,7 @@ func shortModel(m string) string {
 // modelColor returns a color based on the Claude model family.
 func modelColor(model string) color.Color {
 	switch {
+	// Fable and Mythos share the underlying model (Mythos-class tier).
 	case strings.Contains(model, "fable"), strings.Contains(model, "mythos"):
 		return ColorModelFable
 	case strings.Contains(model, "opus"):
@@ -37,9 +40,6 @@ func modelColor(model string) color.Color {
 		return ColorModelSonnet
 	case strings.Contains(model, "haiku"):
 		return ColorModelHaiku
-	// Fable and Mythos share the underlying model (Mythos-class tier).
-	case strings.Contains(model, "fable"), strings.Contains(model, "mythos"):
-		return ColorModelFable
 	default:
 		return ColorTextSecondary
 	}
