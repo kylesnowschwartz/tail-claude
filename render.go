@@ -1231,34 +1231,9 @@ func (m model) renderDebugEntry(entry parser.DebugEntry, index int, isCursor boo
 // styleDebugMessage styles a debug message string by level, then highlights
 // any text filter matches with a reverse-video accent.
 func (m model) styleDebugMessage(msg string, level parser.DebugLevel) string {
-	if m.debugFilterText == "" {
-		// No filter active: plain level-based styling.
-		return debugLevelStyle(msg, level)
-	}
-
-	// Highlight matched substrings. Case-insensitive scan, preserving original case.
-	query := strings.ToLower(m.debugFilterText)
-	lower := strings.ToLower(msg)
 	hlStyle := lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(ColorAccent)
-
-	var out strings.Builder
-	pos := 0
-	for {
-		idx := strings.Index(lower[pos:], query)
-		if idx < 0 {
-			out.WriteString(debugLevelStyle(msg[pos:], level))
-			break
-		}
-		// Text before the match.
-		if idx > 0 {
-			out.WriteString(debugLevelStyle(msg[pos:pos+idx], level))
-		}
-		// The matched substring, highlighted.
-		matchEnd := pos + idx + len(query)
-		out.WriteString(hlStyle.Render(msg[pos+idx : matchEnd]))
-		pos = matchEnd
-	}
-	return out.String()
+	return highlightMatches(msg, m.debugFilterText,
+		func(s string) string { return debugLevelStyle(s, level) }, hlStyle)
 }
 
 // debugLevelStyle applies the standard level-based foreground color to text.

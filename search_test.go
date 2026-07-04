@@ -11,6 +11,8 @@ import (
 	"github.com/kylesnowschwartz/tail-claude/parser"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Realistic current-format lines: the type field sits ~100+ bytes in,
@@ -314,5 +316,47 @@ func TestPickerSearchMouseWheelClampsToFilteredList(t *testing.T) {
 
 	if got.pickerScroll != 0 {
 		t.Errorf("pickerScroll = %d, want 0 (2 results fit on screen; nothing to scroll)", got.pickerScroll)
+	}
+}
+
+func TestHighlightMatchesRuneSafe(t *testing.T) {
+	wrap := func(s string) string { return "(" + s + ")" }
+	plain := lipgloss.NewStyle() // attribute-free style renders text unchanged
+
+	tests := []struct {
+		name, text, query, want string
+	}{
+		{"empty query", "abc", "", "(abc)"},
+		{"no match", "abc", "z", "(abc)"},
+		{"ascii case-insensitive", "Hello World", "world", "(Hello )World"},
+		{"adjacent matches", "aAa", "a", "aAa"},
+		// U+0130 İ is 2 bytes but lowers to 1-byte i: byte offsets found in
+		// the lowered string used to drift past the match (mojibake).
+		{"shrinking fold before match", "İZMİR", "r", "(İZMİ)R"},
+		// U+023A Ⱥ is 2 bytes but lowers to 3-byte U+2C65: byte offsets used
+		// to overshoot the original string (slice-bounds panic).
+		{"growing fold before match", "ȺȺx", "x", "(ȺȺ)x"},
+		// The matched region keeps its original casing even when its byte
+		// length differs from the query's.
+		{"fold inside match", "İzmir", "i", "İ(zm)i(r)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := highlightMatches(tt.text, tt.query, wrap, plain)
+			if got != tt.want {
+				t.Errorf("highlightMatches(%q, %q) = %q, want %q", tt.text, tt.query, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHighlightQueryUnicodeRoundTrip(t *testing.T) {
+	// Regression: byte-offset slicing panicked or emitted mid-rune garbage on
+	// case folds that change byte length. Stripping the highlight ANSI must
+	// recover the original text exactly.
+	for _, text := range []string{"ȺȺx", "İZMİR", "plain ascii"} {
+		if got := ansi.Strip(highlightQuery(text, "x")); got != text {
+			t.Errorf("ansi.Strip(highlightQuery(%q, \"x\")) = %q, want original text", text, got)
+		}
 	}
 }
