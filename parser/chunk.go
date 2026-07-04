@@ -282,7 +282,7 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 				case "tool_use":
 					inputLen := len(b.ToolInput)
 					if b.ToolName == "Task" || b.ToolName == "Agent" || b.ToolName == "Skill" {
-						info := extractSubagentInfo(b.ToolInput)
+						info := extractSubagentInfo(parseInputFields(b.ToolInput))
 						items = append(items, DisplayItem{
 							Type:           ItemSubagent,
 							ToolName:       b.ToolName,
@@ -516,48 +516,33 @@ type subagentInfo struct {
 	MemberName  string // team member name (only for team Task calls)
 }
 
-// extractSubagentInfo extracts metadata from Task tool input JSON.
-func extractSubagentInfo(input json.RawMessage) subagentInfo {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(input, &fields); err != nil {
-		return subagentInfo{}
-	}
-
+// extractSubagentInfo extracts metadata from Task/Agent/Skill tool input
+// fields. Single decoder for the type and description fallback chains —
+// summaryTask builds its display string from this result, so the summary
+// prefix and DisplayItem.SubagentType can never disagree.
+func extractSubagentInfo(fields map[string]json.RawMessage) subagentInfo {
 	var info subagentInfo
 
-	// Inner unmarshal errors are intentionally ignored — these are optional string
-	// fields and "" is the correct default when absent or non-string.
-	if raw, ok := fields["subagent_type"]; ok {
-		json.Unmarshal(raw, &info.Type)
-	}
-	// Try "description" first, then "prompt" as fallback.
-	if raw, ok := fields["description"]; ok {
-		json.Unmarshal(raw, &info.Description)
-	}
-	if info.Description == "" {
-		if raw, ok := fields["prompt"]; ok {
-			var prompt string
-			json.Unmarshal(raw, &prompt)
-			info.Description = Truncate(prompt, 80)
-		}
-	}
-	// Skill tool uses "skill" for type and "args" for description.
+	info.Type = getString(fields, "subagent_type")
 	if info.Type == "" {
-		if raw, ok := fields["skill"]; ok {
-			json.Unmarshal(raw, &info.Type)
-		}
+		// Some sessions carry the camelCase variant.
+		info.Type = getString(fields, "subagentType")
+	}
+	if info.Type == "" {
+		// Skill tool uses "skill" for type and "args" for description.
+		info.Type = getString(fields, "skill")
+	}
+
+	// Try "description" first, then "prompt", then "args" (Skill tool).
+	info.Description = getString(fields, "description")
+	if info.Description == "" {
+		info.Description = Truncate(getString(fields, "prompt"), 80)
 	}
 	if info.Description == "" {
-		if raw, ok := fields["args"]; ok {
-			var args string
-			json.Unmarshal(raw, &args)
-			info.Description = Truncate(args, 80)
-		}
+		info.Description = Truncate(getString(fields, "args"), 80)
 	}
 
 	// Team member name (present when team_name + name are both set).
-	if raw, ok := fields["name"]; ok {
-		json.Unmarshal(raw, &info.MemberName)
-	}
+	info.MemberName = getString(fields, "name")
 	return info
 }

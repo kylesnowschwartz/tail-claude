@@ -208,9 +208,7 @@ func applyTaskUpdate(input json.RawMessage, team *TeamSnapshot, fallbackOwner st
 // addTeamSpawnMember adds a worker name to the matching team's Members list.
 // Deduplicates — a worker spawned twice (e.g. resumed) appears once.
 func addTeamSpawnMember(input json.RawMessage, teams []TeamSnapshot) {
-	fields := parseInputFields(input)
-	teamName := getString(fields, "team_name")
-	memberName := getString(fields, "name")
+	teamName, memberName, _ := teamSpecFromInput(input)
 	if teamName == "" || memberName == "" {
 		return
 	}

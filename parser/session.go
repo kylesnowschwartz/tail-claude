@@ -287,36 +287,21 @@ func scanSessionTitle(path string) string {
 // cheaper than DiscoverProjectSessions because it uses scanSessionTitle
 // instead of scanSessionMetadata.
 func discoverSessionTitles(projectDir string) ([]SessionTitleRef, error) {
-	entries, err := os.ReadDir(projectDir)
+	files, err := listSessionFiles(projectDir)
 	if err != nil {
 		return nil, err
 	}
 	var refs []SessionTitleRef
-	for _, de := range entries {
-		if de.IsDir() {
-			continue
-		}
-		name := de.Name()
-		if !strings.HasSuffix(name, ".jsonl") {
-			continue
-		}
-		if strings.HasPrefix(name, "agent_") {
-			continue
-		}
-		info, err := de.Info()
-		if err != nil {
-			continue
-		}
-		path := filepath.Join(projectDir, name)
-		title := scanSessionTitle(path)
+	for _, sf := range files {
+		title := scanSessionTitle(sf.path)
 		if title == "" {
 			continue
 		}
 		refs = append(refs, SessionTitleRef{
-			Path:      path,
-			SessionID: strings.TrimSuffix(name, ".jsonl"),
+			Path:      sf.path,
+			SessionID: strings.TrimSuffix(sf.name, ".jsonl"),
 			Title:     title,
-			ModTime:   info.ModTime(),
+			ModTime:   sf.modTime,
 		})
 	}
 	return refs, nil
@@ -366,9 +351,16 @@ func FindTitleMatches(query string, projectDirs []string) ([]SessionTitleRef, er
 // (main + worktree dirs). Calls DiscoverProjectSessions on each, merges results,
 // and sorts by ModTime descending. Missing directories are silently skipped.
 func DiscoverAllProjectSessions(projectDirs []string) ([]SessionInfo, error) {
+	return discoverAllSessions(projectDirs, DiscoverProjectSessions)
+}
+
+// discoverAllSessions is the shared merge-and-sort for DiscoverAllProjectSessions
+// and its cached variant. The discover function determines how each directory is
+// scanned (direct vs cache-backed). Missing directories are silently skipped.
+func discoverAllSessions(projectDirs []string, discover func(string) ([]SessionInfo, error)) ([]SessionInfo, error) {
 	var all []SessionInfo
 	for _, dir := range projectDirs {
-		sessions, err := DiscoverProjectSessions(dir)
+		sessions, err := discover(dir)
 		if err != nil {
 			continue // missing dir or permission error -- skip
 		}
@@ -382,19 +374,23 @@ func DiscoverAllProjectSessions(projectDirs []string) ([]SessionInfo, error) {
 	return all, nil
 }
 
-// scanFn returns session metadata for a given file path and modTime.
-type scanFn func(path string, modTime time.Time) sessionMetadata
+// sessionFile is a candidate session file returned by listSessionFiles.
+type sessionFile struct {
+	path    string
+	name    string
+	modTime time.Time
+}
 
-// discoverSessions is the shared directory-walk logic for DiscoverProjectSessions
-// and its cached variant. The scan function determines how metadata is obtained
-// (direct scan vs cache lookup).
-func discoverSessions(projectDir string, scan scanFn) ([]SessionInfo, error) {
+// listSessionFiles returns the session .jsonl files in a project directory,
+// skipping subdirectories, non-.jsonl files, and agent_* subagent files.
+// Single home for the walk filtering shared by discoverSessions and
+// discoverSessionTitles, so a filtering fix lands in both.
+func listSessionFiles(projectDir string) ([]sessionFile, error) {
 	entries, err := os.ReadDir(projectDir)
 	if err != nil {
 		return nil, err
 	}
-
-	var sessions []SessionInfo
+	var files []sessionFile
 	for _, de := range entries {
 		if de.IsDir() {
 			continue
@@ -406,14 +402,34 @@ func discoverSessions(projectDir string, scan scanFn) ([]SessionInfo, error) {
 		if strings.HasPrefix(name, "agent_") {
 			continue
 		}
-
 		info, err := de.Info()
 		if err != nil {
 			continue
 		}
+		files = append(files, sessionFile{
+			path:    filepath.Join(projectDir, name),
+			name:    name,
+			modTime: info.ModTime(),
+		})
+	}
+	return files, nil
+}
 
-		path := filepath.Join(projectDir, name)
-		meta := scan(path, info.ModTime())
+// scanFn returns session metadata for a given file path and modTime.
+type scanFn func(path string, modTime time.Time) sessionMetadata
+
+// discoverSessions is the shared directory-walk logic for DiscoverProjectSessions
+// and its cached variant. The scan function determines how metadata is obtained
+// (direct scan vs cache lookup).
+func discoverSessions(projectDir string, scan scanFn) ([]SessionInfo, error) {
+	files, err := listSessionFiles(projectDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []SessionInfo
+	for _, sf := range files {
+		meta := scan(sf.path, sf.modTime)
 
 		// Skip ghost sessions (e.g. only file-history-snapshot entries).
 		if meta.turnCount == 0 {
@@ -421,13 +437,13 @@ func discoverSessions(projectDir string, scan scanFn) ([]SessionInfo, error) {
 		}
 
 		isOngoing := meta.isOngoing
-		if isOngoing && time.Since(info.ModTime()) > OngoingStalenessThreshold {
+		if isOngoing && time.Since(sf.modTime) > OngoingStalenessThreshold {
 			isOngoing = false
 		}
 		// A background Workflow run keeps working while the parent file goes
 		// silent — the parent-derived signal above misses it in both
 		// directions (stale parent, or a turn that "ended" with the launch).
-		if !isOngoing && ScanWorkflowActivity(path).Active(OngoingStalenessThreshold) {
+		if !isOngoing && ScanWorkflowActivity(sf.path).Active(OngoingStalenessThreshold) {
 			isOngoing = true
 		}
 
@@ -438,9 +454,9 @@ func discoverSessions(projectDir string, scan scanFn) ([]SessionInfo, error) {
 		}
 
 		sessions = append(sessions, SessionInfo{
-			Path:           path,
-			SessionID:      strings.TrimSuffix(name, ".jsonl"),
-			ModTime:        info.ModTime(),
+			Path:           sf.path,
+			SessionID:      strings.TrimSuffix(sf.name, ".jsonl"),
+			ModTime:        sf.modTime,
 			Title:          title,
 			FirstMessage:   meta.firstMsg,
 			LastPrompt:     meta.lastPrompt,
@@ -597,8 +613,14 @@ func scanSessionMetadata(path string) sessionMetadata {
 
 		// --- Context token tracking (last assistant message's window snapshot) ---
 		if raw.Type == "assistant" && !raw.IsSidechain && raw.Message.Model != "<synthetic>" {
+			// Iterations-aware fields (ContextUsage takes the last iteration's
+			// snapshot), routed through the one canonical window formula.
 			u := raw.Message.Usage.ContextUsage()
-			meta.contextTokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+			meta.contextTokens = Usage{
+				InputTokens:         u.InputTokens,
+				CacheReadTokens:     u.CacheReadInputTokens,
+				CacheCreationTokens: u.CacheCreationInputTokens,
+			}.ContextTokens()
 		}
 
 		// --- Model extraction (first real assistant entry) ---

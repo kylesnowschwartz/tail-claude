@@ -108,6 +108,20 @@ func TestClassify_AssistantMessage(t *testing.T) {
 	}
 }
 
+func TestUsage_ContextTokens(t *testing.T) {
+	u := parser.Usage{
+		InputTokens:         100,
+		OutputTokens:        50,
+		CacheReadTokens:     25,
+		CacheCreationTokens: 10,
+	}
+	// Context snapshot excludes output tokens — they aren't part of the
+	// window the next call sees.
+	if got := u.ContextTokens(); got != 135 {
+		t.Errorf("ContextTokens = %d, want 135", got)
+	}
+}
+
 func TestClassify_AssistantMultipleTextBlocks(t *testing.T) {
 	// Text must be derived from the decoded blocks with the same join
 	// semantics as ExtractText: text blocks joined by newline, empty and

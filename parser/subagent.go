@@ -494,14 +494,12 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 		if processes[i].ParentTaskID == "" {
 			continue
 		}
-		it, ok := toolIDToTask[processes[i].ParentTaskID]
-		if !ok || !IsTeamTask(it) {
+		it, found := toolIDToTask[processes[i].ParentTaskID]
+		if !found {
 			continue
 		}
-		fields := parseInputFields(it.ToolInput)
-		teamName := getString(fields, "team_name")
-		agentName := getString(fields, "name")
-		if teamName != "" && agentName != "" {
+		teamName, agentName, ok := teamSpecFromInput(it.ToolInput)
+		if ok && teamName != "" && agentName != "" {
 			processes[i].ID = agentName + "@" + teamName
 		}
 	}
@@ -527,16 +525,26 @@ func filterTeamTasks(items []*DisplayItem, matched map[string]bool) []*DisplayIt
 // IsTeamTask checks whether a Task DisplayItem's input contains both
 // team_name and name keys, marking it as a team member spawn.
 func IsTeamTask(it *DisplayItem) bool {
-	if len(it.ToolInput) == 0 {
-		return false
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(it.ToolInput, &fields); err != nil {
-		return false
+	_, _, ok := teamSpecFromInput(it.ToolInput)
+	return ok
+}
+
+// teamSpecFromInput extracts team_name and name from a Task tool input.
+// Single home for the "is this a team spawn?" definition. ok reports key
+// PRESENCE of both fields (matching IsTeamTask's historical semantics), not
+// value validity — malformed values yield "" with ok=true, so callers that
+// need usable names must still check the strings are non-empty.
+func teamSpecFromInput(input json.RawMessage) (teamName, agentName string, ok bool) {
+	fields := parseInputFields(input)
+	if fields == nil {
+		return "", "", false
 	}
 	_, hasTeamName := fields["team_name"]
 	_, hasName := fields["name"]
-	return hasTeamName && hasName
+	if !hasTeamName || !hasName {
+		return "", "", false
+	}
+	return getString(fields, "team_name"), getString(fields, "name"), true
 }
 
 // agentLinkData holds the results of scanning a parent session for agent links.
@@ -712,16 +720,11 @@ func extractTeamSpecs(chunks []Chunk) []teamSpec {
 		}
 		for j := range chunks[i].Items {
 			it := &chunks[i].Items[j]
-			if it.Type != ItemSubagent || !IsTeamTask(it) {
+			if it.Type != ItemSubagent {
 				continue
 			}
-			var fields map[string]json.RawMessage
-			if err := json.Unmarshal(it.ToolInput, &fields); err != nil {
-				continue
-			}
-			tn := getString(fields, "team_name")
-			an := getString(fields, "name")
-			if tn != "" && an != "" {
+			tn, an, ok := teamSpecFromInput(it.ToolInput)
+			if ok && tn != "" && an != "" {
 				specs = append(specs, teamSpec{teamName: tn, agentName: an})
 			}
 		}

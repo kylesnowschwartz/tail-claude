@@ -2,6 +2,7 @@ package parser
 
 // Exports for testing
 var ParseTimestamp = parseTimestamp
+var TeamSpecFromInput = teamSpecFromInput
 
 // ScanSessionPreview wraps scanSessionMetadata to match the old (preview, turnCount)
 // signature used by external preview tests.

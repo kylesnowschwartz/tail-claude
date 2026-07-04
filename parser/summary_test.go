@@ -256,6 +256,11 @@ func TestToolSummary_Task(t *testing.T) {
 			want:  "research - Search for patterns",
 		},
 		{
+			name:  "description with snake_case subagent type",
+			input: `{"description":"Search for patterns","subagent_type":"research"}`,
+			want:  "research - Search for patterns",
+		},
+		{
 			name:  "prompt fallback",
 			input: `{"prompt":"Find all TODO comments"}`,
 			want:  "Find all TODO comments",
