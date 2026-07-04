@@ -114,17 +114,23 @@ func IsCommandOutput(s string) bool {
 	return strings.HasPrefix(s, localCommandStdoutTag) || strings.HasPrefix(s, localCommandStderrTag)
 }
 
-// extractBashOutput returns the inner text from <bash-stdout> or <bash-stderr>
-// wrapper tags. Tries stdout first, falls back to stderr. Same pattern as
-// ExtractCommandOutput but for inline !bash mode execution.
+// extractBashOutput returns the inner text from <bash-stdout> and <bash-stderr>
+// wrapper tags for inline !bash mode execution. Both streams are kept -- a
+// failing command often writes normal output to stdout and the actual error
+// to stderr, so returning only stdout would hide the failure message.
 func extractBashOutput(s string) string {
+	var parts []string
 	if m := reBashStdout.FindStringSubmatch(s); m != nil {
-		return strings.TrimSpace(m[1])
+		if out := strings.TrimSpace(m[1]); out != "" {
+			parts = append(parts, out)
+		}
 	}
 	if m := reBashStderr.FindStringSubmatch(s); m != nil {
-		return strings.TrimSpace(m[1])
+		if out := strings.TrimSpace(m[1]); out != "" {
+			parts = append(parts, out)
+		}
 	}
-	return ""
+	return strings.Join(parts, "\n")
 }
 
 // extractTaskNotification pulls the human-readable summary from a

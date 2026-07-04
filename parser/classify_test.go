@@ -795,7 +795,7 @@ func TestClassify_SummaryEmptyContent(t *testing.T) {
 // --- Bash mode and task notification tests ---
 
 func TestClassify_BashOutputWithStderr(t *testing.T) {
-	content := json.RawMessage(`"<bash-stdout>fatal: not a git repository\n</bash-stdout><bash-stderr>fatal: not a git repository\n</bash-stderr>"`)
+	content := json.RawMessage(`"<bash-stdout>compiling main.go\n</bash-stdout><bash-stderr>fatal: not a git repository\n</bash-stderr>"`)
 	e := makeEntry("user", "b1", "2025-01-15T10:00:00Z", content)
 
 	msg, ok := parser.Classify(e)
@@ -806,11 +806,33 @@ func TestClassify_BashOutputWithStderr(t *testing.T) {
 	if !isSys {
 		t.Fatalf("expected SystemMsg, got %T", msg)
 	}
-	if sys.Output != "fatal: not a git repository" {
-		t.Errorf("Output = %q, want %q", sys.Output, "fatal: not a git repository")
+	// Both streams must survive: stdout alone would hide the error message.
+	want := "compiling main.go\nfatal: not a git repository"
+	if sys.Output != want {
+		t.Errorf("Output = %q, want %q", sys.Output, want)
 	}
 	if !sys.IsError {
 		t.Error("IsError should be true when bash-stderr is present")
+	}
+}
+
+func TestClassify_BashOutputStderrOnly(t *testing.T) {
+	content := json.RawMessage(`"<bash-stdout></bash-stdout><bash-stderr>command not found: frobnicate\n</bash-stderr>"`)
+	e := makeEntry("user", "b3", "2025-01-15T10:00:00Z", content)
+
+	msg, ok := parser.Classify(e)
+	if !ok {
+		t.Fatal("expected Classify to succeed for bash stderr")
+	}
+	sys, isSys := msg.(parser.SystemMsg)
+	if !isSys {
+		t.Fatalf("expected SystemMsg, got %T", msg)
+	}
+	if sys.Output != "command not found: frobnicate" {
+		t.Errorf("Output = %q, want %q", sys.Output, "command not found: frobnicate")
+	}
+	if !sys.IsError {
+		t.Error("IsError should be true when only stderr is present")
 	}
 }
 
