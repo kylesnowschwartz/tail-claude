@@ -1011,18 +1011,8 @@ func (m model) listKeybindPairs() []string {
 func (m model) viewList() string {
 	content := strings.Join(m.listParts, "\n")
 
-	// Simple line-based scroll
-	lines := strings.Split(content, "\n")
-	totalLines := len(lines)
-	if m.scroll > 0 && m.scroll < totalLines {
-		lines = lines[m.scroll:]
-	}
-
-	// Truncate to viewport height to avoid building a full string we'd discard.
 	viewHeight := m.contentHeight(0, m.activityIndicatorHeight())
-	if len(lines) > viewHeight {
-		lines = lines[:viewHeight]
-	}
+	lines := scrollWindow(strings.Split(content, "\n"), viewHeight, m.scroll)
 
 	return (screenLayout{
 		lines:   lines,
@@ -1073,25 +1063,8 @@ func (m model) viewDetail() string {
 	content := strings.TrimRight(r.content, "\n")
 
 	// Scroll the content
-	lines := strings.Split(content, "\n")
-	totalLines := len(lines)
-
 	viewHeight := m.contentHeight(0, m.activityIndicatorHeight())
-	maxScroll := totalLines - viewHeight
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	scroll := m.detailScroll
-	if scroll > maxScroll {
-		scroll = maxScroll
-	}
-
-	if scroll > 0 && scroll < totalLines {
-		lines = lines[scroll:]
-	}
-	if len(lines) > viewHeight {
-		lines = lines[:viewHeight]
-	}
+	lines := scrollWindow(strings.Split(content, "\n"), viewHeight, m.detailScroll)
 
 	// Footer varies by message type
 	footer := m.renderFooter(m.detailKeybindPairs()...)

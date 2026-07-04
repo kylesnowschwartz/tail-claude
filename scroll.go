@@ -115,6 +115,26 @@ func (m *model) ensureCursorVisible() {
 	}
 }
 
+// scrollWindow returns the slice of lines visible within a viewport,
+// clamping scroll to [0, maxScroll] so callers can pass raw scroll state.
+func scrollWindow(lines []string, viewHeight, scroll int) []string {
+	maxScroll := len(lines) - viewHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	visible := lines[scroll:]
+	if len(visible) > viewHeight {
+		visible = visible[:viewHeight]
+	}
+	return visible
+}
+
 // clampListScroll caps the list scroll offset so it can't exceed the content.
 func (m *model) clampListScroll() {
 	maxScroll := m.totalRenderedLines - m.contentHeight(0, m.activityIndicatorHeight())

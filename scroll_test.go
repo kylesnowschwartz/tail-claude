@@ -478,3 +478,55 @@ func TestContentHeight(t *testing.T) {
 		}
 	})
 }
+
+// --- scrollWindow ----------------------------------------------------------
+
+func TestScrollWindow(t *testing.T) {
+	lines := []string{"a", "b", "c", "d", "e"}
+
+	t.Run("no scroll — first page", func(t *testing.T) {
+		got := scrollWindow(lines, 3, 0)
+		want := []string{"a", "b", "c"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("scrolled — window shifts", func(t *testing.T) {
+		got := scrollWindow(lines, 3, 1)
+		want := []string{"b", "c", "d"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("scroll beyond max — clamped to last page", func(t *testing.T) {
+		got := scrollWindow(lines, 3, 100)
+		want := []string{"c", "d", "e"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("negative scroll — clamped to zero", func(t *testing.T) {
+		got := scrollWindow(lines, 3, -5)
+		want := []string{"a", "b", "c"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("content shorter than viewport — all lines, no clamp panic", func(t *testing.T) {
+		got := scrollWindow(lines, 10, 3)
+		if strings.Join(got, ",") != strings.Join(lines, ",") {
+			t.Errorf("got %v, want %v", got, lines)
+		}
+	})
+
+	t.Run("empty input — empty output", func(t *testing.T) {
+		got := scrollWindow(nil, 3, 2)
+		if len(got) != 0 {
+			t.Errorf("got %v, want empty", got)
+		}
+	})
+}

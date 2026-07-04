@@ -611,19 +611,6 @@ func (m model) renderPickerItems(width int) []string {
 	return lines
 }
 
-// scrollWindow returns a slice of lines visible within a viewport.
-func scrollWindow(lines []string, viewHeight, scroll int) []string {
-	start := scroll
-	if start > len(lines) {
-		start = len(lines)
-	}
-	visible := lines[start:]
-	if len(visible) > viewHeight {
-		visible = visible[:viewHeight]
-	}
-	return visible
-}
-
 // renderPickerHeader renders a date group header with underline rule.
 func (m model) renderPickerHeader(category parser.DateCategory, width int) string {
 	labelStyle := StyleSecondaryBold
