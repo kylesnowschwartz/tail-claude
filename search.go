@@ -600,10 +600,7 @@ func (m model) renderSearchPickerSession(s *parser.SessionInfo, isSelected bool,
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(shortModel(s.Model)))
 	}
 	if s.GitBranch != "" {
-		branch := s.GitBranch
-		if len(branch) > 20 {
-			branch = branch[:17] + "..."
-		}
+		branch := parser.Truncate(s.GitBranch, 20)
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(
 			highlightQuery(branch, m.pickerSearchQuery)))
 	}
@@ -611,8 +608,10 @@ func (m model) renderSearchPickerSession(s *parser.SessionInfo, isSelected bool,
 	if s.Cwd != "" && m.pickerSearchQuery != "" &&
 		strings.Contains(strings.ToLower(s.Cwd), strings.ToLower(m.pickerSearchQuery)) {
 		cwd := s.Cwd
-		if len(cwd) > 30 {
-			cwd = "..." + cwd[len(cwd)-27:]
+		// Keep the tail of the path (most specific part), cutting on rune
+		// boundaries so multi-byte characters don't render as mojibake.
+		if r := []rune(cwd); len(r) > 30 {
+			cwd = "..." + string(r[len(r)-27:])
 		}
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(
 			highlightQuery(cwd, m.pickerSearchQuery)))

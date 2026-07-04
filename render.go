@@ -156,14 +156,9 @@ func formatToolResultPreview(lo *parser.LastOutput) string {
 	nameStyle := StylePrimaryBold
 	resultStyle := StyleSecondary
 
-	result := lo.ToolResult
-	if len(result) > 200 {
-		result = result[:200] + Icon.Ellipsis.Glyph
-	}
-	// Collapse newlines for single-line preview
-	result = strings.ReplaceAll(result, "\n", " ")
-
-	return icon.Render() + " " + nameStyle.Render(lo.ToolName) + " " + resultStyle.Render(parser.Truncate(result, 80))
+	// parser.Truncate collapses newlines and cuts on rune boundaries; a byte
+	// slice here would split multi-byte runes into mojibake.
+	return icon.Render() + " " + nameStyle.Render(lo.ToolName) + " " + resultStyle.Render(parser.Truncate(lo.ToolResult, 80))
 }
 
 // formatToolCallsPreview renders tool names for turns with no output or results.
