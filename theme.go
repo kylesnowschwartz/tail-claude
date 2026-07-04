@@ -29,6 +29,7 @@ import (
 // | ModelOpus           |   "1" | "204" | red           | coral          |
 // | ModelSonnet         |   "4" |  "75" | blue          | blue           |
 // | ModelHaiku          |   "2" | "114" | green         | green          |
+// | ModelFable          |   "5" | "177" | magenta       | violet         |
 // | Ongoing             |   "2" |  "76" | green dot     | green dot      |
 // | PickerSelectedBg    | "254" | "237" | subtle elev.  | subtle elev.   |
 // | PillBypass          |   "1" | "196" | red           | red            |
@@ -50,7 +51,7 @@ var (
 	// Surfaces
 	ColorBorder color.Color
 
-	// Model family (matches claude-devtools; Fable/Mythos is our own pick)
+	// Model family (opus/sonnet/haiku match claude-devtools; fable is our own pick)
 	ColorModelOpus   color.Color
 	ColorModelSonnet color.Color
 	ColorModelHaiku  color.Color
@@ -141,7 +142,7 @@ func initTheme(hasDarkBg bool) {
 	ColorModelOpus = ld(lipgloss.Color("1"), lipgloss.Color("204"))
 	ColorModelSonnet = ld(lipgloss.Color("4"), lipgloss.Color("75"))
 	ColorModelHaiku = ld(lipgloss.Color("2"), lipgloss.Color("114"))
-	ColorModelFable = ld(lipgloss.Color("5"), lipgloss.Color("135"))
+	ColorModelFable = ld(lipgloss.Color("5"), lipgloss.Color("177"))
 
 	// Ongoing indicator
 	ColorOngoing = ld(lipgloss.Color("2"), lipgloss.Color("76"))

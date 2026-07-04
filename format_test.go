@@ -97,6 +97,9 @@ func TestModelColor(t *testing.T) {
 		{"claude-sonnet-4-5", ColorModelSonnet},
 		{"haiku4.5", ColorModelHaiku},
 		{"claude-haiku-4-5", ColorModelHaiku},
+		{"fable5", ColorModelFable},
+		{"claude-fable-5", ColorModelFable},
+		{"claude-mythos-5", ColorModelFable},
 		{"unknown-model", ColorTextSecondary},
 		{"", ColorTextSecondary},
 	}
