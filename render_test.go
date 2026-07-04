@@ -1,10 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/kylesnowschwartz/tail-claude/parser"
 )
 
 func TestNewRendered(t *testing.T) {
@@ -276,4 +280,77 @@ func TestDetailHeaderMeta(t *testing.T) {
 			t.Errorf("detailHeaderMeta(empty) = %q, want empty", got)
 		}
 	})
+}
+
+// debugAllLines is the pre-optimization reference: render every entry, then
+// slice. Used to verify debugVisibleLines matches it for any window.
+func debugAllLines(m model, width int) []string {
+	var lines []string
+	for i, entry := range m.debugFiltered {
+		lines = append(lines, m.renderDebugEntry(entry, i, i == m.debugCursor, width))
+		if m.debugExpanded[i] && entry.HasExtra() {
+			for _, el := range strings.Split(entry.Extra, "\n") {
+				lines = append(lines, "  "+StyleDim.Render(el))
+			}
+		}
+	}
+	return lines
+}
+
+func TestDebugVisibleLines(t *testing.T) {
+	entries := make([]parser.DebugEntry, 8)
+	for i := range entries {
+		entries[i] = parser.DebugEntry{
+			Timestamp: time.Date(2026, 7, 4, 12, 0, i, 0, time.UTC),
+			Level:     parser.LevelDebug,
+			Message:   fmt.Sprintf("entry %d", i),
+			LineNum:   i + 1,
+			Count:     1,
+		}
+	}
+	// Entry 2 has three continuation lines and is expanded; entry 5 has
+	// extras but stays collapsed (must still count as one line).
+	entries[2].Extra = "extra a\nextra b\nextra c"
+	entries[5].Extra = "hidden extra"
+
+	m := model{
+		width:         100,
+		height:        24,
+		debugFiltered: entries,
+		debugExpanded: map[int]bool{2: true},
+		debugCursor:   4,
+	}
+	width := 100
+	all := debugAllLines(m, width)
+	if len(all) != 11 { // 8 headers + 3 expanded extras
+		t.Fatalf("reference render = %d lines, want 11", len(all))
+	}
+
+	for _, tt := range []struct {
+		name               string
+		scroll, viewHeight int
+	}{
+		{"full window from top", 0, 11},
+		{"window taller than content", 0, 50},
+		{"top of log", 0, 5},
+		{"window starts inside expanded extras", 4, 4},
+		{"window ends inside expanded extras", 2, 2},
+		{"bottom of log", 6, 5},
+		{"single line window", 3, 1},
+		{"zero-height window", 3, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			end := min(tt.scroll+tt.viewHeight, len(all))
+			want := all[min(tt.scroll, len(all)):end]
+			got := m.debugVisibleLines(tt.scroll, tt.viewHeight, width)
+			if len(got) != len(want) {
+				t.Fatalf("got %d lines, want %d", len(got), len(want))
+			}
+			for i := range got {
+				if got[i] != want[i] {
+					t.Errorf("line %d = %q, want %q", i, got[i], want[i])
+				}
+			}
+		})
+	}
 }
