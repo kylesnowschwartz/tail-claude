@@ -26,6 +26,7 @@ type pickerWatcher struct {
 	cache       *parser.SessionCache
 	sub         chan []parser.SessionInfo
 	done        chan struct{}
+	signals     chan struct{} // debounced rescan trigger; capacity 1, never closed
 }
 
 func newPickerWatcher(projectDirs []string, cache *parser.SessionCache) *pickerWatcher {
@@ -34,12 +35,20 @@ func newPickerWatcher(projectDirs []string, cache *parser.SessionCache) *pickerW
 		cache:       cache,
 		sub:         make(chan []parser.SessionInfo, 1),
 		done:        make(chan struct{}),
+		signals:     make(chan struct{}, 1),
 	}
 }
 
 // run watches all project directories for .jsonl changes. Debounces 500ms
 // before rescanning. Blocks until stop() is called.
+//
+// Closes sub on exit so blocked waitForPickerRefresh Cmds unblock and return
+// nil instead of leaking goroutines. run is the only sender on sub: debounce
+// timer callbacks route through the signals channel (never closed) so a
+// late-firing timer can never send on a closed channel.
 func (pw *pickerWatcher) run() {
+	defer close(pw.sub)
+
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return
@@ -64,6 +73,11 @@ func (pw *pickerWatcher) run() {
 			}
 			return
 
+		case <-pw.signals:
+			// Debounced rescan trigger. Scan and send here on the run
+			// goroutine so closing sub on exit can never race a send.
+			pw.rescan()
+
 		case event, ok := <-w.Events:
 			if !ok {
 				return
@@ -81,29 +95,7 @@ func (pw *pickerWatcher) run() {
 			if debounce != nil {
 				debounce.Stop()
 			}
-			debounce = time.AfterFunc(500*time.Millisecond, func() {
-				var sessions []parser.SessionInfo
-				var err error
-				if pw.cache != nil {
-					sessions, err = pw.cache.DiscoverAllProjectSessions(pw.projectDirs)
-				} else {
-					sessions, err = parser.DiscoverAllProjectSessions(pw.projectDirs)
-				}
-				if err != nil {
-					return
-				}
-				// Non-blocking send: drop stale refresh if channel is full.
-				select {
-				case pw.sub <- sessions:
-				default:
-					// Drain and resend with fresh data.
-					select {
-					case <-pw.sub:
-					default:
-					}
-					pw.sub <- sessions
-				}
-			})
+			debounce = time.AfterFunc(500*time.Millisecond, pw.sendSignal)
 
 		case _, ok := <-w.Errors:
 			if !ok {
@@ -111,6 +103,41 @@ func (pw *pickerWatcher) run() {
 			}
 			// Swallow watch errors -- they're transient.
 		}
+	}
+}
+
+// rescan re-discovers all project sessions and sends the fresh list on sub.
+// Only called from run() -- run owns all sends on sub.
+func (pw *pickerWatcher) rescan() {
+	var sessions []parser.SessionInfo
+	var err error
+	if pw.cache != nil {
+		sessions, err = pw.cache.DiscoverAllProjectSessions(pw.projectDirs)
+	} else {
+		sessions, err = parser.DiscoverAllProjectSessions(pw.projectDirs)
+	}
+	if err != nil {
+		return
+	}
+	// Non-blocking send: drop stale refresh if channel is full.
+	select {
+	case pw.sub <- sessions:
+	default:
+		// Drain and resend with fresh data.
+		select {
+		case <-pw.sub:
+		default:
+		}
+		pw.sub <- sessions
+	}
+}
+
+// sendSignal does a non-blocking send on the signals channel. If a signal
+// is already pending, the pending one will trigger a full rescan anyway.
+func (pw *pickerWatcher) sendSignal() {
+	select {
+	case pw.signals <- struct{}{}:
+	default:
 	}
 }
 
