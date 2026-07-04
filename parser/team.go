@@ -3,7 +3,9 @@ package parser
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 )
 
 // TeamTask represents a single task in a team's task board.
@@ -26,20 +28,38 @@ type TeamSnapshot struct {
 	Deleted       bool              // true after TeamDelete
 }
 
+// taskUpdateEvent is a TaskUpdate call collected for timestamp-ordered
+// replay. Team context is resolved at collection time (lead: the active
+// team; worker: the team from its "name@team" ID) because the raw input
+// carries no team reference.
+type taskUpdateEvent struct {
+	ts            time.Time
+	teamIdx       int
+	input         json.RawMessage
+	fallbackOwner string // worker name for worker updates; "" for lead updates
+}
+
 // ReconstructTeams replays tool call events from lead chunks and linked
 // worker processes to build the final task board state for each team.
 //
 // Phase 1 walks lead chunks chronologically for TeamCreate, TaskCreate,
-// TaskUpdate, TeamDelete, and team Task spawns. Task IDs are assigned
-// sequentially per team — Claude Code's task system numbers them from 1.
+// TeamDelete, and team Task spawns. Task IDs are assigned sequentially
+// per team — Claude Code's task system numbers them from 1. TaskUpdate
+// events (lead here, worker in Phase 2) are collected rather than
+// applied immediately.
 //
-// Phase 2 walks worker chunks for TaskUpdate events that modify task
-// status and ownership. If a worker update has no explicit owner field,
-// the worker's own name (from its ID) is used as fallback.
+// Phase 2 collects worker TaskUpdate events. If a worker update has no
+// explicit owner field, the worker's own name (from its ID) is used as
+// fallback. Lead and worker updates are then replayed together in
+// timestamp order — applying all lead updates before all worker updates
+// would let an earlier worker event overwrite a later lead correction.
+// Ordering keys on per-item timestamps (see itemEventTime): a merged AI
+// chunk's Timestamp is the turn-start time, not the update's.
 //
 // Phase 3 populates member colors from worker TeammateColor metadata.
 func ReconstructTeams(chunks []Chunk, workers []SubagentProcess) []TeamSnapshot {
 	var teams []TeamSnapshot
+	var updates []taskUpdateEvent
 	activeIdx := -1
 	taskCounter := 0
 
@@ -63,7 +83,11 @@ func ReconstructTeams(chunks []Chunk, workers []SubagentProcess) []TeamSnapshot 
 					teamTaskFromCreate(it.ToolInput, taskCounter))
 
 			case it.Type == ItemToolCall && it.ToolName == "TaskUpdate" && activeIdx >= 0:
-				applyTeamTaskUpdate(it.ToolInput, &teams[activeIdx])
+				updates = append(updates, taskUpdateEvent{
+					ts:      itemEventTime(it, &chunks[i]),
+					teamIdx: activeIdx,
+					input:   it.ToolInput,
+				})
 
 			case it.Type == ItemToolCall && it.ToolName == "TeamDelete" && activeIdx >= 0:
 				teams[activeIdx].Deleted = true
@@ -81,11 +105,21 @@ func ReconstructTeams(chunks []Chunk, workers []SubagentProcess) []TeamSnapshot 
 		if teamName == "" {
 			continue
 		}
-		team := findTeamByName(teams, teamName)
-		if team == nil {
+		teamIdx := findTeamIndex(teams, teamName)
+		if teamIdx < 0 {
 			continue
 		}
-		applyWorkerTaskUpdates(workers[i].Chunks, team, agentName)
+		updates = append(updates,
+			collectWorkerTaskUpdates(workers[i].Chunks, teamIdx, agentName)...)
+	}
+
+	// Replay all TaskUpdates in timestamp order. Stable sort keeps the
+	// collection order (lead before worker) for equal or missing timestamps.
+	sort.SliceStable(updates, func(a, b int) bool {
+		return updates[a].ts.Before(updates[b].ts)
+	})
+	for _, u := range updates {
+		applyTaskUpdate(u.input, &teams[u.teamIdx], u.fallbackOwner)
 	}
 
 	// Phase 3: Populate member colors from worker metadata.
@@ -142,8 +176,11 @@ func teamTaskFromCreate(input json.RawMessage, seqID int) TeamTask {
 	}
 }
 
-// applyTeamTaskUpdate applies a TaskUpdate to the matching task in a team.
-func applyTeamTaskUpdate(input json.RawMessage, team *TeamSnapshot) {
+// applyTaskUpdate applies a TaskUpdate to the matching task in a team.
+// fallbackOwner is set for worker updates without an explicit owner field
+// — workers typically claim tasks by setting themselves as owner, but the
+// field is optional. Lead updates pass "".
+func applyTaskUpdate(input json.RawMessage, team *TeamSnapshot, fallbackOwner string) {
 	fields := parseInputFields(input)
 	taskID := getString(fields, "taskId")
 	if taskID == "" {
@@ -158,6 +195,8 @@ func applyTeamTaskUpdate(input json.RawMessage, team *TeamSnapshot) {
 		}
 		if owner := getString(fields, "owner"); owner != "" {
 			team.Tasks[i].Owner = owner
+		} else if fallbackOwner != "" && team.Tasks[i].Owner == "" {
+			team.Tasks[i].Owner = fallbackOwner
 		}
 		if subject := getString(fields, "subject"); subject != "" {
 			team.Tasks[i].Subject = subject
@@ -189,11 +228,10 @@ func addTeamSpawnMember(input json.RawMessage, teams []TeamSnapshot) {
 	}
 }
 
-// applyWorkerTaskUpdates scans a worker's chunks for TaskUpdate calls and
-// applies them to the team's tasks. If the update has no explicit owner
-// field, the worker's own name is used as fallback — workers typically
-// claim tasks by setting themselves as owner, but the field is optional.
-func applyWorkerTaskUpdates(chunks []Chunk, team *TeamSnapshot, workerName string) {
+// collectWorkerTaskUpdates gathers a worker's TaskUpdate calls as replay
+// events tagged with the worker's team and name.
+func collectWorkerTaskUpdates(chunks []Chunk, teamIdx int, workerName string) []taskUpdateEvent {
+	var events []taskUpdateEvent
 	for i := range chunks {
 		if chunks[i].Type != AIChunk {
 			continue
@@ -203,29 +241,26 @@ func applyWorkerTaskUpdates(chunks []Chunk, team *TeamSnapshot, workerName strin
 			if it.Type != ItemToolCall || it.ToolName != "TaskUpdate" {
 				continue
 			}
-			fields := parseInputFields(it.ToolInput)
-			taskID := getString(fields, "taskId")
-			if taskID == "" {
-				continue
-			}
-			for k := range team.Tasks {
-				if team.Tasks[k].ID != taskID {
-					continue
-				}
-				if status := getString(fields, "status"); status != "" {
-					team.Tasks[k].Status = status
-				}
-				if owner := getString(fields, "owner"); owner != "" {
-					team.Tasks[k].Owner = owner
-				} else if team.Tasks[k].Owner == "" {
-					team.Tasks[k].Owner = workerName
-				}
-				if subject := getString(fields, "subject"); subject != "" {
-					team.Tasks[k].Subject = subject
-				}
-			}
+			events = append(events, taskUpdateEvent{
+				ts:            itemEventTime(it, &chunks[i]),
+				teamIdx:       teamIdx,
+				input:         it.ToolInput,
+				fallbackOwner: workerName,
+			})
 		}
 	}
+	return events
+}
+
+// itemEventTime returns the item's own timestamp — required for correct
+// ordering because merged AI chunks stamp Chunk.Timestamp with the FIRST
+// buffered message's time — falling back to the chunk timestamp for items
+// built without per-message times.
+func itemEventTime(it *DisplayItem, chunk *Chunk) time.Time {
+	if !it.Timestamp.IsZero() {
+		return it.Timestamp
+	}
+	return chunk.Timestamp
 }
 
 // splitWorkerID parses "agentName@teamName" into its parts.
@@ -238,14 +273,14 @@ func splitWorkerID(id string) (agentName, teamName string) {
 	return parts[0], parts[1]
 }
 
-// findTeamByName returns a pointer to the named team, or nil.
-func findTeamByName(teams []TeamSnapshot, name string) *TeamSnapshot {
+// findTeamIndex returns the index of the named team, or -1.
+func findTeamIndex(teams []TeamSnapshot, name string) int {
 	for i := range teams {
 		if teams[i].Name == name {
-			return &teams[i]
+			return i
 		}
 	}
-	return nil
+	return -1
 }
 
 // parseInputFields unmarshals a JSON tool input into a field map.
