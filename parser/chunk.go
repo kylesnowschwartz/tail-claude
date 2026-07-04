@@ -28,7 +28,14 @@ const (
 
 // DisplayItem is a structured element within an AI chunk's detail view.
 type DisplayItem struct {
-	Type        DisplayItemType
+	Type DisplayItemType
+
+	// Timestamp is the source message's timestamp. Consecutive AI messages
+	// merge into one chunk (whose Timestamp is the FIRST message's), so
+	// items within a chunk carry their own times. Zero for items built
+	// outside mergeAIBuffer.
+	Timestamp time.Time
+
 	Text        string
 	ToolName    string
 	ToolID      string
@@ -341,6 +348,14 @@ func mergeAIBuffer(buf []AIMsg) Chunk {
 					})
 				}
 			}
+		}
+
+		// Stamp items created by this message with its own timestamp.
+		// Matched tool_result blocks mutate earlier items (no append), so
+		// the [itemStarts[i], len(items)) range is exactly this message's
+		// new items.
+		for k := itemStarts[i]; k < len(items); k++ {
+			items[k].Timestamp = m.Timestamp
 		}
 	}
 

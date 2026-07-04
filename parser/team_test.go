@@ -10,10 +10,15 @@ import (
 
 // makeToolCallItem builds an AI chunk with a single tool call DisplayItem.
 func makeToolCallItem(toolName string, input map[string]interface{}) parser.Chunk {
+	return makeToolCallItemAt(time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC), toolName, input)
+}
+
+// makeToolCallItemAt is makeToolCallItem with an explicit chunk timestamp.
+func makeToolCallItemAt(ts time.Time, toolName string, input map[string]interface{}) parser.Chunk {
 	raw, _ := json.Marshal(input)
 	return parser.Chunk{
 		Type:      parser.AIChunk,
-		Timestamp: time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC),
+		Timestamp: ts,
 		Items: []parser.DisplayItem{{
 			Type:      parser.ItemToolCall,
 			ToolName:  toolName,
@@ -217,6 +222,106 @@ func TestReconstructTeams_WorkerExplicitOwner(t *testing.T) {
 	}
 	if teams[0].Tasks[1].Owner != "my-worker" {
 		t.Errorf("Task 2 Owner = %q, want %q (inferred)", teams[0].Tasks[1].Owner, "my-worker")
+	}
+}
+
+func TestReconstructTeams_TimestampOrderedReplay(t *testing.T) {
+	base := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+	chunks := []parser.Chunk{
+		makeToolCallItemAt(base, "TeamCreate", map[string]interface{}{
+			"team_name": "proj",
+		}),
+		makeToolCallItemAt(base.Add(1*time.Minute), "TaskCreate", map[string]interface{}{
+			"subject": "Task one",
+		}),
+		// Lead correction at 10:30 — after the worker's stale update below.
+		makeToolCallItemAt(base.Add(30*time.Minute), "TaskUpdate", map[string]interface{}{
+			"taskId": "1",
+			"status": "completed",
+		}),
+	}
+
+	// Worker claims the task at 10:05, before the lead's correction.
+	workers := []parser.SubagentProcess{{
+		ID: "fixer@proj",
+		Chunks: []parser.Chunk{
+			makeToolCallItemAt(base.Add(5*time.Minute), "TaskUpdate", map[string]interface{}{
+				"taskId": "1",
+				"status": "in_progress",
+			}),
+		},
+	}}
+
+	teams := parser.ReconstructTeams(chunks, workers)
+
+	if len(teams) == 0 || len(teams[0].Tasks) == 0 {
+		t.Fatal("expected 1 team with 1 task")
+	}
+	task := teams[0].Tasks[0]
+	if task.Status != "completed" {
+		t.Errorf("Status = %q, want %q (lead's later update must win)", task.Status, "completed")
+	}
+	// Owner fallback from the worker's earlier claim still applies.
+	if task.Owner != "fixer" {
+		t.Errorf("Owner = %q, want %q", task.Owner, "fixer")
+	}
+}
+
+// TestReconstructTeams_MergedAIBufferReplay covers the common case where the
+// lead's TaskUpdate lands mid-turn: BuildChunks merges consecutive AI messages
+// into one chunk whose Timestamp is the FIRST message's, so replay must key on
+// the per-item timestamp, not the chunk's. Here the lead's correcting update
+// (10:30) sits in a chunk timestamped 10:00 — sorting by chunk time would let
+// the worker's stale 10:05 update win.
+func TestReconstructTeams_MergedAIBufferReplay(t *testing.T) {
+	base := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ClassifiedMsg{
+		parser.AIMsg{
+			Timestamp: base,
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "t1", ToolName: "TeamCreate",
+					ToolInput: json.RawMessage(`{"team_name":"proj"}`)},
+				{Type: "tool_use", ToolID: "t2", ToolName: "TaskCreate",
+					ToolInput: json.RawMessage(`{"subject":"Task one"}`)},
+			},
+		},
+		// Same AI turn, 30 minutes later: the lead corrects the task after
+		// reviewing the worker's output.
+		parser.AIMsg{
+			Timestamp: base.Add(30 * time.Minute),
+			Blocks: []parser.ContentBlock{
+				{Type: "tool_use", ToolID: "t3", ToolName: "TaskUpdate",
+					ToolInput: json.RawMessage(`{"taskId":"1","status":"completed"}`)},
+			},
+		},
+	}
+	chunks := parser.BuildChunks(msgs)
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1 merged AI chunk", len(chunks))
+	}
+
+	// Worker claims the task at 10:05 — between the two lead messages.
+	workers := []parser.SubagentProcess{{
+		ID: "fixer@proj",
+		Chunks: []parser.Chunk{
+			makeToolCallItemAt(base.Add(5*time.Minute), "TaskUpdate", map[string]interface{}{
+				"taskId": "1",
+				"status": "in_progress",
+			}),
+		},
+	}}
+
+	teams := parser.ReconstructTeams(chunks, workers)
+
+	if len(teams) == 0 || len(teams[0].Tasks) == 0 {
+		t.Fatal("expected 1 team with 1 task")
+	}
+	task := teams[0].Tasks[0]
+	if task.Status != "completed" {
+		t.Errorf("Status = %q, want %q (lead's later mid-turn update must win)", task.Status, "completed")
+	}
+	if task.Owner != "fixer" {
+		t.Errorf("Owner = %q, want %q", task.Owner, "fixer")
 	}
 }
 
