@@ -51,10 +51,11 @@ var (
 	// Surfaces
 	ColorBorder color.Color
 
-	// Model family (matches claude-devtools)
+	// Model family (matches claude-devtools; Fable/Mythos is our own pick)
 	ColorModelOpus   color.Color
 	ColorModelSonnet color.Color
 	ColorModelHaiku  color.Color
+	ColorModelFable  color.Color
 
 	// Token highlight
 	ColorTokenHigh color.Color
@@ -144,6 +145,7 @@ func initTheme(hasDarkBg bool) {
 	ColorModelOpus = ld(lipgloss.Color("1"), lipgloss.Color("204"))
 	ColorModelSonnet = ld(lipgloss.Color("4"), lipgloss.Color("75"))
 	ColorModelHaiku = ld(lipgloss.Color("2"), lipgloss.Color("114"))
+	ColorModelFable = ld(lipgloss.Color("5"), lipgloss.Color("135"))
 
 	// Token highlight
 	ColorTokenHigh = ld(lipgloss.Color("3"), lipgloss.Color("208"))

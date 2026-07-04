@@ -96,18 +96,24 @@ Content can be a JSON string (user messages) or JSON array of content blocks (as
 ### Session entry types
 
 Not all entries are conversation messages. Files may contain:
+
 - `type=user` / `type=assistant` -- conversation messages
-- `type=system` -- noise, filtered by Classify
-- `type=summary` -- context compression boundaries, classified as `CompactMsg`
+- `type=system` -- noise, filtered by Classify, **except** `subtype=compact_boundary` which becomes `CompactMsg` (Claude Code 2.1.18x+ compaction signal, with `compactMetadata {trigger, preTokens}`)
+- `type=summary` -- legacy context compression boundaries (pre-2.1.18x files only), classified as `CompactMsg`
 - `type=file-history-snapshot` -- internal bookkeeping, no conversation content ("ghost sessions")
+- Session-metadata records (2.1.19x+, re-appended on flush/resume, last occurrence wins, no uuid): `last-prompt`, `custom-title`, `ai-title`, `agent-name`, `mode`, `permission-mode`, `pr-link`, `tag`, and friends. The picker reads titles/last-prompt from these in `scanSessionMetadata`; the chunk pipeline drops them (Classify's fallback is gated on `type=="user"`, so unknown future types drop too)
 - Teammate messages: `type=user` with `<teammate-message>` XML wrapper in content
 - Meta entries: `isMeta=true` on user entries marks tool results, classified as `AIMsg`
+
+Thinking blocks from Opus 4.7+/Claude 5 models arrive with empty text (`{"thinking":"","signature":"..."}` — content encrypted into the signature by API default). The parser counts them but emits no block. Large tool results are externalized to `{session}/tool-results/{id}.txt` with a `<persisted-output>` placeholder; the parser splices them back in at the IO edge (`parser/persisted.go`).
 
 ### Subagent session discovery
 
 Subagent sessions appear in two locations depending on how they were spawned:
 
-**Regular subagents** (Task without `team_name`): files in `{session}/subagents/agent-{agentId}.jsonl`. First entry has `isSidechain=true`, `agentId` matches filename. Parent links via `toolUseResult.agentId` (hex UUID).
+**Regular subagents** (Task without `team_name`): files in `{session}/subagents/agent-{agentId}.jsonl`. First entry has `isSidechain=true`, `agentId` matches filename. Parent links via the `agent-{agentId}.meta.json` sidecar's `toolUseId` (2.1.19x+, exact and available from spawn time) or via `toolUseResult.agentId` (hex UUID).
+
+**Workflow agents** (Workflow tool): transcripts in `{session}/subagents/workflows/wf_{runId}/` subdirectories. `ScanWorkflowActivity` (parser/workflow.go) surfaces their presence — run/agent counts and last write drive the ongoing indicator and the info-bar "workflow running · N agents" badge, and the watcher watches these dirs for liveness. Transcript parsing/drill-down is a planned follow-up (the parent `Workflow` tool_use links via `toolUseResult.runId`; one call spawns many agents, which the current one-process-per-item UI can't represent).
 
 **Team agents** (Task with `team_name` + `name`): standalone `.jsonl` files in the project directory. First entry has top-level `teamName` and `agentName` fields, `isSidechain=false`. Parent links via `toolUseResult.agent_id` in `"name@team"` format (e.g. `"planner@analysis"`).
 
@@ -120,9 +126,10 @@ loadSession / readAndRebuild
   │   └─ Sets ID = "agentName@teamName" to match parent's agent_id format
   ├─ allProcs = append(subagents, teamProcs...)
   └─ LinkSubagents(allProcs, chunks, path)
+       ├─ Phase 0: sidecar meta.json toolUseId (pre-filled by DiscoverSubagents)
        ├─ Phase 1: agentId → tool_use_id (handles BOTH hex UUIDs AND name@team)
        ├─ Phase 2: TeamSummary == SubagentDesc (subagents/ team files only)
-       └─ Phase 3: positional fallback (non-team only)
+       └─ Phase 3: positional fallback (non-team, non-sidecar only)
 ```
 
 The render path checks `displayItem.subagentProcess != nil` to decide between showing an execution trace (drill-down with nested items) vs raw Task input/result text.

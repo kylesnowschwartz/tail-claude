@@ -58,6 +58,8 @@ func ToolSummary(name string, input json.RawMessage) string {
 		return summarySendMessage(fields)
 	case "ToolSearch":
 		return summaryToolSearch(fields)
+	case "Workflow":
+		return summaryWorkflow(fields)
 	default:
 		return summaryDefault(name, fields)
 	}
@@ -194,6 +196,21 @@ func summaryTask(f map[string]json.RawMessage) string {
 		return subType
 	}
 	return "Task"
+}
+
+// summaryWorkflow summarizes a Workflow tool call (multi-agent orchestration).
+// Input carries either a saved workflow name, a script file path, or an
+// inline script — the inline script is far too large for a one-liner, so it
+// gets a fixed label instead of falling through to summaryDefault's
+// first-string-value heuristic.
+func summaryWorkflow(f map[string]json.RawMessage) string {
+	if name := getString(f, "name"); name != "" {
+		return name
+	}
+	if sp := getString(f, "scriptPath"); sp != "" {
+		return filepath.Base(sp)
+	}
+	return "inline script"
 }
 
 func summaryLSP(f map[string]json.RawMessage) string {

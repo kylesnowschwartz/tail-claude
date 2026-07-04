@@ -29,6 +29,8 @@ func shortModel(m string) string {
 // modelColor returns a color based on the Claude model family.
 func modelColor(model string) color.Color {
 	switch {
+	case strings.Contains(model, "fable"), strings.Contains(model, "mythos"):
+		return ColorModelFable
 	case strings.Contains(model, "opus"):
 		return ColorModelOpus
 	case strings.Contains(model, "sonnet"):

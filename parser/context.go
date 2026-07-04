@@ -17,6 +17,8 @@ var largeContextModels = []string{
 	"claude-opus-4-6",
 	"claude-opus-4-7",
 	"claude-sonnet-4-6",
+	"claude-fable-5",  // 1M context by default (CC 2.1.170+)
+	"claude-sonnet-5", // native 1M window (CC 2.1.197+)
 }
 
 // ContextWindow returns the model's context window size in tokens. Unknown
