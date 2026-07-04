@@ -275,21 +275,17 @@ func (w *sessionWatcher) readAndRebuild() {
 	}
 
 	chunks := parser.BuildChunks(w.allClassified)
-
-	subagents, _ := parser.DiscoverSubagents(w.path)
-	teamProcs, _ := parser.DiscoverTeamSessions(w.path, chunks)
-	allProcs := append(subagents, teamProcs...)
-	colorMap := parser.LinkSubagents(allProcs, chunks, w.path)
+	state := buildSessionState(w.path, chunks)
 
 	// Track whether we have team tasks so directory watches know
 	// whether to trigger rebuilds for new .jsonl files.
-	w.hasTeamTasks = hasTeamTaskItems(chunks)
+	w.hasTeamTasks = state.hasTeamTasks
 
 	// Watch newly discovered team session files for writes so the spinner
 	// stays alive while agents work in their own session files.
 	if w.fsWatcher != nil {
-		for i := range allProcs {
-			fp := allProcs[i].FilePath
+		for i := range state.allProcs {
+			fp := state.allProcs[i].FilePath
 			if fp != "" && !w.watchedProcPaths[fp] {
 				if err := w.fsWatcher.Add(fp); err == nil {
 					w.watchedProcPaths[fp] = true
@@ -298,34 +294,16 @@ func (w *sessionWatcher) readAndRebuild() {
 		}
 	}
 
-	ongoing := parser.IsOngoing(chunks)
-	if !ongoing {
-		// Parent may be idle while subagents/team members are still working.
-		// Check if any linked process is ongoing (with staleness guard).
-		for i := range allProcs {
-			if isSubagentOngoing(&allProcs[i]) {
-				ongoing = true
-				break
-			}
-		}
-	}
-
-	// Background workflows: the parent file goes silent while agents write
-	// under subagents/workflows/, so scan there and watch any new run dirs.
-	workflow := parser.ScanWorkflowActivity(w.path)
-	if !ongoing && workflow.Active(parser.OngoingStalenessThreshold) {
-		ongoing = true
-	}
+	// Workflow run dirs surfaced by the rebuild need fsnotify watches so the
+	// spinner stays alive while agents write under subagents/workflows/.
 	w.watchWorkflowDirs()
 
-	teams := parser.ReconstructTeams(chunks, allProcs)
-
 	update := tailUpdateMsg{
-		messages:       chunksToMessages(chunks, allProcs, colorMap),
-		teams:          teams,
-		ongoing:        ongoing,
+		messages:       state.messages,
+		teams:          state.teams,
+		ongoing:        state.ongoing,
 		permissionMode: permissionMode,
-		workflow:       workflow,
+		workflow:       state.workflow,
 	}
 
 	// Non-blocking send: drop stale update if receiver hasn't consumed yet.

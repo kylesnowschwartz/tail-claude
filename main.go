@@ -325,6 +325,65 @@ func (m *model) stopDebugWatcher() {
 	}
 }
 
+// sessionState is the output of the shared rebuild pipeline: everything the
+// initial load and the watcher's incremental rebuilds derive from a chunk list.
+type sessionState struct {
+	messages     []message
+	teams        []parser.TeamSnapshot
+	allProcs     []parser.SubagentProcess
+	ongoing      bool
+	hasTeamTasks bool
+	workflow     parser.WorkflowActivity
+}
+
+// buildSessionState runs the discover/link/ongoing/teams pipeline shared by
+// loadSession and sessionWatcher.readAndRebuild. One implementation guarantees
+// the initial load and every tail update agree on session state — the two
+// copies had previously drifted on ongoing detection.
+//
+// Ongoing detection: the parent-file staleness guard applies only to the
+// parent predicate; subagents carry their own staleness check inside
+// isSubagentOngoing, so a fresh subagent keeps the spinner alive even when
+// the parent file is stale.
+func buildSessionState(path string, chunks []parser.Chunk) sessionState {
+	subagents, _ := parser.DiscoverSubagents(path)
+	teamProcs, _ := parser.DiscoverTeamSessions(path, chunks)
+	allProcs := append(subagents, teamProcs...)
+	colorMap := parser.LinkSubagents(allProcs, chunks, path)
+
+	ongoing := parser.IsOngoing(chunks)
+	if ongoing {
+		// Chunk heuristics can report a false positive on finished sessions;
+		// a parent file untouched past the threshold means the process is gone.
+		if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > parser.OngoingStalenessThreshold {
+			ongoing = false
+		}
+	}
+	if !ongoing {
+		// Parent may be idle while subagents/team members are still working.
+		for i := range allProcs {
+			if isSubagentOngoing(&allProcs[i]) {
+				ongoing = true
+				break
+			}
+		}
+	}
+	// Background workflows keep working after the parent turn "ends".
+	workflow := parser.ScanWorkflowActivity(path)
+	if !ongoing && workflow.Active(parser.OngoingStalenessThreshold) {
+		ongoing = true
+	}
+
+	return sessionState{
+		messages:     chunksToMessages(chunks, allProcs, colorMap),
+		teams:        parser.ReconstructTeams(chunks, allProcs),
+		allProcs:     allProcs,
+		ongoing:      ongoing,
+		hasTeamTasks: hasTeamTaskItems(chunks),
+		workflow:     workflow,
+	}
+}
+
 // loadResult holds everything needed to bootstrap the TUI and watcher.
 type loadResult struct {
 	messages     []message
@@ -355,47 +414,18 @@ func loadSession(path string) (loadResult, error) {
 		return loadResult{}, fmt.Errorf("session %s has no messages", path)
 	}
 
-	// Discover and link subagent execution traces.
-	subagents, _ := parser.DiscoverSubagents(path)
-	teamProcs, _ := parser.DiscoverTeamSessions(path, chunks)
-	allProcs := append(subagents, teamProcs...)
-	colorMap := parser.LinkSubagents(allProcs, chunks, path)
-
-	ongoing := parser.IsOngoing(chunks)
-	if !ongoing {
-		// Parent may be idle while subagents/team members are still working.
-		for i := range allProcs {
-			if parser.IsOngoing(allProcs[i].Chunks) {
-				ongoing = true
-				break
-			}
-		}
-	}
-	if ongoing {
-		if info, err := os.Stat(path); err == nil {
-			if time.Since(info.ModTime()) > parser.OngoingStalenessThreshold {
-				ongoing = false
-			}
-		}
-	}
-	// Background workflows keep working after the parent turn "ends".
-	workflow := parser.ScanWorkflowActivity(path)
-	if !ongoing && workflow.Active(parser.OngoingStalenessThreshold) {
-		ongoing = true
-	}
-
-	teams := parser.ReconstructTeams(chunks, allProcs)
+	state := buildSessionState(path, chunks)
 
 	return loadResult{
-		messages:     chunksToMessages(chunks, allProcs, colorMap),
-		teams:        teams,
+		messages:     state.messages,
+		teams:        state.teams,
 		path:         path,
 		classified:   classified,
 		offset:       offset,
-		ongoing:      ongoing,
-		hasTeamTasks: hasTeamTaskItems(chunks),
+		ongoing:      state.ongoing,
+		hasTeamTasks: state.hasTeamTasks,
 		meta:         parser.ExtractSessionMeta(path),
-		workflow:     workflow,
+		workflow:     state.workflow,
 	}, nil
 }
 
