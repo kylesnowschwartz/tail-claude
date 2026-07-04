@@ -41,6 +41,56 @@ func (m *model) layoutList() {
 	} else {
 		m.totalRenderedLines = 0
 	}
+	m.listLayoutStale = false
+}
+
+// rerenderListMessage re-renders a single message into the layout caches.
+// Selection changes only alter colors, never line counts, so lineOffsets stay
+// valid. If the caches are missing, stale (messages changed while another
+// view was active), or a re-render unexpectedly changes the line count, fall
+// back to a full layoutList so scroll math never reads stale offsets.
+func (m *model) rerenderListMessage(i int) {
+	if m.listLayoutStale || m.width == 0 || i < 0 || i >= len(m.messages) || len(m.listParts) != len(m.messages) {
+		m.layoutList()
+		return
+	}
+	r := m.renderMessage(m.messages[i], m.clampWidth(), i == m.cursor, m.expanded[i])
+	if r.lines != m.messageLines[i] {
+		m.layoutList()
+		return
+	}
+	m.listParts[i] = r.content
+}
+
+// moveListCursor moves the list cursor to target, re-rendering only the two
+// messages whose selection state changed. A full layoutList would push every
+// message through markdown rendering just to recolor two borders.
+func (m *model) moveListCursor(target int) {
+	if target < 0 || target >= len(m.messages) || target == m.cursor {
+		return
+	}
+	prev := m.cursor
+	m.cursor = target
+	m.rerenderListMessage(prev)
+	m.rerenderListMessage(target)
+}
+
+// listHasAnimatedRows reports whether the list view currently shows a spinner
+// (an expanded message with an ongoing subagent item). Spinners are the only
+// list content that changes with animFrame, so animation ticks can skip the
+// full-list relayout when none are visible.
+func (m model) listHasAnimatedRows() bool {
+	for i := range m.messages {
+		if !m.expanded[i] {
+			continue
+		}
+		for _, item := range m.messages[i].items {
+			if item.subagentOngoing {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ensureCursorVisible adjusts scroll so the cursor's message is within
@@ -79,11 +129,57 @@ func (m *model) clampListScroll() {
 	}
 }
 
+// detailRenderKey guards the detail render cache. Every state change that
+// alters detail content routes through computeDetailMaxScroll (enter detail,
+// resize, tail update, expansion toggle, drill-in/out), which rewrites the
+// cache; the key covers the remaining inputs that can drift without such a
+// call — cursor jumps ("g") and spinner animation frames.
+type detailRenderKey struct {
+	width  int
+	cursor int
+	frame  int // animFrame when the message has an ongoing subagent, else 0
+}
+
+// detailAnimFrame returns the animFrame component of the detail cache key:
+// the live frame when the message shows an ongoing-subagent spinner (so each
+// tick misses the cache and the spinner animates), 0 otherwise.
+func (m model) detailAnimFrame(msg message) int {
+	for _, item := range msg.items {
+		if item.subagentOngoing {
+			return m.animFrame
+		}
+	}
+	return 0
+}
+
+// currentDetailRenderKey builds the cache key for the current detail state.
+func (m model) currentDetailRenderKey(msg message) detailRenderKey {
+	return detailRenderKey{
+		width:  m.clampWidth(),
+		cursor: m.detailCursor,
+		frame:  m.detailAnimFrame(msg),
+	}
+}
+
+// detailContent returns the detail render for viewDetail, reusing the render
+// memoized by computeDetailMaxScroll. A key mismatch (cursor jumped without a
+// recompute, or a spinner frame advanced) falls back to a fresh render —
+// View's value receiver can't store the result here.
+func (m model) detailContent(msg message, width int) rendered {
+	if m.detailCacheValid && m.detailCacheKey == m.currentDetailRenderKey(msg) {
+		return m.detailCache
+	}
+	return m.renderDetailContent(msg, width)
+}
+
 // computeDetailMaxScroll caches the maximum scroll offset for the detail view.
-// Called when entering detail view and on window resize.
+// Called when entering detail view and on window resize. Also memoizes the
+// rendered content so viewDetail doesn't repeat the full render — without the
+// cache every keypress renders the entire detail content 2-3 times.
 func (m *model) computeDetailMaxScroll() {
 	if m.width == 0 || m.height == 0 {
 		m.detailMaxScroll = 0
+		m.detailCacheValid = false
 		return
 	}
 
@@ -91,6 +187,9 @@ func (m *model) computeDetailMaxScroll() {
 	width := m.clampWidth()
 
 	r := m.renderDetailContent(msg, width)
+	m.detailCache = r
+	m.detailCacheKey = m.currentDetailRenderKey(msg)
+	m.detailCacheValid = true
 	// Trim trailing newlines that lipgloss may add (phantom blank lines).
 	trimmed := strings.TrimRight(r.content, "\n")
 	totalLines := strings.Count(trimmed, "\n") + 1

@@ -719,6 +719,72 @@ func TestTickMsg_IgnoresStaleSeq(t *testing.T) {
 	}
 }
 
+func TestTickMsg_SkipsRelayoutWithoutVisibleSpinner(t *testing.T) {
+	m := testModel()
+	m.watching = true
+	m.tickSeq = 1
+	// Sentinel: a relayout would overwrite the cached parts.
+	m.listParts[0] = "SENTINEL"
+
+	result, _ := m.Update(tickMsg{seq: 1})
+	got := asModel(result)
+
+	if got.listParts[0] != "SENTINEL" {
+		t.Error("idle tick relaid out the list with no visible spinner")
+	}
+}
+
+func TestTickMsg_RelaysOutListWhenSpinnerVisible(t *testing.T) {
+	m := testModel()
+	m.watching = true
+	m.tickSeq = 1
+	m.messages[1].items = []displayItem{
+		{itemType: parser.ItemSubagent, subagentType: "Explore", subagentOngoing: true},
+	}
+	m.expanded[1] = true
+	m.listParts[0] = "SENTINEL"
+
+	result, _ := m.Update(tickMsg{seq: 1})
+	got := asModel(result)
+
+	if got.listParts[0] == "SENTINEL" {
+		t.Error("tick skipped relayout despite a visible spinner")
+	}
+}
+
+// A tail update received while another view is active must not leave the list
+// layout stale forever: it marks the layout dirty, and the next tick back in
+// list view repairs it even with no visible spinner.
+func TestTailUpdate_StaleListRepairedOnReturnToListView(t *testing.T) {
+	m := testModel()
+	m.watching = true
+	m.tickSeq = 1
+	m.tailSub = make(chan tailUpdateMsg, 1)
+	m.view = viewDetail
+
+	grown := append(append([]message{}, m.messages...), userMsg("arrived while in detail"))
+	result, _ := m.Update(tailUpdateMsg{sub: m.tailSub, messages: grown})
+	got := asModel(result)
+
+	if !got.listLayoutStale {
+		t.Fatal("listLayoutStale = false, want true after tail update outside list view")
+	}
+	if len(got.listParts) == len(grown) {
+		t.Fatal("listParts already relaid out; test needs a stale cache to exercise the repair")
+	}
+
+	got.view = viewList // user pressed esc back to the list
+	result, _ = got.Update(tickMsg{seq: 1})
+	repaired := asModel(result)
+
+	if len(repaired.listParts) != len(grown) {
+		t.Errorf("listParts len = %d, want %d (tick must relayout a stale list)", len(repaired.listParts), len(grown))
+	}
+	if repaired.listLayoutStale {
+		t.Error("listLayoutStale = true, want false after relayout")
+	}
+}
+
 func TestInit_StartsTickChainWhenWatching(t *testing.T) {
 	m := testModel()
 	m.watching = true

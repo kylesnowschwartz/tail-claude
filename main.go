@@ -193,6 +193,12 @@ type model struct {
 	lineOffsets  []int    // starting line of each message in rendered output
 	messageLines []int    // number of rendered lines per message
 
+	// True when m.messages changed while the list view wasn't active, so
+	// listParts/lineOffsets are stale. Cleared by layoutList; checked by the
+	// tick handler and rerenderListMessage so the list repairs itself before
+	// any selective re-render trusts the cache.
+	listLayoutStale bool
+
 	totalRenderedLines int // total lines in list view, updated by layoutList
 
 	// Detail view state
@@ -202,6 +208,12 @@ type model struct {
 	detailCursor        int                    // selected row in the flat visible-row list
 	detailExpanded      map[int]bool           // which parent items are expanded
 	detailChildExpanded map[visibleRowKey]bool // which child items have expanded content
+
+	// Detail render cache: written by computeDetailMaxScroll, read by
+	// viewDetail so the full content isn't rendered twice per keypress.
+	detailCache      rendered        // memoized renderDetailContent output
+	detailCacheKey   detailRenderKey // inputs the cache was rendered with
+	detailCacheValid bool
 
 	// Markdown rendering
 	md *mdRenderer
@@ -552,7 +564,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sessionOngoing = false
 		}
 		m.animFrame++
-		if m.view == viewList {
+		// Relayout only when a visible spinner needs the new frame or the
+		// layout went stale while another view was active — idle sessions
+		// would otherwise re-render every message 10x/second.
+		if m.view == viewList && (m.listLayoutStale || m.listHasAnimatedRows()) {
 			m.layoutList()
 		}
 		return m, tickCmd(m.tickSeq)
@@ -602,17 +617,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = len(m.messages) - 1
 		}
 
-		// Only recompute list layout when we're looking at it.
+		// Only recompute list layout when we're looking at it. Otherwise
+		// mark it stale so the next list-view tick (or cursor move) runs a
+		// full relayout before anything trusts the cached parts/offsets.
 		if m.view == viewList {
 			m.layoutList()
 			if wasAtEnd {
 				m.ensureCursorVisible()
 			}
-		} else if m.view == viewDetail {
-			// The current detail message may have grown (new tool calls,
-			// streaming text). Recompute max scroll so the user can reach
-			// the new content, but don't move their scroll position.
-			m.computeDetailMaxScroll()
+		} else {
+			m.listLayoutStale = true
+			if m.view == viewDetail {
+				// The current detail message may have grown (new tool calls,
+				// streaming text). Recompute max scroll so the user can reach
+				// the new content, but don't move their scroll position.
+				m.computeDetailMaxScroll()
+			}
 		}
 
 		// Ongoing indicator with grace period. The tick chain is already
@@ -913,7 +933,7 @@ func (m model) viewDetail() string {
 	msg := m.currentDetailMsg()
 	width := m.clampWidth()
 
-	r := m.renderDetailContent(msg, width)
+	r := m.detailContent(msg, width)
 
 	// Strip trailing newlines that lipgloss may add -- they create phantom blank
 	// lines when we split on \n, wasting a viewport line and pushing the status
