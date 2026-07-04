@@ -1021,3 +1021,96 @@ func TestWindowSizeClampsListScroll(t *testing.T) {
 		t.Errorf("scroll = %d, want <= %d (resize must clamp list scroll)", got.scroll, maxScroll)
 	}
 }
+
+// --- TestUpdateDebugFilterReset ----------------------------------------------
+
+// debugTestModel returns a model in the debug view with a mixed-level entry
+// list, filters applied, and no active text filter.
+func debugTestModel() model {
+	m := testModel()
+	m.view = viewDebug
+	m.debugEntries = []parser.DebugEntry{
+		{Level: parser.LevelWarn, Message: "warn one"},
+		{Level: parser.LevelWarn, Message: "warn two"},
+		{Level: parser.LevelWarn, Message: "warn three"},
+		{Level: parser.LevelDebug, Message: "debug one"},
+		{Level: parser.LevelDebug, Message: "debug two"},
+	}
+	m.debugMinLevel = parser.LevelDebug
+	m.debugExpanded = make(map[int]bool)
+	m.applyDebugFilters()
+	return m
+}
+
+func TestUpdateDebugFilterReset(t *testing.T) {
+	t.Run("f level cycle preserves cursor and resets scroll", func(t *testing.T) {
+		m := debugTestModel()
+		m.debugCursor = 1
+		m.debugScroll = 7
+		m.debugExpanded[0] = true
+
+		result, _ := m.updateDebug(key("f"))
+		got := asModel(result)
+
+		if got.debugMinLevel != parser.LevelWarn {
+			t.Errorf("debugMinLevel = %v, want LevelWarn", got.debugMinLevel)
+		}
+		if got.debugCursor != 1 {
+			t.Errorf("debugCursor = %d, want 1 (level cycle must preserve cursor)", got.debugCursor)
+		}
+		if got.debugScroll != 0 {
+			t.Errorf("debugScroll = %d, want 0", got.debugScroll)
+		}
+		if len(got.debugExpanded) != 0 {
+			t.Errorf("debugExpanded has %d entries, want 0 (stale filtered indices)", len(got.debugExpanded))
+		}
+	})
+
+	t.Run("esc clears text filter and preserves cursor", func(t *testing.T) {
+		m := debugTestModel()
+		m.debugFilterText = "warn"
+		m.applyDebugFilters()
+		m.debugCursor = 2
+		m.debugScroll = 3
+
+		result, _ := m.updateDebug(key("esc"))
+		got := asModel(result)
+
+		if got.debugFilterText != "" {
+			t.Errorf("debugFilterText = %q, want empty", got.debugFilterText)
+		}
+		if got.view != viewDebug {
+			t.Errorf("view = %v, want viewDebug (first esc only clears the filter)", got.view)
+		}
+		if got.debugCursor != 2 {
+			t.Errorf("debugCursor = %d, want 2 (clearing filter must preserve cursor)", got.debugCursor)
+		}
+		if got.debugScroll != 0 {
+			t.Errorf("debugScroll = %d, want 0", got.debugScroll)
+		}
+	})
+
+	t.Run("enter commits text filter and resets cursor", func(t *testing.T) {
+		m := debugTestModel()
+		m.debugFilterMode = true
+		m.debugFilterText = "warn"
+		m.debugCursor = 4
+		m.debugScroll = 3
+
+		result, _ := m.updateDebug(key("enter"))
+		got := asModel(result)
+
+		if got.debugFilterMode {
+			t.Error("debugFilterMode = true, want false after enter")
+		}
+		if got.debugCursor != 0 {
+			t.Errorf("debugCursor = %d, want 0 (committing a filter jumps to top)", got.debugCursor)
+		}
+		if got.debugScroll != 0 {
+			t.Errorf("debugScroll = %d, want 0", got.debugScroll)
+		}
+		if len(got.debugFiltered) != 3 {
+			t.Errorf("debugFiltered has %d entries, want 3 warn matches", len(got.debugFiltered))
+		}
+	})
+}
