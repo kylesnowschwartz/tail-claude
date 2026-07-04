@@ -783,7 +783,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Fall back to the list view on error, but only from a still-empty
 			// picker with a session to return to — never yank another view.
 			if m.view == viewPicker && len(m.pickerItems) == 0 && len(m.messages) > 0 {
-				m.view = viewList
+				m.enterList()
 			}
 			return m, nil
 		}
