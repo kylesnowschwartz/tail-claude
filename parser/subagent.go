@@ -42,9 +42,9 @@ type SubagentProcess struct {
 //
 // Returns parsed SubagentProcesses sorted by StartTime.
 func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
-	dir := filepath.Dir(sessionPath)
+	projectDir := filepath.Dir(sessionPath)
 	base := strings.TrimSuffix(filepath.Base(sessionPath), ".jsonl")
-	subagentsDir := filepath.Join(dir, base, "subagents")
+	subagentsDir := filepath.Join(projectDir, base, "subagents")
 
 	entries, err := os.ReadDir(subagentsDir)
 	if err != nil {
@@ -90,7 +90,7 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 		// Subagent entries all have isSidechain=true (they run in the
 		// parent's sidechain context), but within the subagent file
 		// they're the main conversation.
-		chunks, teamSummary, teamColor, err := readSubagentSession(filePath)
+		chunks, teamSummary, teamColor, err := readSubagentSession(filePath, projectDir)
 		if err != nil || len(chunks) == 0 {
 			continue
 		}
@@ -98,7 +98,7 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 		startTime, endTime, durationMs := chunkTiming(chunks)
 		usage := aggregateUsage(chunks)
 
-		procs = append(procs, SubagentProcess{
+		proc := SubagentProcess{
 			ID:            agentID,
 			FilePath:      filePath,
 			FileModTime:   info.ModTime(),
@@ -110,7 +110,15 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 			Model:         extractModel(chunks),
 			TeamSummary:   teamSummary,
 			TeammateColor: teamColor,
-		})
+		}
+
+		// Claude Code 2.1.19x writes an agent-{id}.meta.json sidecar with the
+		// agent type, description, and spawning tool_use_id. The toolUseId is
+		// an exact parent link — it exists from spawn time, so async agents
+		// link before their toolUseResult is written.
+		applySidecarMeta(&proc, strings.TrimSuffix(filePath, ".jsonl")+".meta.json")
+
+		procs = append(procs, proc)
 	}
 
 	sort.Slice(procs, func(i, j int) bool {
@@ -118,6 +126,33 @@ func DiscoverSubagents(sessionPath string) ([]SubagentProcess, error) {
 	})
 
 	return procs, nil
+}
+
+// applySidecarMeta fills a SubagentProcess from its agent-{id}.meta.json
+// sidecar ({agentType, description, toolUseId, spawnDepth, isFork}). Missing
+// or malformed sidecars are a no-op — LinkSubagents' scan phases still apply.
+func applySidecarMeta(proc *SubagentProcess, metaPath string) {
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return
+	}
+	var meta struct {
+		AgentType   string `json:"agentType"`
+		Description string `json:"description"`
+		ToolUseID   string `json:"toolUseId"`
+	}
+	if json.Unmarshal(data, &meta) != nil {
+		return
+	}
+	if meta.AgentType != "" {
+		proc.SubagentType = meta.AgentType
+	}
+	if meta.Description != "" {
+		proc.Description = meta.Description
+	}
+	if meta.ToolUseID != "" {
+		proc.ParentTaskID = meta.ToolUseID
+	}
 }
 
 // isWarmupAgent reads just enough of a subagent file to check if the first
@@ -192,10 +227,15 @@ func chunkTiming(chunks []Chunk) (start, end time.Time, durationMs int64) {
 // team metadata (summary and color). Both are extracted from the raw entry
 // content before Classify strips the XML tag attributes.
 //
+// trustedRoot bounds persisted-output resolution: subagents share the parent
+// session's tool-results dir, so callers pass the project directory (the dir
+// containing the parent session's .jsonl), which contains both
+// {session}/subagents/ and {session}/tool-results/.
+//
 // Unlike ReadSession, it ignores the isSidechain flag since all entries
 // in subagent files are marked isSidechain=true but represent the
 // subagent's own main conversation.
-func readSubagentSession(path string) ([]Chunk, string, string, error) {
+func readSubagentSession(path, trustedRoot string) ([]Chunk, string, string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, "", "", err
@@ -243,6 +283,8 @@ func readSubagentSession(path string) ([]Chunk, string, string, error) {
 	if err := lr.Err(); err != nil {
 		return nil, "", "", err
 	}
+
+	resolvePersistedOutputs(msgs, trustedRoot)
 
 	return BuildChunks(msgs), teamSummary, teamColor, nil
 }
@@ -325,10 +367,36 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 	matchedProcs := make(map[string]bool)
 	matchedTools := make(map[string]bool)
 
+	// Phase 0: sidecar meta.json links. Discovery pre-fills ParentTaskID from
+	// the agent's meta.json toolUseId; honor it so later phases don't re-pair
+	// these processes. Fill description/type from the Task item only where the
+	// sidecar left them empty.
+	for i := range processes {
+		p := &processes[i]
+		if p.ParentTaskID == "" || matchedTools[p.ParentTaskID] {
+			continue
+		}
+		it, ok := toolIDToTask[p.ParentTaskID]
+		if !ok {
+			continue
+		}
+		if p.Description == "" {
+			p.Description = it.SubagentDesc
+		}
+		if p.SubagentType == "" {
+			p.SubagentType = it.SubagentType
+		}
+		matchedProcs[p.ID] = true
+		matchedTools[p.ParentTaskID] = true
+	}
+
 	// Phase 1: Result-based matching via structured toolUseResult.agentId.
 	for i := range processes {
+		if matchedProcs[processes[i].ID] {
+			continue
+		}
 		toolID, ok := links.agentToToolID[processes[i].ID]
-		if !ok {
+		if !ok || matchedTools[toolID] {
 			continue
 		}
 		it, ok := toolIDToTask[toolID]
@@ -373,7 +441,10 @@ func LinkSubagents(processes []SubagentProcess, parentChunks []Chunk, parentSess
 	// or remain unmatched.
 	var unmatchedProcs []*SubagentProcess
 	for i := range processes {
-		if !matchedProcs[processes[i].ID] {
+		// A process with a sidecar-provided ParentTaskID stays out of the
+		// positional fallback even when its Task item wasn't found in the
+		// parent chunks — re-pairing it positionally would be a mislink.
+		if !matchedProcs[processes[i].ID] && processes[i].ParentTaskID == "" {
 			unmatchedProcs = append(unmatchedProcs, &processes[i])
 		}
 	}
@@ -560,9 +631,16 @@ func enrichProcess(proc *SubagentProcess, item *DisplayItem) {
 	proc.SubagentType = item.SubagentType
 }
 
-// ReadTeamSessionMeta reads just the first line of a JSONL file and returns
-// the teamName and agentName top-level fields. Returns ("", "") for
-// non-team sessions or on any error. Cheap: no full parse.
+// ReadTeamSessionMeta scans the head of a JSONL file for the teamName and
+// agentName top-level fields. Returns ("", "") for non-team sessions or on
+// any error. Cheap: no full parse.
+//
+// Team fields live on the first conversation entry, but Claude Code 2.1.19x
+// re-appends uuid-less session-metadata records (last-prompt, mode,
+// custom-title, ...) that commonly lead the file — so scan past them instead
+// of trusting line 1. The scan stops at the first conversation entry (it
+// either carries the team fields or the file isn't a team session) or after
+// teamMetaScanCap lines.
 func ReadTeamSessionMeta(path string) (teamName, agentName string) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -570,20 +648,38 @@ func ReadTeamSessionMeta(path string) (teamName, agentName string) {
 	}
 	defer f.Close()
 
-	lr := newLineReader(f)
-	line, ok := lr.next()
-	if !ok {
-		return "", ""
-	}
+	const teamMetaScanCap = 25
 
-	var meta struct {
-		TeamName  string `json:"teamName"`
-		AgentName string `json:"agentName"`
+	lr := newLineReader(f)
+	for i := 0; i < teamMetaScanCap; i++ {
+		line, ok := lr.next()
+		if !ok {
+			return "", ""
+		}
+
+		var meta struct {
+			Type      string `json:"type"`
+			UUID      string `json:"uuid"`
+			TeamName  string `json:"teamName"`
+			AgentName string `json:"agentName"`
+		}
+		if err := json.Unmarshal([]byte(line), &meta); err != nil {
+			continue
+		}
+		// Both fields must be present: a lone agentName also appears on
+		// uuid-less type=agent-name metadata records, which say nothing
+		// about team membership.
+		if meta.TeamName != "" && meta.AgentName != "" {
+			return meta.TeamName, meta.AgentName
+		}
+		// Stop at the first conversation entry — team fields live on it or
+		// not at all. Other uuid-bearing types (attachment, system) can
+		// precede it, so the type check matters.
+		if meta.UUID != "" && (meta.Type == "user" || meta.Type == "assistant") {
+			return "", ""
+		}
 	}
-	if err := json.Unmarshal([]byte(line), &meta); err != nil {
-		return "", ""
-	}
-	return meta.TeamName, meta.AgentName
+	return "", ""
 }
 
 // teamSpec identifies a team agent spawn from the parent session.
@@ -683,7 +779,7 @@ func DiscoverTeamSessions(sessionPath string, parentChunks []Chunk) ([]SubagentP
 			continue
 		}
 
-		chunks, _, teamColor, err := readSubagentSession(filePath)
+		chunks, _, teamColor, err := readSubagentSession(filePath, projectDir)
 		if err != nil || len(chunks) == 0 {
 			continue
 		}

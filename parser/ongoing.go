@@ -105,6 +105,15 @@ func IsOngoing(chunks []Chunk) bool {
 		}
 
 		if len(chunk.Items) == 0 {
+			// Thinking-only turns: Opus 4.7+/Claude 5 sessions persist thinking
+			// as empty blocks, which Classify counts (ThinkingCount) but does
+			// not emit as items. A chunk with no items but a thinking count is
+			// Claude mid-thought — AI activity, not silence.
+			if chunk.ThinkingCount > 0 {
+				hasItems = true
+				activities = append(activities, activity{typ: actThinking, index: actIdx})
+				actIdx++
+			}
 			continue
 		}
 		hasItems = true
