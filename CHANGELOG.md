@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v0.14.0 (2026-07-04)
+
+Quality release: a full-codebase bug, performance, and maintainability hunt — 65 findings confirmed by cross-model audit, all applied — plus UX refinements from hands-on QA.
+
+- Fix session content search missing assistant messages; debounce scans and guard cached results against stale queries
+- Fix incremental reads dropping the trailing line while a session file is mid-write
+- Fix subagent durations measured short, team sessions linked to the wrong parent run, and team task updates applied out of order
+- Fix stale tail updates bleeding into a newly switched session; stop leaking picker refresh goroutines
+- Fix Bash tool results dropping stderr when stdout is present
+- Fix rune-unsafe truncation and match highlighting on non-ASCII text
+- Fix footer height drift, search-result scrolling past the viewport, duration rollover past 24h, and watcher errors vanishing silently
+- Show the expand caret only on detail rows that actually have expandable content
+- Show a red "dev-mode" footer label on local (non-release) builds
+- Color the Fable/Mythos model family violet; handle model ids without a minor version (e.g. sonnet-5)
+- Performance: skip full re-renders on cursor moves and idle ticks, cache markdown renderers per width, render only visible debug entries, decode assistant content once during classification
+
 ## v0.13.0 (2026-07-04)
 
 - Adapt parser to Claude Code 2.1.19x session format (compact boundaries, per-iteration usage, session-metadata entries)
