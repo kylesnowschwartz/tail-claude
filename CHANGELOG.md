@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.14.2 (2026-07-04)
+
+- Fix file-descriptor exhaustion when tailing workflow-heavy sessions: workflow activity is now polled instead of fsnotify-watched (macOS kqueue opens one fd per file in a watched directory, crashing the TUI past 1024)
+
 ## v0.14.1 (2026-07-04)
 
 - Add expand chevron to picker session rows, signalling the tab-expandable first/last prompt preview
