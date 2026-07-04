@@ -422,19 +422,20 @@ func (m model) viewPickerSearch() string {
 
 	leftLines := m.renderSearchPickerItems(items, leftWidth)
 
+	viewHeight := m.contentHeight(1, 0) // 1 for header
+
 	// --- Right pane: preview or loading ---
 	var rightLines []string
 	if m.pickerPreviewLoading {
 		frame := SpinnerFrames[m.pickerAnimFrame%len(SpinnerFrames)]
 		rightLines = []string{StyleDim.Render(frame + " Loading preview...")}
 	} else if len(m.pickerPreviewMessages) > 0 {
-		rightLines = m.renderPreviewPane(rightWidth)
+		rightLines = m.renderPreviewPane(rightWidth, viewHeight)
 	} else if m.pickerSearchSelectedSession() != nil {
 		rightLines = []string{StyleDim.Render("No preview available")}
 	}
 
 	// --- Compose split view ---
-	viewHeight := m.contentHeight(1, 0) // 1 for header
 	divider := StyleMuted.Render("\u2502")
 
 	// Pad/truncate both panes to viewHeight.
@@ -597,14 +598,38 @@ func (m model) renderSearchPickerSession(s *parser.SessionInfo, isSelected bool,
 }
 
 // renderPreviewPane renders the right pane content from the preview messages.
-// Uses the existing message rendering but at the narrower preview width.
-func (m model) renderPreviewPane(width int) []string {
+// Uses the existing message rendering but at the narrower preview width. The
+// pane is never scrolled, so rendering stops once maxLines lines exist rather
+// than paying a markdown render for every message in the session. Results are
+// memoized in pickerPreviewRender keyed by (path, width) — View runs on every
+// keystroke and spinner tick, so an uncached pass per call is the hot path.
+func (m model) renderPreviewPane(width, maxLines int) []string {
+	c := m.pickerPreviewRender
+	if c != nil && c.path == m.pickerPreviewPath && c.width == width &&
+		(c.complete || len(c.lines) >= maxLines) {
+		return c.lines
+	}
+
 	var lines []string
+	complete := true
 	for i, msg := range m.pickerPreviewMessages {
 		r := m.renderMessage(msg, width, false, false)
 		lines = append(lines, strings.Split(r.content, "\n")...)
+		if len(lines) >= maxLines {
+			complete = i == len(m.pickerPreviewMessages)-1
+			break
+		}
 		if i < len(m.pickerPreviewMessages)-1 {
 			lines = append(lines, "")
+		}
+	}
+
+	if c != nil {
+		*c = previewRenderCache{
+			path:     m.pickerPreviewPath,
+			width:    width,
+			lines:    lines,
+			complete: complete,
 		}
 	}
 	return lines

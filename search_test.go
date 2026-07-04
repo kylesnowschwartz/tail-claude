@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -72,4 +73,104 @@ func TestMatchesSessionContent(t *testing.T) {
 			t.Error("expected false for missing file")
 		}
 	})
+}
+
+// --- renderPreviewPane ------------------------------------------------------
+
+// previewPaneModel builds a model with n plain user messages loaded as the
+// search preview, matching how pickerPreviewLoadedMsg populates the state.
+func previewPaneModel(n int) model {
+	msgs := make([]message, n)
+	for i := range msgs {
+		msgs[i] = message{role: RoleUser, content: fmt.Sprintf("preview message %d", i)}
+	}
+	return model{
+		width:                 120,
+		height:                40,
+		md:                    newMdRenderer(true),
+		jsonHL:                newJSONHL(true),
+		pickerPreviewMessages: msgs,
+		pickerPreviewPath:     "/tmp/session-a.jsonl",
+		pickerPreviewRender:   &previewRenderCache{},
+	}
+}
+
+func TestRenderPreviewPaneStopsAtMaxLines(t *testing.T) {
+	full := previewPaneModel(50)
+	all := full.renderPreviewPane(60, 1<<30)
+
+	m := previewPaneModel(50)
+	truncated := m.renderPreviewPane(60, 10)
+
+	if len(truncated) < 10 {
+		t.Fatalf("truncated render has %d lines, want >= 10", len(truncated))
+	}
+	if len(truncated) >= len(all) {
+		t.Errorf("truncated render has %d lines, want fewer than full render (%d)",
+			len(truncated), len(all))
+	}
+	if m.pickerPreviewRender.complete {
+		t.Error("cache entry marked complete despite early stop")
+	}
+}
+
+func TestRenderPreviewPaneCache(t *testing.T) {
+	m := previewPaneModel(5)
+	m.renderPreviewPane(60, 100)
+
+	c := m.pickerPreviewRender
+	if c.path != m.pickerPreviewPath || c.width != 60 {
+		t.Fatalf("cache key = (%q, %d), want (%q, 60)", c.path, c.width, m.pickerPreviewPath)
+	}
+	if !c.complete {
+		t.Fatal("full render not marked complete")
+	}
+
+	// Plant a sentinel to prove the next same-key call is a cache hit.
+	c.lines = []string{"SENTINEL"}
+	got := m.renderPreviewPane(60, 100)
+	if len(got) != 1 || got[0] != "SENTINEL" {
+		t.Error("same (path, width) did not hit the cache")
+	}
+
+	// A different width must miss the cache — glamour wrapping depends on it.
+	got = m.renderPreviewPane(40, 100)
+	if len(got) == 1 && got[0] == "SENTINEL" {
+		t.Error("width change reused stale cache entry")
+	}
+	if c.width != 40 {
+		t.Errorf("cache width = %d, want 40 after re-render", c.width)
+	}
+
+	// A different path must miss the cache.
+	c.lines = []string{"SENTINEL"}
+	m.pickerPreviewPath = "/tmp/session-b.jsonl"
+	got = m.renderPreviewPane(40, 100)
+	if len(got) == 1 && got[0] == "SENTINEL" {
+		t.Error("path change reused stale cache entry")
+	}
+}
+
+func TestRenderPreviewPaneTruncatedCacheRerendersForTallerPane(t *testing.T) {
+	m := previewPaneModel(50)
+	m.renderPreviewPane(60, 10)
+	if m.pickerPreviewRender.complete {
+		t.Fatal("expected truncated cache entry")
+	}
+
+	short := len(m.pickerPreviewRender.lines)
+	taller := m.renderPreviewPane(60, short+20)
+	if len(taller) <= short {
+		t.Errorf("taller pane got %d lines, want more than cached %d", len(taller), short)
+	}
+}
+
+func TestRenderPreviewPaneNilCache(t *testing.T) {
+	// Models built outside initialModel may lack the cache pointer; rendering
+	// must still work without it.
+	m := previewPaneModel(3)
+	m.pickerPreviewRender = nil
+	if lines := m.renderPreviewPane(60, 100); len(lines) == 0 {
+		t.Error("nil cache produced no output")
+	}
 }

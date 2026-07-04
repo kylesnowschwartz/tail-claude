@@ -172,6 +172,18 @@ type previewCacheEntry struct {
 	messages []message
 }
 
+// previewRenderCache memoizes the rendered preview-pane lines for the search
+// split view, which View recomputes on every keystroke and spinner tick. Held
+// behind a pointer on the model because View's value receiver can't persist
+// field mutations. Width is part of the key: glamour wrapping and card layout
+// depend on the pane width.
+type previewRenderCache struct {
+	path     string
+	width    int
+	lines    []string
+	complete bool // every preview message rendered (not cut at maxLines)
+}
+
 // savedDetailState preserves parent detail view state when drilling into a
 // subagent trace. Restored on Escape.
 type savedDetailState struct {
@@ -313,6 +325,7 @@ type model struct {
 	pickerPreviewLoading  bool                // true while preview session is being parsed
 	pickerPreviewGen      int                 // generation counter to cancel stale preview loads
 	pickerPreviewCache    []previewCacheEntry // LRU cache of last 5 previews
+	pickerPreviewRender   *previewRenderCache // memoized rendered pane lines
 
 	// Resume: set before tea.Quit to exec into claude --resume after exit
 	resumeSession *parser.SessionInfo
@@ -500,6 +513,7 @@ func initialModel(msgs []message, hasDarkBg bool) model {
 		detailChildExpanded: make(map[visibleRowKey]bool),
 		md:                  newMdRenderer(hasDarkBg),
 		jsonHL:              newJSONHL(hasDarkBg),
+		pickerPreviewRender: &previewRenderCache{},
 	}
 }
 
