@@ -37,6 +37,9 @@ func modelColor(model string) color.Color {
 		return ColorModelSonnet
 	case strings.Contains(model, "haiku"):
 		return ColorModelHaiku
+	// Fable and Mythos share the underlying model (Mythos-class tier).
+	case strings.Contains(model, "fable"), strings.Contains(model, "mythos"):
+		return ColorModelFable
 	default:
 		return ColorTextSecondary
 	}
