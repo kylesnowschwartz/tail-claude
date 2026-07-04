@@ -1121,14 +1121,14 @@ func (m model) debugVisibleLines(scroll, viewHeight, width int) []string {
 	return lines
 }
 
-// renderDebugFooter builds the footer for the debug view, including
-// text filter state and the standard keybind pairs.
-func (m model) renderDebugFooter() string {
+// debugKeybindPairs returns the debug view's footer pairs, including the
+// dynamic text-filter label so footerHeight measures the bar that is drawn.
+func (m model) debugKeybindPairs() []string {
 	filterLabel := "filter:" + debugFilterLabel(m.debugMinLevel)
 	if m.debugFilterText != "" {
 		filterLabel += "+\"" + m.debugFilterText + "\""
 	}
-	return m.renderFooter(
+	return []string{
 		"j/k", "nav",
 		"tab", "expand",
 		"/", "search",
@@ -1137,7 +1137,13 @@ func (m model) renderDebugFooter() string {
 		"O", "editor",
 		"q/esc", "back",
 		"?", "keys",
-	)
+	}
+}
+
+// renderDebugFooter builds the footer for the debug view, including
+// text filter state and the standard keybind pairs.
+func (m model) renderDebugFooter() string {
+	return m.renderFooter(m.debugKeybindPairs()...)
 }
 
 // renderDebugFilterPrompt renders the interactive / filter input line.
@@ -1280,53 +1286,21 @@ func (m model) activityIndicatorHeight() int {
 
 // -- Footer height ------------------------------------------------------------
 
-// currentKeybindPairs returns the keybind hint pairs for the active view.
-// Used by footerHeight to measure the rendered bar height before the view
-// function builds its own (possibly identical) pairs. The returned pairs are
-// representative — minor differences like dynamic scroll suffixes don't affect
-// the line count at normal terminal widths.
+// currentKeybindPairs returns the keybind hint pairs for the active view by
+// delegating to the same per-view pairs functions the view renderers use, so
+// footerHeight always measures the exact bar that gets drawn.
 func (m model) currentKeybindPairs() []string {
 	switch m.view {
 	case viewDetail:
-		if m.detailHasItems() {
-			return []string{
-				"j/k", "items", "tab", "toggle", "enter", "open",
-				"↑/↓", "scroll", "J/K", "page", "G/g", "jump",
-				"q/esc", "back", "?", "keys",
-			}
-		}
-		return []string{
-			"j/k", "scroll", "↑/↓", "scroll", "G/g", "jump",
-			"q/esc", "back", "?", "keys",
-		}
+		return m.detailKeybindPairs()
 	case viewPicker:
-		pairs := []string{"j/k", "nav", "enter", "open"}
-		if len(m.worktreeProjectDirs) > 0 {
-			pairs = append(pairs, "b", "worktrees")
-		}
-		return append(pairs, "y", "copy path", "D", "delete", "G/g", "jump", "q/esc", "back", "?", "keys")
+		return m.pickerKeybindPairs()
 	case viewDebug:
-		return []string{
-			"j/k", "nav", "tab", "expand", "/", "search", "f", "filter",
-			"y", "copy path", "O", "editor", "q/esc", "back", "?", "keys",
-		}
+		return m.debugKeybindPairs()
 	case viewTeam:
-		return []string{
-			"j/k", "scroll", "↑/↓", "scroll", "G/g", "jump",
-			"q/esc", "back", "?", "keys",
-		}
+		return m.teamKeybindPairs()
 	default: // viewList
-		pairs := []string{
-			"j/k", "nav", "↑/↓", "scroll", "G/g", "jump",
-			"tab", "toggle", "enter", "detail", "d", "debug log",
-		}
-		if len(m.teams) > 0 {
-			pairs = append(pairs, "t", "tasks")
-		}
-		return append(pairs,
-			"e/c", "expand/collapse", "y", "copy path",
-			"O", "editor", "q/esc", "sessions", "?", "keys",
-		)
+		return m.listKeybindPairs()
 	}
 }
 
@@ -1549,12 +1523,27 @@ func renderKeybindBox(watching bool, width int, pairs ...string) string {
 
 // -- Team task board ----------------------------------------------------------
 
+// teamKeybindPairs returns the team board's footer pairs. Shared by
+// viewTeamBoard and footerHeight so the measured bar matches the drawn one.
+func (m model) teamKeybindPairs() []string {
+	if len(m.teams) == 0 {
+		return []string{"q/esc", "back", "?", "keys"}
+	}
+	return []string{
+		"j/k", "scroll",
+		"↑/↓", "scroll",
+		"G/g", "jump",
+		"q/esc", "back",
+		"?", "keys",
+	}
+}
+
 // viewTeamBoard renders the team task board view with scrolling and footer.
 func (m model) viewTeamBoard() string {
 	width := m.clampWidth()
 
 	if len(m.teams) == 0 {
-		footer := m.renderFooter("q/esc", "back", "?", "keys")
+		footer := m.renderFooter(m.teamKeybindPairs()...)
 		return (screenLayout{
 			lines:   []string{StyleDim.Render("No teams found")},
 			footer:  footer,
@@ -1585,13 +1574,7 @@ func (m model) viewTeamBoard() string {
 		lines = lines[:viewHeight]
 	}
 
-	footer := m.renderFooter(
-		"j/k", "scroll",
-		"↑/↓", "scroll",
-		"G/g", "jump",
-		"q/esc", "back",
-		"?", "keys",
-	)
+	footer := m.renderFooter(m.teamKeybindPairs()...)
 
 	return (screenLayout{
 		lines:   lines,

@@ -896,6 +896,29 @@ func (m model) View() tea.View {
 	return v
 }
 
+// listKeybindPairs returns the list view's footer pairs. Shared by viewList
+// and footerHeight so the measured bar matches the drawn one.
+func (m model) listKeybindPairs() []string {
+	pairs := []string{
+		"j/k", "nav",
+		"↑/↓", "scroll",
+		"G/g", "jump",
+		"tab", "toggle",
+		"enter", "detail",
+		"d", "debug log",
+	}
+	if len(m.teams) > 0 {
+		pairs = append(pairs, "t", "tasks")
+	}
+	return append(pairs,
+		"e/c", "expand/collapse",
+		"y", "copy path",
+		"O", "editor",
+		"q/esc", "sessions",
+		"?", "keys",
+	)
+}
+
 // viewList renders the message list (main view).
 // Content comes from listParts, populated by layoutList — one render pass,
 // one source of truth for both layout metadata and display content.
@@ -915,34 +938,40 @@ func (m model) viewList() string {
 		lines = lines[:viewHeight]
 	}
 
-	// Footer: info bar + optional keybind hints
-	footerPairs := []string{
-		"j/k", "nav",
-		"↑/↓", "scroll",
-		"G/g", "jump",
-		"tab", "toggle",
-		"enter", "detail",
-		"d", "debug log",
-	}
-	if len(m.teams) > 0 {
-		footerPairs = append(footerPairs, "t", "tasks")
-	}
-	footerPairs = append(footerPairs,
-		"e/c", "expand/collapse",
-		"y", "copy path",
-		"O", "editor",
-		"q/esc", "sessions",
-		"?", "keys",
-	)
-
 	return (screenLayout{
 		lines:   lines,
 		middle:  m.renderActivityIndicator(m.width),
-		footer:  m.renderFooter(footerPairs...),
+		footer:  m.renderFooter(m.listKeybindPairs()...),
 		screenH: m.height,
 		width:   m.width,
 		cw:      m.clampWidth(),
 	}).assemble()
+}
+
+// detailKeybindPairs returns the detail view's footer pairs, branching on
+// whether the current message has structured items to navigate. Shared by
+// viewDetail and footerHeight so the measured bar matches the drawn one.
+func (m model) detailKeybindPairs() []string {
+	msg := m.currentDetailMsg()
+	if msg.role == RoleClaude && len(msg.items) > 0 {
+		return []string{
+			"j/k", "items",
+			"tab", "toggle",
+			"enter", "open",
+			"↑/↓", "scroll",
+			"J/K", "page",
+			"G/g", "jump",
+			"q/esc", "back",
+			"?", "keys",
+		}
+	}
+	return []string{
+		"j/k", "scroll",
+		"↑/↓", "scroll",
+		"G/g", "jump",
+		"q/esc", "back",
+		"?", "keys",
+	}
 }
 
 // viewDetail renders a single message full-screen with scrolling.
@@ -979,28 +1008,7 @@ func (m model) viewDetail() string {
 	}
 
 	// Footer varies by message type
-	hasItems := msg.role == RoleClaude && len(msg.items) > 0
-	var footer string
-	if hasItems {
-		footer = m.renderFooter(
-			"j/k", "items",
-			"tab", "toggle",
-			"enter", "open",
-			"↑/↓", "scroll",
-			"J/K", "page",
-			"G/g", "jump",
-			"q/esc", "back",
-			"?", "keys",
-		)
-	} else {
-		footer = m.renderFooter(
-			"j/k", "scroll",
-			"↑/↓", "scroll",
-			"G/g", "jump",
-			"q/esc", "back",
-			"?", "keys",
-		)
-	}
+	footer := m.renderFooter(m.detailKeybindPairs()...)
 
 	return (screenLayout{
 		lines:   lines,

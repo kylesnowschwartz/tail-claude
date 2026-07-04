@@ -391,6 +391,26 @@ func (m *model) schedulePreviewLoad() tea.Cmd {
 	return previewDebounceCmd(m.pickerPreviewGen)
 }
 
+// searchKeybindPairs returns the search split-pane's footer pairs, branching
+// on typing sub-mode. Shared by viewPickerSearch and footerHeight (via
+// pickerKeybindPairs) so the measured bar matches the drawn one.
+func (m model) searchKeybindPairs() []string {
+	if m.pickerSearchTyping {
+		return []string{
+			"enter", "search",
+			"esc", "cancel",
+		}
+	}
+	return []string{
+		"j/k", "nav",
+		"enter", "open",
+		"r", "resume",
+		"/", "edit query",
+		"esc", "back",
+		"q", "close",
+	}
+}
+
 // viewPickerSearch renders the search split-pane view.
 // Left pane: search input + filtered session list. Right pane: session preview.
 func (m model) viewPickerSearch() string {
@@ -466,28 +486,10 @@ func (m model) viewPickerSearch() string {
 		combined = append(combined, left+divider+right)
 	}
 
-	// Footer varies by sub-mode.
-	var footerPairs []string
-	if m.pickerSearchTyping {
-		footerPairs = []string{
-			"enter", "search",
-			"esc", "cancel",
-		}
-	} else {
-		footerPairs = []string{
-			"j/k", "nav",
-			"enter", "open",
-			"r", "resume",
-			"/", "edit query",
-			"esc", "back",
-			"q", "close",
-		}
-	}
-
 	return (screenLayout{
 		header:  header,
 		lines:   combined,
-		footer:  m.renderFooter(footerPairs...),
+		footer:  m.renderFooter(m.searchKeybindPairs()...),
 		screenH: m.height,
 		width:   m.width,
 		cw:      width,

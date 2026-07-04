@@ -494,6 +494,39 @@ func (m model) pickerTotalLines() int {
 
 // --- Picker rendering ---
 
+// pickerKeybindPairs returns the picker's footer pairs for its current
+// sub-state (search split-pane, empty list, or session list). Shared by
+// viewPicker and footerHeight so the measured bar matches the drawn one.
+func (m model) pickerKeybindPairs() []string {
+	if m.pickerSearchMode {
+		return m.searchKeybindPairs()
+	}
+	if len(m.pickerItems) == 0 {
+		return []string{"q/esc", "back", "?", "keys"}
+	}
+	pairs := []string{
+		"j/k", "nav",
+		"tab", "preview",
+		"enter", "open",
+		"/", "search",
+		"r", "resume",
+	}
+	if len(m.worktreeProjectDirs) > 0 {
+		if m.pickerWorktreeMode {
+			pairs = append(pairs, "b", "project")
+		} else {
+			pairs = append(pairs, "b", "worktrees")
+		}
+	}
+	return append(pairs,
+		"y", "copy path",
+		"D", "delete",
+		"G/g", "jump",
+		"q/esc", "back",
+		"?", "keys",
+	)
+}
+
 // viewPicker renders the session picker screen.
 func (m model) viewPicker() string {
 	if m.pickerSearchMode {
@@ -516,7 +549,7 @@ func (m model) viewPicker() string {
 			return (screenLayout{
 				header:  header,
 				lines:   []string{StyleDim.Render(frame + " Loading sessions...")},
-				footer:  m.renderFooter("q/esc", "back", "?", "keys"),
+				footer:  m.renderFooter(m.pickerKeybindPairs()...),
 				screenH: m.height,
 				width:   m.width,
 				cw:      width,
@@ -525,7 +558,7 @@ func (m model) viewPicker() string {
 		return (screenLayout{
 			header:  header,
 			lines:   []string{StyleDim.Render("No sessions found for this project.")},
-			footer:  m.renderFooter("q/esc", "back", "?", "keys"),
+			footer:  m.renderFooter(m.pickerKeybindPairs()...),
 			screenH: m.height,
 			width:   m.width,
 			cw:      width,
@@ -535,32 +568,10 @@ func (m model) viewPicker() string {
 	allLines := m.renderPickerItems(width)
 	visible := scrollWindow(allLines, m.contentHeight(1, 0), m.pickerScroll)
 
-	footerPairs := []string{
-		"j/k", "nav",
-		"tab", "preview",
-		"enter", "open",
-		"/", "search",
-		"r", "resume",
-	}
-	if len(m.worktreeProjectDirs) > 0 {
-		if m.pickerWorktreeMode {
-			footerPairs = append(footerPairs, "b", "project")
-		} else {
-			footerPairs = append(footerPairs, "b", "worktrees")
-		}
-	}
-	footerPairs = append(footerPairs,
-		"y", "copy path",
-		"D", "delete",
-		"G/g", "jump",
-		"q/esc", "back",
-		"?", "keys",
-	)
-
 	return (screenLayout{
 		header:  header,
 		lines:   visible,
-		footer:  m.renderFooter(footerPairs...),
+		footer:  m.renderFooter(m.pickerKeybindPairs()...),
 		screenH: m.height,
 		width:   m.width,
 		cw:      width,

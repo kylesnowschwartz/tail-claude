@@ -214,6 +214,27 @@ func TestViewHeights(t *testing.T) {
 			t.Errorf("narrow contentHeight (%d) should be less than wide (%d)", narrowContent, wideContent)
 		}
 	})
+
+	// The next two subtests guard against footerHeight measuring a stale copy
+	// of the view's keybind pairs instead of the ones actually rendered.
+
+	t.Run("debug filter text grows measured footer with the rendered bar", func(t *testing.T) {
+		base := model{height: 40, width: 50, showKeybinds: true, view: viewDebug}
+		filtered := base
+		filtered.debugFilterText = strings.Repeat("x", 40)
+		if filtered.footerHeight() <= base.footerHeight() {
+			t.Errorf("footerHeight with long filter text (%d) should exceed base (%d) — dynamic label must be measured", filtered.footerHeight(), base.footerHeight())
+		}
+	})
+
+	t.Run("picker footer measurement tracks empty vs populated list", func(t *testing.T) {
+		empty := model{height: 40, width: 60, showKeybinds: true, view: viewPicker}
+		populated := empty
+		populated.pickerItems = []pickerItem{{typ: pickerItemSession}}
+		if populated.footerHeight() <= empty.footerHeight() {
+			t.Errorf("populated picker footerHeight (%d) should exceed empty-state footerHeight (%d) at narrow width", populated.footerHeight(), empty.footerHeight())
+		}
+	})
 }
 
 // --- layoutList / viewList agreement --------------------------------------
