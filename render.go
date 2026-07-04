@@ -353,7 +353,7 @@ func (m model) renderUserMessage(msg message, containerWidth int, isSelected, is
 	}
 
 	// Render markdown content inside the bubble, then append the hint
-	bubbleInnerWidth := max(maxBubbleWidth-6, 20) // subtract border (2) + padding (4)
+	bubbleInnerWidth := contentWidth(maxBubbleWidth)
 	rendered := m.md.renderMarkdown(content, bubbleInnerWidth)
 	if hint != "" {
 		rendered += "\n" + hint
@@ -1021,10 +1021,7 @@ func (m model) viewDebugLog() string {
 	width := m.clampWidth()
 
 	// Filter input prompt takes 1 line above the footer when active.
-	filterPromptHeight := 0
-	if m.debugFilterMode {
-		filterPromptHeight = 1
-	}
+	filterPromptHeight := m.debugFilterPromptHeight()
 
 	if len(m.debugFiltered) == 0 {
 		filterInfo := debugFilterLabel(m.debugMinLevel)
@@ -1049,20 +1046,10 @@ func (m model) viewDebugLog() string {
 
 	viewHeight := m.contentHeight(0, filterPromptHeight)
 
-	// Clamp scroll using entry metadata (each collapsed entry is one line,
-	// expanded extras via ExtraLineCount) so nothing is rendered just to
-	// count lines.
-	scroll := m.debugScroll
-	maxScroll := m.debugTotalLines() - viewHeight
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if scroll > maxScroll {
-		scroll = maxScroll
-	}
-	if scroll < 0 {
-		scroll = 0
-	}
+	// Clamp scroll via entry metadata (debugMaxScroll) so nothing is
+	// rendered just to count lines -- this view can't use scrollWindow
+	// because rendering every line first would be prohibitively slow.
+	scroll := min(max(m.debugScroll, 0), m.debugMaxScroll())
 
 	allLines := m.debugVisibleLines(scroll, viewHeight, width)
 
@@ -1530,25 +1517,8 @@ func (m model) viewTeamBoard() string {
 	}
 
 	content := m.renderTeamContent(width, m.animFrame)
-	lines := strings.Split(content, "\n")
-	totalLines := len(lines)
 	viewHeight := m.contentHeight(0, 0)
-
-	// Scroll
-	scroll := m.teamScroll
-	maxScroll := totalLines - viewHeight
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if scroll > maxScroll {
-		scroll = maxScroll
-	}
-	if scroll > 0 && scroll < totalLines {
-		lines = lines[scroll:]
-	}
-	if len(lines) > viewHeight {
-		lines = lines[:viewHeight]
-	}
+	lines := scrollWindow(strings.Split(content, "\n"), viewHeight, m.teamScroll)
 
 	footer := m.renderFooter(m.teamKeybindPairs()...)
 
