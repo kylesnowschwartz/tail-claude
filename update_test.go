@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -230,7 +231,7 @@ func TestUpdateDetail(t *testing.T) {
 		return claudeMsg(func(m *message) {
 			m.items = []displayItem{
 				{itemType: parser.ItemThinking, text: "let me think"},
-				{itemType: parser.ItemToolCall, toolName: "Read", toolSummary: "main.go"},
+				{itemType: parser.ItemToolCall, toolName: "Read", toolSummary: "main.go", toolInput: `{"file_path":"main.go"}`},
 				{itemType: parser.ItemOutput, text: "done"},
 			}
 		})
@@ -446,7 +447,7 @@ func claudeMsgWithSubagent() message {
 		Chunks: []parser.Chunk{
 			{Type: parser.UserChunk, UserText: "investigate this"},
 			{Type: parser.AIChunk, Items: []parser.DisplayItem{
-				{Type: parser.ItemToolCall, ToolName: "Read", ToolSummary: "file.go"},
+				{Type: parser.ItemToolCall, ToolName: "Read", ToolSummary: "file.go", ToolInput: json.RawMessage(`{"file_path":"file.go"}`)},
 			}},
 		},
 	}
@@ -1113,4 +1114,28 @@ func TestUpdateDebugFilterReset(t *testing.T) {
 			t.Errorf("debugFiltered has %d entries, want 3 warn matches", len(got.debugFiltered))
 		}
 	})
+}
+
+func TestToggleDetailExpansion_NoOpWithoutContent(t *testing.T) {
+	m := testModel()
+	m.view = viewDetail
+	m.messages = []message{claudeMsg(func(msg *message) {
+		msg.items = []displayItem{
+			{itemType: parser.ItemMemoryLoad, text: "MEMORY.md"},
+			{itemType: parser.ItemThinking, text: "let me think"},
+		}
+	})}
+	m.cursor = 0
+
+	m.detailCursor = 0 // memory load: nothing to expand
+	m.toggleDetailExpansion()
+	if m.detailExpanded[0] {
+		t.Error("toggle on non-expandable item recorded expanded state")
+	}
+
+	m.detailCursor = 1 // thinking with text: expandable
+	m.toggleDetailExpansion()
+	if !m.detailExpanded[1] {
+		t.Error("toggle on expandable item did not expand")
+	}
 }
