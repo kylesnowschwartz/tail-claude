@@ -213,8 +213,12 @@ func chunkTiming(chunks []Chunk) (start, end time.Time, durationMs int64) {
 		if start.IsZero() || c.Timestamp.Before(start) {
 			start = c.Timestamp
 		}
-		if end.IsZero() || c.Timestamp.After(end) {
-			end = c.Timestamp
+		// A chunk's Timestamp is its FIRST message; DurationMs spans to its
+		// last. Using Timestamp alone as the end would drop the entire final
+		// AI turn and report ~time-to-first-token instead of real runtime.
+		chunkEnd := c.Timestamp.Add(time.Duration(c.DurationMs) * time.Millisecond)
+		if end.IsZero() || chunkEnd.After(end) {
+			end = chunkEnd
 		}
 	}
 	if !start.IsZero() && !end.IsZero() {
