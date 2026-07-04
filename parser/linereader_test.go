@@ -201,6 +201,54 @@ func TestLineReaderBytesReadNoTrailingNewline(t *testing.T) {
 	}
 }
 
+func TestScanLines(t *testing.T) {
+	t.Run("visits every non-empty line", func(t *testing.T) {
+		var got []string
+		err := ScanLines(strings.NewReader("aaa\n\nbbb\nccc\n"), func(line string) bool {
+			got = append(got, line)
+			return true
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"aaa", "bbb", "ccc"}
+		if !slices.Equal(got, want) {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("stops early when fn returns false", func(t *testing.T) {
+		var got []string
+		err := ScanLines(strings.NewReader("aaa\nbbb\nccc\n"), func(line string) bool {
+			got = append(got, line)
+			return line != "bbb"
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"aaa", "bbb"}
+		if !slices.Equal(got, want) {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("returns I/O error after yielding readable lines", func(t *testing.T) {
+		ioErr := errors.New("disk read failed")
+		r := io.MultiReader(strings.NewReader("aaa\n"), iotest.ErrReader(ioErr))
+		var got []string
+		err := ScanLines(r, func(line string) bool {
+			got = append(got, line)
+			return true
+		})
+		if !errors.Is(err, ioErr) {
+			t.Fatalf("err = %v, want %v", err, ioErr)
+		}
+		if !slices.Equal(got, []string{"aaa"}) {
+			t.Errorf("got %q, want [aaa]", got)
+		}
+	})
+}
+
 // newLineReaderWithMax creates a lineReader with a custom max line size
 // for testing. Production code uses newLineReader which defaults to maxLineSize.
 func newLineReaderWithMax(r io.Reader, max int) *lineReader {
