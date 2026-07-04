@@ -356,9 +356,7 @@ func (m model) updateDebug(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.debugFilterText != "" {
 			// First press clears the active text filter; second press exits.
 			m.debugFilterText = ""
-			m.debugExpanded = make(map[int]bool)
-			m.applyDebugFilters()
-			m.debugScroll = 0
+			m.reapplyDebugFilters()
 			return m, nil
 		}
 		m.stopDebugWatcher()
@@ -412,9 +410,7 @@ func (m model) updateDebug(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case parser.LevelError:
 			m.debugMinLevel = parser.LevelDebug
 		}
-		m.debugExpanded = make(map[int]bool)
-		m.applyDebugFilters()
-		m.debugScroll = 0
+		m.reapplyDebugFilters()
 	case "/":
 		// Enter text filter input mode.
 		m.debugFilterMode = true
@@ -449,25 +445,19 @@ func (m model) updateDebugFilter(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		// Commit filter and exit input mode.
 		m.debugFilterMode = false
-		m.debugExpanded = make(map[int]bool)
-		m.applyDebugFilters()
+		m.reapplyDebugFilters()
 		m.debugCursor = 0
-		m.debugScroll = 0
 	case "esc", "escape":
 		// Cancel: discard any typed text, exit input mode.
 		m.debugFilterMode = false
 		m.debugFilterText = ""
-		m.debugExpanded = make(map[int]bool)
-		m.applyDebugFilters()
+		m.reapplyDebugFilters()
 		m.debugCursor = 0
-		m.debugScroll = 0
 	case "backspace":
 		if len(m.debugFilterText) > 0 {
 			m.debugFilterText = m.debugFilterText[:len(m.debugFilterText)-1]
-			m.debugExpanded = make(map[int]bool)
-			m.applyDebugFilters()
+			m.reapplyDebugFilters()
 			m.debugCursor = 0
-			m.debugScroll = 0
 		}
 	case "ctrl+c":
 		return m, tea.Quit
@@ -475,10 +465,8 @@ func (m model) updateDebugFilter(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Append printable characters.
 		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
 			m.debugFilterText += key
-			m.debugExpanded = make(map[int]bool)
-			m.applyDebugFilters()
+			m.reapplyDebugFilters()
 			m.debugCursor = 0
-			m.debugScroll = 0
 		}
 	}
 	return m, nil

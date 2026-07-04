@@ -346,6 +346,17 @@ func (m *model) applyDebugFilters() {
 	}
 }
 
+// reapplyDebugFilters rebuilds the filtered debug view after a filter change.
+// The expansion map is keyed by filtered index and the scroll offset maps to
+// the old list, so both are invalidated. The cursor is deliberately left in
+// place (applyDebugFilters clamps it out of range); callers that want a
+// jump-to-top reset zero debugCursor themselves.
+func (m *model) reapplyDebugFilters() {
+	m.debugExpanded = make(map[int]bool)
+	m.applyDebugFilters()
+	m.debugScroll = 0
+}
+
 // stopDebugWatcher stops the debug log watcher if one is running.
 func (m *model) stopDebugWatcher() {
 	if m.debugWatcher != nil {
