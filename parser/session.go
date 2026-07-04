@@ -507,7 +507,6 @@ func scanSessionMetadata(path string) sessionMetadata {
 	// Turn counting: user message increments, then first qualifying AI response increments.
 	awaitingAIGroup := false
 
-	// Token deduplication: Claude Code writes multiple JSONL entries per API
 	// Context tokens: we want the last assistant message's context snapshot.
 	// Streaming entries share a requestId with incrementally larger counts,
 	// but since we always overwrite, last-entry-wins naturally.
@@ -703,7 +702,6 @@ type metadataScanEntry struct {
 	Cwd            string          `json:"cwd"`
 	GitBranch      string          `json:"gitBranch"`
 	PermissionMode string          `json:"permissionMode"`
-	RequestID      string          `json:"requestId"`
 	ToolResult     json.RawMessage `json:"toolUseResult"`
 	CustomTitle    string          `json:"customTitle"`
 	AITitle        string          `json:"aiTitle"`

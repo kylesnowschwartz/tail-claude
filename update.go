@@ -124,7 +124,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.flashStatus = "No debug log (start Claude with --debug)"
 			return m, flashClearCmd()
 		}
-		entries, offset, err := parser.ReadDebugLog(debugPath)
+		entries, _, err := parser.ReadDebugLog(debugPath)
 		if err != nil {
 			return m, nil
 		}
@@ -139,7 +139,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 		// Start debug file watcher for live tailing.
 		m.stopDebugWatcher()
-		dw := newDebugLogWatcher(debugPath, offset)
+		dw := newDebugLogWatcher(debugPath)
 		if err := dw.start(); err != nil {
 			// The static entries above are still shown; just no live tailing.
 			m.flashStatus = "debug watch failed: " + err.Error()

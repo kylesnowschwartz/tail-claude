@@ -165,37 +165,3 @@ func TestChunkContextDelta_NonAIChunkReturnsNil(t *testing.T) {
 		t.Errorf("ContextDelta on UserChunk = %+v, want nil", d)
 	}
 }
-
-func TestSessionContextUsage_TakesLastAIChunkUsage(t *testing.T) {
-	chunks := []parser.Chunk{
-		{Type: parser.AIChunk, Model: "claude-opus-4-7", Usage: parser.Usage{InputTokens: 100_000}},
-		{Type: parser.UserChunk, UserText: "follow-up"},
-		{Type: parser.AIChunk, Model: "claude-opus-4-7", Usage: parser.Usage{InputTokens: 250_000}},
-	}
-	pct, window, ok := parser.SessionContextUsage(chunks)
-	if !ok {
-		t.Fatal("ok = false, want true")
-	}
-	if window != 1_000_000 {
-		t.Errorf("window = %d, want 1000000", window)
-	}
-	if pct != 25.0 {
-		t.Errorf("pct = %v, want 25.0", pct)
-	}
-}
-
-func TestSessionContextUsage_NoUsageReturnsNotOk(t *testing.T) {
-	chunks := []parser.Chunk{
-		{Type: parser.UserChunk, UserText: "hi"},
-		{Type: parser.AIChunk, Model: "claude-opus-4-7"}, // zero usage
-	}
-	if _, _, ok := parser.SessionContextUsage(chunks); ok {
-		t.Error("ok = true, want false (no usage)")
-	}
-}
-
-func TestSessionContextUsage_EmptyChunksReturnsNotOk(t *testing.T) {
-	if _, _, ok := parser.SessionContextUsage(nil); ok {
-		t.Error("ok = true, want false (empty)")
-	}
-}

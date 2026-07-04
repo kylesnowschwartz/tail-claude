@@ -25,20 +25,14 @@ const (
 	actExitPlanMode                     // ExitPlanMode tool call (ending event)
 )
 
-// activity tracks an event type and its position in the activity stream.
-type activity struct {
-	typ   activityType
-	index int
-}
-
 // isEndingEvent returns true if this activity type terminates an ongoing session.
-func (a activity) isEndingEvent() bool {
-	return a.typ == actTextOutput || a.typ == actInterruption || a.typ == actExitPlanMode
+func (t activityType) isEndingEvent() bool {
+	return t == actTextOutput || t == actInterruption || t == actExitPlanMode
 }
 
 // isAIActivity returns true if this activity type represents AI work in progress.
-func (a activity) isAIActivity() bool {
-	return a.typ == actThinking || a.typ == actToolUse || a.typ == actToolResult
+func (t activityType) isAIActivity() bool {
+	return t == actThinking || t == actToolUse || t == actToolResult
 }
 
 // approvePattern matches approve: true in SendMessage shutdown_response input.
@@ -91,8 +85,7 @@ func IsOngoing(chunks []Chunk) bool {
 	}
 
 	// Collect activities from structured items across all chunks.
-	var activities []activity
-	actIdx := 0
+	var activities []activityType
 	hasItems := false
 
 	// Track tool_use IDs that are shutdown approvals so their tool_results
@@ -121,45 +114,37 @@ func IsOngoing(chunks []Chunk) bool {
 		for _, item := range chunk.Items {
 			switch item.Type {
 			case ItemThinking:
-				activities = append(activities, activity{typ: actThinking, index: actIdx})
-				actIdx++
+				activities = append(activities, actThinking)
 
 			case ItemOutput:
 				if strings.TrimSpace(item.Text) != "" {
-					activities = append(activities, activity{typ: actTextOutput, index: actIdx})
-					actIdx++
+					activities = append(activities, actTextOutput)
 				}
 
 			case ItemToolCall:
 				if item.ToolName == "ExitPlanMode" {
-					activities = append(activities, activity{typ: actExitPlanMode, index: actIdx})
-					actIdx++
+					activities = append(activities, actExitPlanMode)
 				} else if isShutdownApproval(item.ToolName, item.ToolInput) {
 					shutdownToolIDs[item.ToolID] = true
-					activities = append(activities, activity{typ: actInterruption, index: actIdx})
-					actIdx++
+					activities = append(activities, actInterruption)
 				} else {
-					activities = append(activities, activity{typ: actToolUse, index: actIdx})
-					actIdx++
+					activities = append(activities, actToolUse)
 				}
 
 				// If this tool call has a result, track it too.
 				if item.ToolResult != "" {
 					if shutdownToolIDs[item.ToolID] {
-						activities = append(activities, activity{typ: actInterruption, index: actIdx})
+						activities = append(activities, actInterruption)
 					} else {
-						activities = append(activities, activity{typ: actToolResult, index: actIdx})
+						activities = append(activities, actToolResult)
 					}
-					actIdx++
 				}
 
 			case ItemSubagent:
 				// Subagent spawns are AI activity (like tool_use).
-				activities = append(activities, activity{typ: actToolUse, index: actIdx})
-				actIdx++
+				activities = append(activities, actToolUse)
 				if item.ToolResult != "" {
-					activities = append(activities, activity{typ: actToolResult, index: actIdx})
-					actIdx++
+					activities = append(activities, actToolResult)
 				}
 			}
 		}
@@ -219,7 +204,7 @@ func hasPendingAgents(chunks []Chunk) bool {
 
 // isOngoingFromActivities determines ongoing state from collected activities.
 // Ported from claude-devtools sessionStateDetection.ts.
-func isOngoingFromActivities(activities []activity) bool {
+func isOngoingFromActivities(activities []activityType) bool {
 	if len(activities) == 0 {
 		return false
 	}
@@ -228,24 +213,15 @@ func isOngoingFromActivities(activities []activity) bool {
 	lastEndingIdx := -1
 	for i := len(activities) - 1; i >= 0; i-- {
 		if activities[i].isEndingEvent() {
-			lastEndingIdx = activities[i].index
+			lastEndingIdx = i
 			break
 		}
 	}
 
 	// No ending event: ongoing if there's any AI activity at all.
-	if lastEndingIdx == -1 {
-		for _, a := range activities {
-			if a.isAIActivity() {
-				return true
-			}
-		}
-		return false
-	}
-
-	// Check for AI activity AFTER the last ending event.
-	for _, a := range activities {
-		if a.index > lastEndingIdx && a.isAIActivity() {
+	// Otherwise: ongoing if there's AI activity AFTER the last ending event.
+	for i, a := range activities {
+		if i > lastEndingIdx && a.isAIActivity() {
 			return true
 		}
 	}

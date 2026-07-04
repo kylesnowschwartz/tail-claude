@@ -19,7 +19,6 @@ const debugWatcherDebounce = 300 * time.Millisecond
 // chunk building, no subagent discovery, just parse-filter-send.
 type debugLogWatcher struct {
 	path    string
-	offset  int64
 	sub     chan debugUpdateMsg
 	done    chan struct{}
 	signals chan struct{} // debounced rebuild trigger; capacity 1
@@ -32,10 +31,9 @@ type debugLogWatcher struct {
 	fsWatcher *fsnotify.Watcher
 }
 
-func newDebugLogWatcher(path string, initialOffset int64) *debugLogWatcher {
+func newDebugLogWatcher(path string) *debugLogWatcher {
 	return &debugLogWatcher{
 		path:    path,
-		offset:  initialOffset,
 		sub:     make(chan debugUpdateMsg, 1),
 		done:    make(chan struct{}),
 		signals: make(chan struct{}, 1),
@@ -114,17 +112,15 @@ func (w *debugLogWatcher) run() {
 	}
 }
 
-// readAndSend reads new entries from the debug file and sends the full
-// rebuilt list. Only called from run() -- no synchronization needed on
-// data fields.
+// readAndSend reads the debug file and sends the full rebuilt list. Only
+// called from run() -- no synchronization needed on data fields.
 func (w *debugLogWatcher) readAndSend() {
 	// Re-read from the beginning to get the complete picture.
 	// Debug logs are small enough (typically <2000 lines) that this is fast.
-	entries, newOffset, err := parser.ReadDebugLog(w.path)
+	entries, _, err := parser.ReadDebugLog(w.path)
 	if err != nil {
 		return
 	}
-	w.offset = newOffset
 
 	update := debugUpdateMsg{entries: entries}
 
