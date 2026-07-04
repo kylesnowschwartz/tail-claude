@@ -365,6 +365,16 @@ func (m *model) stopDebugWatcher() {
 	}
 }
 
+// stopPickerWatcher stops the picker directory watcher if one is running.
+// Nil-ing the field matters: a stale watcher keeps pushing refresh messages
+// into whatever view replaces the picker.
+func (m *model) stopPickerWatcher() {
+	if m.pickerWatcher != nil {
+		m.pickerWatcher.stop()
+		m.pickerWatcher = nil
+	}
+}
+
 // sessionState is the output of the shared rebuild pipeline: everything the
 // initial load and the watcher's incremental rebuilds derive from a chunk list.
 type sessionState struct {
@@ -469,6 +479,35 @@ func loadSession(path string) (loadResult, error) {
 	}, nil
 }
 
+// refreshLiveGit re-samples the invocation directory's branch and dirty
+// state so the header compares the session against current git reality.
+func (m *model) refreshLiveGit() {
+	m.liveBranch = checkGitBranch(m.gitCwd)
+	m.liveDirty = checkGitDirty(m.gitCwd)
+}
+
+// applySessionMeta copies the session-derived header metadata onto the model.
+// Every path that loads a session (initial load, --dump, picker switch) must
+// route through here so a new metadata field can't be missed on one of them.
+func (m *model) applySessionMeta(meta parser.SessionMeta) {
+	m.sessionCwd = meta.Cwd
+	m.sessionGitBranch = meta.GitBranch
+	m.sessionMode = meta.PermissionMode
+}
+
+// startWatching spins up the tail watcher for a loaded session and wires its
+// channels into the model. Shared by the initial load and switchSession so
+// the watcher bootstrap sequence lives in exactly one place.
+func (m *model) startWatching(result loadResult) {
+	w := newSessionWatcher(result.path, result.classified, result.offset)
+	w.hasTeamTasks = result.hasTeamTasks
+	go w.run()
+	m.watcher = w
+	m.watching = true
+	m.tailSub = w.sub
+	m.tailErrc = w.errc
+}
+
 // switchSession replaces the current session with a new one, stopping the old
 // watcher and starting a new one. Centralizes the state reset that happens when
 // the user picks a different session from the picker.
@@ -488,11 +527,8 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.sessionPath = result.path
 	m.sessionOngoing = result.ongoing
 	m.sessionWorkflow = result.workflow
-	m.sessionCwd = result.meta.Cwd
-	m.sessionGitBranch = result.meta.GitBranch
-	m.liveBranch = checkGitBranch(m.gitCwd)
-	m.sessionMode = result.meta.PermissionMode
-	m.liveDirty = checkGitDirty(m.gitCwd)
+	m.applySessionMeta(result.meta)
+	m.refreshLiveGit()
 	// Reset the idle-failsafe clock: it still holds the previous session's last
 	// update time, which would immediately clear the new session's ongoing flag.
 	m.lastTailUpdate = time.Now()
@@ -500,13 +536,7 @@ func (m model) switchSession(result loadResult) (model, tea.Cmd) {
 	m.view = viewList
 	m.layoutList()
 
-	w := newSessionWatcher(result.path, result.classified, result.offset)
-	w.hasTeamTasks = result.hasTeamTasks
-	go w.run()
-	m.watcher = w
-	m.watching = true
-	m.tailSub = w.sub
-	m.tailErrc = w.errc
+	m.startWatching(result)
 
 	// Start the tick chain unconditionally — see Init for the rationale.
 	m.tickSeq++
@@ -531,6 +561,22 @@ func initialModel(msgs []message, hasDarkBg bool) model {
 		pickerPreviewRender: &previewRenderCache{},
 		pickerSearchLiveGen: new(atomic.Int64),
 	}
+}
+
+// baseModel extends initialModel with the wiring every main() entry path
+// (empty picker, --dump, normal load) shares: live-git context, picker
+// project directories, and the session metadata cache. One construction site
+// means a new shared field can't silently miss a path.
+func baseModel(msgs []message, hasDarkBg bool, invokedFrom, projectDir string, projectDirs, worktreeDirs []string, inWorktree bool) model {
+	m := initialModel(msgs, hasDarkBg)
+	m.projectDir = projectDir
+	m.projectDirs = projectDirs
+	m.worktreeProjectDirs = worktreeDirs
+	m.pickerWorktreeMode = inWorktree
+	m.gitCwd = invokedFrom
+	m.refreshLiveGit()
+	m.sessionCache = parser.NewSessionCache()
+	return m
 }
 
 func (m model) Init() tea.Cmd {
@@ -1330,15 +1376,7 @@ Flags:
 			os.MkdirAll(projectDir, 0o700)
 		}
 
-		m := initialModel(nil, hasDarkBg)
-		m.projectDir = projectDir
-		m.projectDirs = projectDirs
-		m.worktreeProjectDirs = worktreeProjectDirs
-		m.pickerWorktreeMode = inWorktree
-		m.gitCwd = invokedFrom
-		m.liveBranch = checkGitBranch(invokedFrom)
-		m.liveDirty = checkGitDirty(invokedFrom)
-		m.sessionCache = parser.NewSessionCache()
+		m := baseModel(nil, hasDarkBg, invokedFrom, projectDir, projectDirs, worktreeProjectDirs, inWorktree)
 		m.view = viewPicker
 		m.pickerLoading = true
 
@@ -1358,15 +1396,10 @@ Flags:
 		if dumpWidth > 0 {
 			width = dumpWidth
 		}
-		m := initialModel(result.messages, hasDarkBg)
+		m := baseModel(result.messages, hasDarkBg, invokedFrom, projectDir, projectDirs, worktreeProjectDirs, inWorktree)
 		m.width = width
 		m.height = 1_000_000
-		m.gitCwd = invokedFrom
-		m.sessionCwd = result.meta.Cwd
-		m.sessionGitBranch = result.meta.GitBranch
-		m.liveBranch = checkGitBranch(invokedFrom)
-		m.sessionMode = result.meta.PermissionMode
-		m.liveDirty = checkGitDirty(invokedFrom)
+		m.applySessionMeta(result.meta)
 		if expandAll {
 			for i := range m.messages {
 				m.expanded[i] = true
@@ -1377,33 +1410,14 @@ Flags:
 		return
 	}
 
-	// Session metadata cache for the picker — unchanged files skip rescanning.
-	sessionCache := parser.NewSessionCache()
-
-	// Start the file watcher for live tailing.
-	watcher := newSessionWatcher(result.path, result.classified, result.offset)
-	watcher.hasTeamTasks = result.hasTeamTasks
-	go watcher.run()
-
-	m := initialModel(result.messages, hasDarkBg)
+	m := baseModel(result.messages, hasDarkBg, invokedFrom, projectDir, projectDirs, worktreeProjectDirs, inWorktree)
 	m.sessionPath = result.path
-	m.projectDir = projectDir
-	m.projectDirs = projectDirs
-	m.worktreeProjectDirs = worktreeProjectDirs
-	m.pickerWorktreeMode = inWorktree
-	m.watching = true
-	m.watcher = watcher
-	m.tailSub = watcher.sub
-	m.tailErrc = watcher.errc
 	m.sessionOngoing = result.ongoing
-	m.gitCwd = invokedFrom
-	m.sessionCwd = result.meta.Cwd
-	m.sessionGitBranch = result.meta.GitBranch
-	m.liveBranch = checkGitBranch(invokedFrom)
-	m.sessionMode = result.meta.PermissionMode
-	m.liveDirty = checkGitDirty(invokedFrom)
+	m.sessionWorkflow = result.workflow
 	m.teams = result.teams
-	m.sessionCache = sessionCache
+	m.applySessionMeta(result.meta)
+	// Start the file watcher for live tailing.
+	m.startWatching(result)
 
 	// When the session was auto-discovered (no explicit path) and it's stale,
 	// start on the picker so the user can choose instead of seeing old output.
