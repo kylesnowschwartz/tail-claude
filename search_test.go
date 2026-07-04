@@ -88,8 +88,7 @@ func TestMatchesSessionContent(t *testing.T) {
 
 func TestSearchTypingDebouncesInsteadOfScanning(t *testing.T) {
 	m := pickerModel()
-	m.pickerSearchMode = true
-	m.pickerSearchTyping = true
+	m.pickerSearchState = searchTyping
 
 	result, cmd := m.updatePickerSearchTyping(key("a"))
 	got := result.(model)
@@ -144,7 +143,7 @@ func TestSchedulePreviewLoadCacheHitInvalidatesInFlightLoad(t *testing.T) {
 		{Path: "/tmp/session-a.jsonl", FirstMessage: "session a", ModTime: time.Now()},
 		{Path: "/tmp/session-b.jsonl", FirstMessage: "session b", ModTime: time.Now()},
 	}
-	m.pickerSearchMode = true
+	m.pickerSearchState = searchNav
 	m.pickerSearchResults = rebuildPickerItems(sessions)
 
 	// A load for session A is in flight at gen 1; session B is cached.
@@ -180,7 +179,7 @@ func TestSchedulePreviewLoadCacheHitInvalidatesInFlightLoad(t *testing.T) {
 
 func TestSchedulePreviewLoadNilSelectionInvalidatesInFlightLoad(t *testing.T) {
 	m := pickerModel()
-	m.pickerSearchMode = true
+	m.pickerSearchState = searchNav
 	m.pickerSearchResults = []pickerItem{} // no results -> no selected session
 	m.pickerPreviewGen = 1
 	m.pickerPreviewLoading = true
@@ -190,6 +189,54 @@ func TestSchedulePreviewLoadNilSelectionInvalidatesInFlightLoad(t *testing.T) {
 	}
 	if m.pickerPreviewGen != 2 {
 		t.Errorf("pickerPreviewGen = %d, want 2 (clearing the pane must invalidate in-flight load)", m.pickerPreviewGen)
+	}
+}
+
+// --- exit search ---------------------------------------------------------------
+
+func TestExitPickerSearchInvalidatesInFlightWork(t *testing.T) {
+	m := pickerModel()
+	m.pickerSearchState = searchNav
+	m.pickerSearchQuery = "needle"
+	m.pickerSearchResults = []pickerItem{}
+	m.pickerPreviewLoading = true
+	searchGen := m.pickerSearchGen
+	previewGen := m.pickerPreviewGen
+
+	// q exits search via the single exit path.
+	result, _ := m.updatePickerSearchNav(key("q"))
+	got := result.(model)
+
+	if got.pickerSearchState != searchOff {
+		t.Errorf("pickerSearchState = %d, want searchOff", got.pickerSearchState)
+	}
+	if got.pickerSearchQuery != "" || got.pickerSearchResults != nil {
+		t.Error("exit did not clear query/results")
+	}
+	if got.pickerPreviewLoading || got.pickerPreviewPath != "" || got.pickerPreviewMessages != nil {
+		t.Error("exit did not clear preview state")
+	}
+	// Both generations must advance so in-flight scans and preview loads
+	// land stale instead of mutating state after exit.
+	if got.pickerSearchGen == searchGen {
+		t.Error("exit did not bump pickerSearchGen")
+	}
+	if live := int(got.pickerSearchLiveGen.Load()); live != got.pickerSearchGen {
+		t.Errorf("atomic mirror = %d, want %d", live, got.pickerSearchGen)
+	}
+	if got.pickerPreviewGen == previewGen {
+		t.Error("exit did not bump pickerPreviewGen")
+	}
+
+	// A stale search result from before the exit must be dropped.
+	after, _ := got.Update(pickerSearchResultMsg{results: []pickerItem{}, gen: searchGen})
+	if after.(model).pickerSearchResults != nil {
+		t.Error("stale search result mutated state after exit")
+	}
+	// A stale preview load from before the exit must be dropped.
+	after, _ = got.Update(pickerPreviewLoadedMsg{path: "/tmp/late.jsonl", gen: previewGen})
+	if after.(model).pickerPreviewPath != "" {
+		t.Error("stale preview load mutated state after exit")
 	}
 }
 
@@ -311,8 +358,7 @@ func searchScrollModel(n int) model {
 		}
 	}
 
-	m.pickerSearchMode = true
-	m.pickerSearchTyping = false
+	m.pickerSearchState = searchNav
 	m.pickerSearchQuery = "needle"
 	m.pickerSearchResults = rebuildPickerItems(sessions)
 	for i, item := range m.pickerSearchResults {

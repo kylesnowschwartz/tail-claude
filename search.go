@@ -14,6 +14,17 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// searchState is the picker search UI mode. A single enum (rather than two
+// bools) makes the invalid "typing but not in search" combination
+// unrepresentable and gives every exit path one field to reset.
+type searchState int
+
+const (
+	searchOff    searchState = iota // search inactive; picker shows the full list
+	searchTyping                    // text input focused; printable keys edit the query
+	searchNav                       // query committed; j/k navigate results
+)
+
 // pickerSearchResultMsg delivers filtered search results to the model.
 type pickerSearchResultMsg struct {
 	results []pickerItem
@@ -206,16 +217,30 @@ func (m model) pickerSearchSelectedSession() *parser.SessionInfo {
 
 // activePickerItems returns the appropriate item list based on search mode.
 func (m model) activePickerItems() []pickerItem {
-	if m.pickerSearchMode && m.pickerSearchResults != nil {
+	if m.pickerSearchState != searchOff && m.pickerSearchResults != nil {
 		return m.pickerSearchResults
 	}
 	return m.pickerItems
 }
 
+// exitPickerSearch leaves search mode and clears all query, result, and
+// preview state. Bumps both generation counters so in-flight scans and
+// preview loads land stale instead of mutating the pane after it's gone.
+func (m *model) exitPickerSearch() {
+	m.pickerSearchState = searchOff
+	m.pickerSearchQuery = ""
+	m.pickerSearchResults = nil
+	m.pickerPreviewMessages = nil
+	m.pickerPreviewPath = ""
+	m.pickerPreviewLoading = false
+	m.bumpSearchGen()
+	m.pickerPreviewGen++
+}
+
 // updatePickerSearch handles key events while picker search mode is active.
-// Delegates to typing or navigation sub-handler based on pickerSearchTyping.
+// Delegates to typing or navigation sub-handler based on pickerSearchState.
 func (m model) updatePickerSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.pickerSearchTyping {
+	if m.pickerSearchState == searchTyping {
 		return m.updatePickerSearchTyping(msg)
 	}
 	return m.updatePickerSearchNav(msg)
@@ -229,17 +254,11 @@ func (m model) updatePickerSearchTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	switch key {
 	case "enter":
 		// Commit query and switch to navigation mode.
-		m.pickerSearchTyping = false
+		m.pickerSearchState = searchNav
 		cmd := m.schedulePreviewLoad()
 		return m, cmd
 	case "esc", "escape":
-		m.pickerSearchMode = false
-		m.pickerSearchTyping = false
-		m.pickerSearchQuery = ""
-		m.pickerSearchResults = nil
-		m.pickerPreviewMessages = nil
-		m.pickerPreviewPath = ""
-		m.pickerPreviewLoading = false
+		m.exitPickerSearch()
 		return m, nil
 	case "backspace":
 		if len(m.pickerSearchQuery) > 0 {
@@ -250,12 +269,7 @@ func (m model) updatePickerSearchTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			return m, searchDebounceCmd(m.pickerSearchGen)
 		}
 		// Empty backspace exits search mode.
-		m.pickerSearchMode = false
-		m.pickerSearchTyping = false
-		m.pickerSearchResults = nil
-		m.pickerPreviewMessages = nil
-		m.pickerPreviewPath = ""
-		m.pickerPreviewLoading = false
+		m.exitPickerSearch()
 		return m, nil
 	case "ctrl+c":
 		if m.pickerWatcher != nil {
@@ -284,23 +298,13 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Return to typing mode so the user can refine the query.
 		// If query is empty, exit search entirely.
 		if m.pickerSearchQuery == "" {
-			m.pickerSearchMode = false
-			m.pickerSearchResults = nil
-			m.pickerPreviewMessages = nil
-			m.pickerPreviewPath = ""
-			m.pickerPreviewLoading = false
+			m.exitPickerSearch()
 			return m, nil
 		}
-		m.pickerSearchTyping = true
+		m.pickerSearchState = searchTyping
 		return m, nil
 	case "q":
-		m.pickerSearchMode = false
-		m.pickerSearchTyping = false
-		m.pickerSearchQuery = ""
-		m.pickerSearchResults = nil
-		m.pickerPreviewMessages = nil
-		m.pickerPreviewPath = ""
-		m.pickerPreviewLoading = false
+		m.exitPickerSearch()
 		return m, nil
 	case "ctrl+c":
 		if m.pickerWatcher != nil {
@@ -310,7 +314,7 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "/":
 		// Re-focus the text input for further typing.
-		m.pickerSearchTyping = true
+		m.pickerSearchState = searchTyping
 		return m, nil
 	case "enter":
 		if s := m.pickerSearchSelectedSession(); s != nil {
@@ -318,8 +322,7 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.pickerWatcher.stop()
 				m.pickerWatcher = nil
 			}
-			m.pickerSearchMode = false
-			m.pickerSearchTyping = false
+			m.exitPickerSearch()
 			return m, loadSessionCmd(s.Path)
 		}
 	case "r":
@@ -336,62 +339,27 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case "j", "down":
-		m.pickerSearchCursorDown()
+		m.pickerCursorDown()
 		m.ensureSearchPickerVisible()
 		cmd := m.schedulePreviewLoad()
 		return m, cmd
 	case "k", "up":
-		m.pickerSearchCursorUp()
+		m.pickerCursorUp()
 		m.ensureSearchPickerVisible()
 		cmd := m.schedulePreviewLoad()
 		return m, cmd
 	case "G":
-		items := m.activePickerItems()
-		for i := len(items) - 1; i >= 0; i-- {
-			if items[i].typ == pickerItemSession {
-				m.pickerCursor = i
-				break
-			}
-		}
+		m.pickerCursorLast()
 		m.ensureSearchPickerVisible()
 		cmd := m.schedulePreviewLoad()
 		return m, cmd
 	case "g":
-		items := m.activePickerItems()
-		m.pickerScroll = 0
-		for i, item := range items {
-			if item.typ == pickerItemSession {
-				m.pickerCursor = i
-				break
-			}
-		}
+		m.pickerCursorFirst()
 		m.ensureSearchPickerVisible()
 		cmd := m.schedulePreviewLoad()
 		return m, cmd
 	}
 	return m, nil
-}
-
-// pickerSearchCursorDown moves cursor to next session in the active item list.
-func (m *model) pickerSearchCursorDown() {
-	items := m.activePickerItems()
-	for i := m.pickerCursor + 1; i < len(items); i++ {
-		if items[i].typ == pickerItemSession {
-			m.pickerCursor = i
-			return
-		}
-	}
-}
-
-// pickerSearchCursorUp moves cursor to previous session in the active item list.
-func (m *model) pickerSearchCursorUp() {
-	items := m.activePickerItems()
-	for i := m.pickerCursor - 1; i >= 0; i-- {
-		if items[i].typ == pickerItemSession {
-			m.pickerCursor = i
-			return
-		}
-	}
 }
 
 // searchPickerItemHeight returns the rendered line count of an item in the
@@ -480,7 +448,7 @@ func (m *model) schedulePreviewLoad() tea.Cmd {
 // on typing sub-mode. Shared by viewPickerSearch and footerHeight (via
 // pickerKeybindPairs) so the measured bar matches the drawn one.
 func (m model) searchKeybindPairs() []string {
-	if m.pickerSearchTyping {
+	if m.pickerSearchState == searchTyping {
 		return []string{
 			"enter", "search",
 			"esc", "cancel",
@@ -516,7 +484,7 @@ func (m model) viewPickerSearch() string {
 	}
 
 	var header string
-	if m.pickerSearchTyping {
+	if m.pickerSearchState == searchTyping {
 		cursor := StyleAccentBold.Render("\u2588") // block cursor
 		header = StyleAccentBold.Render("/") + " " + queryDisplay + cursor
 	} else {
