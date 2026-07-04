@@ -170,7 +170,7 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.pickerExpanded == nil {
 			m.pickerExpanded = make(map[int]bool)
 		}
-		if m.pickerItems[m.pickerCursor].typ == pickerItemSession {
+		if m.pickerSelectedSession() != nil {
 			m.pickerExpanded[m.pickerCursor] = !m.pickerExpanded[m.pickerCursor]
 			m.ensurePickerVisible()
 		}

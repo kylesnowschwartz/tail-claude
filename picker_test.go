@@ -182,6 +182,19 @@ func TestPickerInitFiresTick(t *testing.T) {
 	})
 }
 
+// --- TestPickerTabEmptyList -------------------------------------------------
+
+func TestPickerTabEmptyList(t *testing.T) {
+	t.Run("tab with no picker items does not panic", func(t *testing.T) {
+		m := pickerModel()
+		m.pickerItems = nil
+		m.pickerCursor = 0
+
+		// Regression: this used to index pickerItems[0] on an empty slice.
+		_, _ = m.updatePicker(key("tab"))
+	})
+}
+
 // errForTest is a simple error type for test assertions.
 type errForTest string
 
