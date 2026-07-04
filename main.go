@@ -674,6 +674,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case watcherErrMsg:
+		// Drop errors from a stopped watcher — one can still be queued when
+		// switchSession installs a new watcher (same race as tailUpdateMsg.sub).
+		if msg.errc != m.tailErrc {
+			return m, nil
+		}
+		if msg.fatal {
+			// The watcher goroutine exited before its watch loop started;
+			// without this the session looks live but never updates. Stop the
+			// live indicators and tell the user why tailing is off.
+			m.watching = false
+			m.sessionOngoing = false
+			m.flashStatus = "watch failed: " + msg.err.Error()
+			return m, flashClearCmd()
+		}
 		// Transient watcher errors: re-subscribe and keep going.
 		return m, waitForWatcherErr(m.tailErrc)
 

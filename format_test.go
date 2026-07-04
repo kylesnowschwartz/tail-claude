@@ -59,6 +59,9 @@ func TestFormatDuration(t *testing.T) {
 		{3500, "3.5s"},
 		{9999, "10.0s"},
 		{15000, "15s"},
+		{59400, "59s"},
+		{59500, "1m 0s"}, // rounds up: must roll over, never render "60s"
+		{59999, "1m 0s"},
 		{60000, "1m 0s"},
 		{71000, "1m 11s"},
 	}

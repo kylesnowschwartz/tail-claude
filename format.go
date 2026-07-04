@@ -101,11 +101,12 @@ func formatTokens(n int) string {
 // formatDuration formats milliseconds into human-readable duration: 71000 -> "1m 11s", 3500 -> "3.5s"
 func formatDuration(ms int64) string {
 	secs := float64(ms) / 1000
+	// Round to whole seconds before branching so 59.5-59.99s rolls over to
+	// "1m 0s" — %.0f alone would round up and print a contradictory "60s".
+	s := int(secs + 0.5)
 	switch {
-	case secs >= 60:
-		mins := int(secs) / 60
-		rem := int(secs) % 60
-		return fmt.Sprintf("%dm %ds", mins, rem)
+	case s >= 60:
+		return fmt.Sprintf("%dm %ds", s/60, s%60)
 	case secs >= 10:
 		return fmt.Sprintf("%.0fs", secs)
 	default:
