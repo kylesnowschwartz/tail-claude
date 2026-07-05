@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
-
 	tea "charm.land/bubbletea/v2"
 	"github.com/fsnotify/fsnotify"
+	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 // watcherDebounce is the delay after the last file-write event before
@@ -34,10 +34,10 @@ type tailUpdateMsg struct {
 	// updates from the stopped watcher.
 	sub            chan tailUpdateMsg
 	messages       []message
-	teams          []parser.TeamSnapshot
+	teams          []agents.TeamSnapshot
 	ongoing        bool   // whether the session appears to still be in progress
 	permissionMode string // last-seen permissionMode from new entries; empty if unchanged
-	workflow       parser.WorkflowActivity
+	workflow       agents.WorkflowActivity
 }
 
 // watcherErrMsg reports errors from the file watcher goroutine.
@@ -68,7 +68,7 @@ func (e fatalWatcherErr) Error() string { return e.err.Error() }
 type sessionWatcher struct {
 	path          string
 	offset        int64
-	allClassified []parser.ClassifiedMsg
+	allClassified []transcript.ClassifiedMsg
 	sub           chan tailUpdateMsg
 	errc          chan error
 	done          chan struct{}
@@ -90,10 +90,10 @@ type sessionWatcher struct {
 	// Last workflow activity reported by a rebuild. The poll ticker compares
 	// fresh scans against this to signal rebuilds only on new activity.
 	// Only touched by run() — no synchronization needed.
-	lastWorkflow parser.WorkflowActivity
+	lastWorkflow agents.WorkflowActivity
 }
 
-func newSessionWatcher(path string, initialClassified []parser.ClassifiedMsg, initialOffset int64) *sessionWatcher {
+func newSessionWatcher(path string, initialClassified []transcript.ClassifiedMsg, initialOffset int64) *sessionWatcher {
 	return &sessionWatcher{
 		path:          path,
 		offset:        initialOffset,
@@ -178,7 +178,7 @@ func (w *sessionWatcher) run() {
 			return
 
 		case <-wfPoll.C:
-			if act := parser.ScanWorkflowActivity(w.path); workflowAdvanced(w.lastWorkflow, act) {
+			if act := agents.ScanWorkflowActivity(w.path); workflowAdvanced(w.lastWorkflow, act) {
 				w.lastWorkflow = act
 				w.sendSignal()
 			}
@@ -237,7 +237,7 @@ func (w *sessionWatcher) run() {
 // workflowAdvanced reports whether cur shows workflow activity that prev
 // hasn't already reported: a new run, a new agent transcript, or a fresher
 // write to any run file.
-func workflowAdvanced(prev, cur parser.WorkflowActivity) bool {
+func workflowAdvanced(prev, cur agents.WorkflowActivity) bool {
 	return cur.Runs != prev.Runs || cur.Agents != prev.Agents || cur.LastWrite.After(prev.LastWrite)
 }
 
@@ -254,7 +254,7 @@ func (w *sessionWatcher) readAndRebuild() {
 		w.allClassified = nil
 	}
 
-	newMsgs, newOffset, err := parser.ReadSessionIncremental(w.path, w.offset)
+	newMsgs, newOffset, err := transcript.ReadSessionIncremental(w.path, w.offset)
 	if err != nil {
 		select {
 		case w.errc <- err:
@@ -271,14 +271,14 @@ func (w *sessionWatcher) readAndRebuild() {
 		w.allClassified = append(w.allClassified, newMsgs...)
 
 		for i := len(newMsgs) - 1; i >= 0; i-- {
-			if u, ok := newMsgs[i].(parser.UserMsg); ok && u.PermissionMode != "" {
+			if u, ok := newMsgs[i].(transcript.UserMsg); ok && u.PermissionMode != "" {
 				permissionMode = u.PermissionMode
 				break
 			}
 		}
 	}
 
-	chunks := parser.BuildChunks(w.allClassified)
+	chunks := transcript.BuildChunks(w.allClassified)
 	state := buildSessionState(w.path, chunks)
 
 	// Track whether we have team tasks so directory watches know

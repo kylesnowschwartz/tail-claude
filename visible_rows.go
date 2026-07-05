@@ -1,6 +1,6 @@
 package main
 
-import "github.com/kylesnowschwartz/tail-claude/parser"
+import "github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 
 // visibleRow represents one navigable row in the detail view's flat row list.
 // Parent items have childIndex == -1. Child items belong to an expanded
@@ -25,7 +25,7 @@ func buildVisibleRows(items []displayItem, expanded map[int]bool) []visibleRow {
 	var rows []visibleRow
 	for i, item := range items {
 		rows = append(rows, visibleRow{parentIndex: i, childIndex: -1, item: item})
-		if expanded[i] && item.itemType == parser.ItemSubagent && item.subagentProcess != nil {
+		if expanded[i] && item.itemType == transcript.ItemSubagent && item.subagentProcess != nil {
 			for ci, child := range buildTraceItems(item) {
 				rows = append(rows, visibleRow{parentIndex: i, childIndex: ci, item: child})
 			}
@@ -45,13 +45,13 @@ func buildTraceItems(parent displayItem) []displayItem {
 	var items []displayItem
 	for _, c := range proc.Chunks {
 		switch c.Type {
-		case parser.UserChunk:
+		case transcript.UserChunk:
 			items = append(items, displayItem{
-				itemType: parser.ItemOutput,
+				itemType: transcript.ItemOutput,
 				toolName: "Input",
 				text:     c.UserText,
 			})
-		case parser.AIChunk:
+		case transcript.AIChunk:
 			for _, it := range c.Items {
 				items = append(items, displayItemFromParser(it))
 			}
@@ -65,9 +65,9 @@ func buildTraceItems(parent displayItem) []displayItem {
 func traceItemStats(items []displayItem) (toolCount, msgCount int) {
 	for _, item := range items {
 		switch item.itemType {
-		case parser.ItemToolCall, parser.ItemSubagent:
+		case transcript.ItemToolCall, transcript.ItemSubagent:
 			toolCount++
-		case parser.ItemOutput:
+		case transcript.ItemOutput:
 			msgCount++
 		}
 	}

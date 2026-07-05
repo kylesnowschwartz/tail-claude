@@ -6,7 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
+	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
+	"github.com/kylesnowschwartz/agent-ouija/claude/tools"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 // shortModel turns "claude-opus-4-6" into "opus4.6".
@@ -71,10 +74,10 @@ func teamColor(name string) color.Color {
 }
 
 // countOutputItems counts text output items in a display items slice.
-func countOutputItems(items []parser.DisplayItem) int {
+func countOutputItems(items []transcript.DisplayItem) int {
 	n := 0
 	for _, it := range items {
-		if it.Type == parser.ItemOutput {
+		if it.Type == transcript.ItemOutput {
 			n++
 		}
 	}
@@ -125,7 +128,7 @@ func formatSessionName(id string) string {
 	if len(id) == 36 && id[8] == '-' && id[13] == '-' && id[18] == '-' && id[23] == '-' {
 		return id[:8]
 	}
-	return parser.TruncateWord(id, 20)
+	return tools.TruncateWord(id, 20)
 }
 
 // shortPath returns the project display name for the info bar.
@@ -135,7 +138,7 @@ func shortPath(cwd, gitBranch string) string {
 	if cwd == "" {
 		return ""
 	}
-	return parser.ProjectName(cwd, gitBranch)
+	return discover.ProjectName(cwd, gitBranch)
 }
 
 // shortMode returns a human-readable label for a permission mode.
@@ -168,11 +171,11 @@ func lastContextTokens(msgs []message) int {
 // hasTeamTaskItems checks if any chunk contains team Task items (Task calls
 // with team_name + name in input). Used to decide whether directory events
 // should trigger team session re-discovery.
-func hasTeamTaskItems(chunks []parser.Chunk) bool {
+func hasTeamTaskItems(chunks []transcript.Chunk) bool {
 	for i := range chunks {
 		for j := range chunks[i].Items {
 			it := &chunks[i].Items[j]
-			if it.Type == parser.ItemSubagent && parser.IsTeamTask(it) {
+			if it.Type == transcript.ItemSubagent && agents.IsTeamTask(it) {
 				return true
 			}
 		}

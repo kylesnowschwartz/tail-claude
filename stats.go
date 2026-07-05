@@ -7,22 +7,22 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/tools"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 // aggregateMessageStats walks the loaded TUI messages and returns
 // per-tool usage stats, sorted by call count descending.
 //
-// Consumes the TUI's []message rather than []parser.Chunk -- the model
+// Consumes the TUI's []message rather than []transcript.Chunk -- the model
 // doesn't keep the underlying chunks, and the per-key-press cost of a
 // 1000-item walk is negligible.
 //
 // Duration sums only include results where durationMs > 0. The concurrent-
 // task suppression already zeros inflated durations, so this is the right
 // floor for "trustworthy" totals.
-func aggregateMessageStats(msgs []message) []parser.ToolStats {
-	byName := make(map[string]*parser.ToolStats)
+func aggregateMessageStats(msgs []message) []tools.ToolStats {
+	byName := make(map[string]*tools.ToolStats)
 	for _, m := range msgs {
 		if m.role != RoleClaude {
 			continue
@@ -34,7 +34,7 @@ func aggregateMessageStats(msgs []message) []parser.ToolStats {
 			}
 			s, ok := byName[name]
 			if !ok {
-				s = &parser.ToolStats{Name: name}
+				s = &tools.ToolStats{Name: name}
 				byName[name] = s
 			}
 			s.CallCount++
@@ -46,7 +46,7 @@ func aggregateMessageStats(msgs []message) []parser.ToolStats {
 			}
 		}
 	}
-	out := make([]parser.ToolStats, 0, len(byName))
+	out := make([]tools.ToolStats, 0, len(byName))
 	for _, s := range byName {
 		out = append(out, *s)
 	}
@@ -65,9 +65,9 @@ func aggregateMessageStats(msgs []message) []parser.ToolStats {
 // return "" to skip.
 func statsName(it displayItem) string {
 	switch it.itemType {
-	case parser.ItemToolCall:
+	case transcript.ItemToolCall:
 		return it.toolName
-	case parser.ItemSubagent:
+	case transcript.ItemSubagent:
 		return "Task"
 	default:
 		return ""
@@ -132,7 +132,7 @@ func (m model) viewStats() string {
 }
 
 // statsHeaderTotals returns a one-line summary of total calls and total errors.
-func statsHeaderTotals(stats []parser.ToolStats) string {
+func statsHeaderTotals(stats []tools.ToolStats) string {
 	if len(stats) == 0 {
 		return StyleDim.Render("(no tool calls)")
 	}

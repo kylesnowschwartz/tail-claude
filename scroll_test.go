@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 // scrollModel builds a model with pre-populated scroll state so tests don't
@@ -247,8 +247,8 @@ func TestLayoutListAgreement(t *testing.T) {
 				role: RoleClaude, model: "opus4.6", content: "Response here",
 				thinkingCount: 1, toolCallCount: 2, timestamp: "10:00:01 AM",
 				items: []displayItem{
-					{itemType: parser.ItemThinking, text: "thinking"},
-					{itemType: parser.ItemToolCall, toolName: "Read", toolSummary: "file.go"},
+					{itemType: transcript.ItemThinking, text: "thinking"},
+					{itemType: transcript.ItemToolCall, toolName: "Read", toolSummary: "file.go"},
 				},
 			},
 			{role: RoleSystem, content: "system note", timestamp: "10:00:02 AM"},
@@ -376,8 +376,8 @@ func TestDetailRenderCache(t *testing.T) {
 		return m
 	}
 	plainItems := []displayItem{
-		{itemType: parser.ItemThinking, text: "thinking hard"},
-		{itemType: parser.ItemToolCall, toolName: "Read", toolSummary: "file.go"},
+		{itemType: transcript.ItemThinking, text: "thinking hard"},
+		{itemType: transcript.ItemToolCall, toolName: "Read", toolSummary: "file.go"},
 	}
 
 	t.Run("computeDetailMaxScroll memoizes the render", func(t *testing.T) {
@@ -416,7 +416,7 @@ func TestDetailRenderCache(t *testing.T) {
 
 	t.Run("spinner frame advance is not served stale", func(t *testing.T) {
 		m := newDetail([]displayItem{
-			{itemType: parser.ItemSubagent, subagentType: "Explore", subagentOngoing: true},
+			{itemType: transcript.ItemSubagent, subagentType: "Explore", subagentOngoing: true},
 		})
 		m.computeDetailMaxScroll()
 		m.animFrame++ // animation tick between recomputes

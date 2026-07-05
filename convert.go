@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 // teamColorPool is the ordered set of color names matching the teamColor()
@@ -19,26 +20,26 @@ var teamColorPool = []string{
 // Discovered subagent processes are linked to their corresponding
 // ItemSubagent display items by matching ParentTaskID to ToolID.
 // colorByToolID provides fallback team colors for items without a linked process.
-func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess, colorByToolID map[string]string) []message {
+func chunksToMessages(chunks []transcript.Chunk, subagents []agents.SubagentProcess, colorByToolID map[string]string) []message {
 	msgs := make([]message, 0, len(chunks))
 	for _, c := range chunks {
 		switch c.Type {
-		case parser.UserChunk:
+		case transcript.UserChunk:
 			msgs = append(msgs, message{
 				role:           RoleUser,
 				content:        c.UserText,
 				expandedPrompt: c.ExpandedPrompt,
 				timestamp:      formatTime(c.Timestamp),
 			})
-		case parser.AIChunk:
+		case transcript.AIChunk:
 			// Count distinct team-spawned subagents and teammate message senders.
 			var teamSpawns int
 			teammateIDs := make(map[string]bool)
 			for _, it := range c.Items {
-				if it.Type == parser.ItemSubagent && parser.IsTeamTask(&it) {
+				if it.Type == transcript.ItemSubagent && agents.IsTeamTask(&it) {
 					teamSpawns++
 				}
-				if it.Type == parser.ItemTeammateMessage && it.TeammateID != "" {
+				if it.Type == transcript.ItemTeammateMessage && it.TeammateID != "" {
 					teammateIDs[it.TeammateID] = true
 				}
 			}
@@ -55,18 +56,18 @@ func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess,
 				durationMs:       c.DurationMs,
 				timestamp:        formatTime(c.Timestamp),
 				items:            convertDisplayItems(c.Items, subagents, colorByToolID),
-				lastOutput:       parser.FindLastOutput(c.Items),
+				lastOutput:       transcript.FindLastOutput(c.Items),
 				teammateSpawns:   teamSpawns,
 				teammateMessages: len(teammateIDs),
 			})
-		case parser.SystemChunk:
+		case transcript.SystemChunk:
 			msgs = append(msgs, message{
 				role:      RoleSystem,
 				content:   c.Output,
 				timestamp: formatTime(c.Timestamp),
 				isError:   c.IsError,
 			})
-		case parser.CompactChunk:
+		case transcript.CompactChunk:
 			msgs = append(msgs, message{
 				role:      RoleCompact,
 				content:   c.Output,
@@ -77,9 +78,9 @@ func chunksToMessages(chunks []parser.Chunk, subagents []parser.SubagentProcess,
 	return msgs
 }
 
-// displayItemFromParser maps a single parser.DisplayItem to the TUI's displayItem,
+// displayItemFromParser maps a single transcript.DisplayItem to the TUI's displayItem,
 // including JSON pretty-printing of tool input.
-func displayItemFromParser(it parser.DisplayItem) displayItem {
+func displayItemFromParser(it transcript.DisplayItem) displayItem {
 	input := ""
 	if len(it.ToolInput) > 0 {
 		var pretty bytes.Buffer
@@ -108,18 +109,18 @@ func displayItemFromParser(it parser.DisplayItem) displayItem {
 	}
 }
 
-// convertDisplayItems maps parser.DisplayItem to the TUI's displayItem type.
+// convertDisplayItems maps transcript.DisplayItem to the TUI's displayItem type.
 // Links ItemSubagent items to their discovered SubagentProcess by matching
 // ToolID to ParentTaskID. colorByToolID provides fallback team colors for
 // items without a linked process (e.g. team agents whose sessions live
 // outside the subagents/ directory).
-func convertDisplayItems(items []parser.DisplayItem, subagents []parser.SubagentProcess, colorByToolID map[string]string) []displayItem {
+func convertDisplayItems(items []transcript.DisplayItem, subagents []agents.SubagentProcess, colorByToolID map[string]string) []displayItem {
 	if len(items) == 0 {
 		return nil
 	}
 
 	// Build ParentTaskID -> SubagentProcess index for O(1) lookup.
-	procByTaskID := make(map[string]*parser.SubagentProcess, len(subagents))
+	procByTaskID := make(map[string]*agents.SubagentProcess, len(subagents))
 	for i := range subagents {
 		if subagents[i].ParentTaskID != "" {
 			procByTaskID[subagents[i].ParentTaskID] = &subagents[i]
@@ -130,7 +131,7 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 	for i, it := range items {
 		out[i] = displayItemFromParser(it)
 		// Link subagent process if available.
-		if it.Type == parser.ItemSubagent {
+		if it.Type == transcript.ItemSubagent {
 			if proc := procByTaskID[it.ToolID]; proc != nil {
 				out[i].subagentProcess = proc
 				out[i].subagentOngoing = isSubagentOngoing(proc)
@@ -165,7 +166,7 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 	if len(poolColors) > 0 {
 		poolIdx := 0
 		for i := range out {
-			if out[i].itemType == parser.ItemSubagent && out[i].teamColor == "" {
+			if out[i].itemType == transcript.ItemSubagent && out[i].teamColor == "" {
 				out[i].teamColor = poolColors[poolIdx%len(poolColors)]
 				poolIdx++
 			}
@@ -180,12 +181,12 @@ func convertDisplayItems(items []parser.DisplayItem, subagents []parser.Subagent
 // session file hasn't been modified in OngoingStalenessThreshold, the agent
 // process is gone regardless of what the chunks say. This catches edge cases
 // where IsOngoing returns a false positive on fully completed sessions.
-func isSubagentOngoing(proc *parser.SubagentProcess) bool {
-	if !parser.IsOngoing(proc.Chunks) {
+func isSubagentOngoing(proc *agents.SubagentProcess) bool {
+	if !transcript.IsOngoing(proc.Chunks) {
 		return false
 	}
 	// File hasn't been written to recently — agent is dead.
-	if !proc.FileModTime.IsZero() && time.Since(proc.FileModTime) > parser.OngoingStalenessThreshold {
+	if !proc.FileModTime.IsZero() && time.Since(proc.FileModTime) > transcript.OngoingStalenessThreshold {
 		return false
 	}
 	return true
@@ -207,7 +208,7 @@ func (m model) currentDetailMsg() message {
 // buildSubagentMessage creates a synthetic message from a subagent's execution
 // trace. The message contains all items (Input, Output, Tool calls) from the
 // subagent's chunks, suitable for rendering in the detail view.
-func buildSubagentMessage(proc *parser.SubagentProcess, subagentType string) message {
+func buildSubagentMessage(proc *agents.SubagentProcess, subagentType string) message {
 	// Build a temporary parent displayItem to reuse buildTraceItems.
 	parent := displayItem{subagentProcess: proc}
 	items := buildTraceItems(parent)
@@ -215,11 +216,11 @@ func buildSubagentMessage(proc *parser.SubagentProcess, subagentType string) mes
 	var toolCount, thinkCount, msgCount int
 	for _, it := range items {
 		switch it.itemType {
-		case parser.ItemThinking:
+		case transcript.ItemThinking:
 			thinkCount++
-		case parser.ItemToolCall, parser.ItemSubagent:
+		case transcript.ItemToolCall, transcript.ItemSubagent:
 			toolCount++
-		case parser.ItemOutput:
+		case transcript.ItemOutput:
 			msgCount++
 		}
 	}

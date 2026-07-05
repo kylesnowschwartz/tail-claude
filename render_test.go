@@ -8,7 +8,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
+	"github.com/kylesnowschwartz/agent-ouija/claude/debuglog"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -299,11 +301,11 @@ func debugAllLines(m model, width int) []string {
 }
 
 func TestDebugVisibleLines(t *testing.T) {
-	entries := make([]parser.DebugEntry, 8)
+	entries := make([]debuglog.DebugEntry, 8)
 	for i := range entries {
-		entries[i] = parser.DebugEntry{
+		entries[i] = debuglog.DebugEntry{
 			Timestamp: time.Date(2026, 7, 4, 12, 0, i, 0, time.UTC),
-			Level:     parser.LevelDebug,
+			Level:     debuglog.LevelDebug,
 			Message:   fmt.Sprintf("entry %d", i),
 			LineNum:   i + 1,
 			Count:     1,
@@ -394,16 +396,16 @@ func TestHasExpandedContent(t *testing.T) {
 		item displayItem
 		want bool
 	}{
-		{"thinking with text", displayItem{itemType: parser.ItemThinking, text: "let me think"}, true},
-		{"thinking empty", displayItem{itemType: parser.ItemThinking, text: "  \n"}, false},
-		{"output with text", displayItem{itemType: parser.ItemOutput, text: "done"}, true},
-		{"output empty", displayItem{itemType: parser.ItemOutput}, false},
-		{"tool call with input", displayItem{itemType: parser.ItemToolCall, toolInput: `{"file":"x"}`}, true},
-		{"tool call errored", displayItem{itemType: parser.ItemToolCall, toolError: true}, true},
-		{"tool call bare", displayItem{itemType: parser.ItemToolCall, toolName: "Read"}, false},
-		{"subagent linked", displayItem{itemType: parser.ItemSubagent, subagentProcess: &parser.SubagentProcess{}}, true},
-		{"subagent bare", displayItem{itemType: parser.ItemSubagent}, false},
-		{"memory load", displayItem{itemType: parser.ItemMemoryLoad, text: "MEMORY.md"}, false},
+		{"thinking with text", displayItem{itemType: transcript.ItemThinking, text: "let me think"}, true},
+		{"thinking empty", displayItem{itemType: transcript.ItemThinking, text: "  \n"}, false},
+		{"output with text", displayItem{itemType: transcript.ItemOutput, text: "done"}, true},
+		{"output empty", displayItem{itemType: transcript.ItemOutput}, false},
+		{"tool call with input", displayItem{itemType: transcript.ItemToolCall, toolInput: `{"file":"x"}`}, true},
+		{"tool call errored", displayItem{itemType: transcript.ItemToolCall, toolError: true}, true},
+		{"tool call bare", displayItem{itemType: transcript.ItemToolCall, toolName: "Read"}, false},
+		{"subagent linked", displayItem{itemType: transcript.ItemSubagent, subagentProcess: &agents.SubagentProcess{}}, true},
+		{"subagent bare", displayItem{itemType: transcript.ItemSubagent}, false},
+		{"memory load", displayItem{itemType: transcript.ItemMemoryLoad, text: "MEMORY.md"}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

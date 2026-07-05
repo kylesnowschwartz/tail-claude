@@ -6,7 +6,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
+	"github.com/kylesnowschwartz/agent-ouija/claude/debuglog"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 // asModel extracts the model from an Update return value.
@@ -230,9 +232,9 @@ func TestUpdateDetail(t *testing.T) {
 	claudeMsgWithItems := func() message {
 		return claudeMsg(func(m *message) {
 			m.items = []displayItem{
-				{itemType: parser.ItemThinking, text: "let me think"},
-				{itemType: parser.ItemToolCall, toolName: "Read", toolSummary: "main.go", toolInput: `{"file_path":"main.go"}`},
-				{itemType: parser.ItemOutput, text: "done"},
+				{itemType: transcript.ItemThinking, text: "let me think"},
+				{itemType: transcript.ItemToolCall, toolName: "Read", toolSummary: "main.go", toolInput: `{"file_path":"main.go"}`},
+				{itemType: transcript.ItemOutput, text: "done"},
 			}
 		})
 	}
@@ -443,19 +445,19 @@ func TestUpdateDetail(t *testing.T) {
 // claudeMsgWithSubagent builds a claude message with a subagent item that has
 // a linked process with 2 trace items: Input and a Read tool call.
 func claudeMsgWithSubagent() message {
-	proc := &parser.SubagentProcess{
-		Chunks: []parser.Chunk{
-			{Type: parser.UserChunk, UserText: "investigate this"},
-			{Type: parser.AIChunk, Items: []parser.DisplayItem{
-				{Type: parser.ItemToolCall, ToolName: "Read", ToolSummary: "file.go", ToolInput: json.RawMessage(`{"file_path":"file.go"}`)},
+	proc := &agents.SubagentProcess{
+		Chunks: []transcript.Chunk{
+			{Type: transcript.UserChunk, UserText: "investigate this"},
+			{Type: transcript.AIChunk, Items: []transcript.DisplayItem{
+				{Type: transcript.ItemToolCall, ToolName: "Read", ToolSummary: "file.go", ToolInput: json.RawMessage(`{"file_path":"file.go"}`)},
 			}},
 		},
 	}
 	return claudeMsg(func(m *message) {
 		m.items = []displayItem{
-			{itemType: parser.ItemThinking, text: "let me think"},
-			{itemType: parser.ItemSubagent, subagentType: "Explore", subagentProcess: proc},
-			{itemType: parser.ItemOutput, text: "done"},
+			{itemType: transcript.ItemThinking, text: "let me think"},
+			{itemType: transcript.ItemSubagent, subagentType: "Explore", subagentProcess: proc},
+			{itemType: transcript.ItemOutput, text: "done"},
 		}
 	})
 }
@@ -740,7 +742,7 @@ func TestTickMsg_RelaysOutListWhenSpinnerVisible(t *testing.T) {
 	m.watching = true
 	m.tickSeq = 1
 	m.messages[1].items = []displayItem{
-		{itemType: parser.ItemSubagent, subagentType: "Explore", subagentOngoing: true},
+		{itemType: transcript.ItemSubagent, subagentType: "Explore", subagentOngoing: true},
 	}
 	m.expanded[1] = true
 	m.listParts[0] = "SENTINEL"
@@ -1051,14 +1053,14 @@ func TestWindowSizeClampsListScroll(t *testing.T) {
 func debugTestModel() model {
 	m := testModel()
 	m.view = viewDebug
-	m.debugEntries = []parser.DebugEntry{
-		{Level: parser.LevelWarn, Message: "warn one"},
-		{Level: parser.LevelWarn, Message: "warn two"},
-		{Level: parser.LevelWarn, Message: "warn three"},
-		{Level: parser.LevelDebug, Message: "debug one"},
-		{Level: parser.LevelDebug, Message: "debug two"},
+	m.debugEntries = []debuglog.DebugEntry{
+		{Level: debuglog.LevelWarn, Message: "warn one"},
+		{Level: debuglog.LevelWarn, Message: "warn two"},
+		{Level: debuglog.LevelWarn, Message: "warn three"},
+		{Level: debuglog.LevelDebug, Message: "debug one"},
+		{Level: debuglog.LevelDebug, Message: "debug two"},
 	}
-	m.debugMinLevel = parser.LevelDebug
+	m.debugMinLevel = debuglog.LevelDebug
 	m.debugExpanded = make(map[int]bool)
 	m.applyDebugFilters()
 	return m
@@ -1074,7 +1076,7 @@ func TestUpdateDebugFilterReset(t *testing.T) {
 		result, _ := m.updateDebug(key("f"))
 		got := asModel(result)
 
-		if got.debugMinLevel != parser.LevelWarn {
+		if got.debugMinLevel != debuglog.LevelWarn {
 			t.Errorf("debugMinLevel = %v, want LevelWarn", got.debugMinLevel)
 		}
 		if got.debugCursor != 1 {
@@ -1142,8 +1144,8 @@ func TestToggleDetailExpansion_NoOpWithoutContent(t *testing.T) {
 	m.view = viewDetail
 	m.messages = []message{claudeMsg(func(msg *message) {
 		msg.items = []displayItem{
-			{itemType: parser.ItemMemoryLoad, text: "MEMORY.md"},
-			{itemType: parser.ItemThinking, text: "let me think"},
+			{itemType: transcript.ItemMemoryLoad, text: "MEMORY.md"},
+			{itemType: transcript.ItemThinking, text: "let me think"},
 		}
 	})}
 	m.cursor = 0

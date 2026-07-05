@@ -8,10 +8,11 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
-
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
+	"github.com/kylesnowschwartz/agent-ouija/claude/tools"
+	"github.com/kylesnowschwartz/agent-ouija/jsonl"
 )
 
 // searchState is the picker search UI mode. A single enum (rather than two
@@ -67,7 +68,7 @@ func (m *model) bumpSearchGen() {
 // Checks metadata first (FirstMessage, Cwd, GitBranch), then falls back to
 // scanning the JSONL file line by line. Returns results preserving the
 // original date-group order.
-func searchSessionsCmd(query string, sessions []parser.SessionInfo, gen int, liveGen *atomic.Int64) tea.Cmd {
+func searchSessionsCmd(query string, sessions []discover.SessionInfo, gen int, liveGen *atomic.Int64) tea.Cmd {
 	return func() tea.Msg {
 		if query == "" {
 			return pickerSearchResultMsg{
@@ -77,7 +78,7 @@ func searchSessionsCmd(query string, sessions []parser.SessionInfo, gen int, liv
 		}
 
 		lower := strings.ToLower(query)
-		var matched []parser.SessionInfo
+		var matched []discover.SessionInfo
 
 		for _, s := range sessions {
 			// Bail between files once a newer generation owns the results;
@@ -102,7 +103,7 @@ func searchSessionsCmd(query string, sessions []parser.SessionInfo, gen int, liv
 }
 
 // matchesSessionMetadata checks if any session metadata field contains the query.
-func matchesSessionMetadata(s parser.SessionInfo, lowerQuery string) bool {
+func matchesSessionMetadata(s discover.SessionInfo, lowerQuery string) bool {
 	return strings.Contains(strings.ToLower(s.Title), lowerQuery) ||
 		strings.Contains(strings.ToLower(s.FirstMessage), lowerQuery) ||
 		strings.Contains(strings.ToLower(s.LastPrompt), lowerQuery) ||
@@ -121,10 +122,10 @@ func matchesSessionContent(path, lowerQuery string) bool {
 	defer f.Close()
 
 	found := false
-	// parser.ScanLines skips oversized lines instead of aborting the scan,
+	// jsonl.ScanLines skips oversized lines instead of aborting the scan,
 	// so one huge line (e.g. pasted image data) can't hide later matches.
 	// A mid-file read error just means we searched what we could.
-	_ = parser.ScanLines(f, func(line string) bool {
+	_ = jsonl.ScanLines(f, func(line string) bool {
 		// Only scan conversation messages, not system/meta/snapshot entries.
 		// Checking for type markers avoids parsing JSON on every line.
 		if !isConversationLine(line) {
@@ -150,7 +151,7 @@ func isConversationLine(line string) bool {
 }
 
 // loadPreviewCmd loads a session's messages for the preview pane.
-func loadPreviewCmd(session parser.SessionInfo, gen int) tea.Cmd {
+func loadPreviewCmd(session discover.SessionInfo, gen int) tea.Cmd {
 	return func() tea.Msg {
 		result, err := loadSession(session.Path)
 		if err != nil {
@@ -203,7 +204,7 @@ func (m *model) addPreviewCache(path string, messages []message) {
 }
 
 // pickerSearchSelectedSession returns the session at the cursor in search results.
-func (m model) pickerSearchSelectedSession() *parser.SessionInfo {
+func (m model) pickerSearchSelectedSession() *discover.SessionInfo {
 	items := m.activePickerItems()
 	if m.pickerCursor < 0 || m.pickerCursor >= len(items) {
 		return nil
@@ -543,7 +544,7 @@ func (m model) renderSearchPickerItems(items []pickerItem, width int) []string {
 
 // renderSearchPickerSession renders a compact session row for the search left pane.
 // Two lines: preview text + metadata, plus a separator.
-func (m model) renderSearchPickerSession(s *parser.SessionInfo, isSelected bool, width int) []string {
+func (m model) renderSearchPickerSession(s *discover.SessionInfo, isSelected bool, width int) []string {
 	indent := "  "
 	innerWidth := max(width-4, 20)
 
@@ -556,7 +557,7 @@ func (m model) renderSearchPickerSession(s *parser.SessionInfo, isSelected bool,
 		preview = "Untitled"
 	}
 	if lipgloss.Width(preview) > innerWidth {
-		preview = parser.TruncateWord(preview, innerWidth)
+		preview = tools.TruncateWord(preview, innerWidth)
 	}
 
 	// Highlight query matches before applying foreground style so the highlight
@@ -580,7 +581,7 @@ func (m model) renderSearchPickerSession(s *parser.SessionInfo, isSelected bool,
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(shortModel(s.Model)))
 	}
 	if s.GitBranch != "" {
-		branch := parser.Truncate(s.GitBranch, 20)
+		branch := tools.Truncate(s.GitBranch, 20)
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(
 			highlightQuery(branch, m.pickerSearchQuery)))
 	}

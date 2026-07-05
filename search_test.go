@@ -9,11 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
-
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
 )
 
 // Realistic current-format lines: the type field sits ~100+ bytes in,
@@ -120,7 +119,7 @@ func TestSearchSessionsCmdBailsWhenSuperseded(t *testing.T) {
 	if err := os.WriteFile(path, []byte(modernUserLine+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sessions := []parser.SessionInfo{{Path: path, FirstMessage: "hello"}}
+	sessions := []discover.SessionInfo{{Path: path, FirstMessage: "hello"}}
 
 	live := new(atomic.Int64)
 	live.Store(1)
@@ -139,7 +138,7 @@ func TestSearchSessionsCmdBailsWhenSuperseded(t *testing.T) {
 
 func TestSchedulePreviewLoadCacheHitInvalidatesInFlightLoad(t *testing.T) {
 	m := pickerModel()
-	sessions := []parser.SessionInfo{
+	sessions := []discover.SessionInfo{
 		{Path: "/tmp/session-a.jsonl", FirstMessage: "session a", ModTime: time.Now()},
 		{Path: "/tmp/session-b.jsonl", FirstMessage: "session b", ModTime: time.Now()},
 	}
@@ -349,9 +348,9 @@ func searchScrollModel(n int) model {
 	m.height = 20 // small viewport to force overflow
 
 	now := time.Now()
-	sessions := make([]parser.SessionInfo, n)
+	sessions := make([]discover.SessionInfo, n)
 	for i := range sessions {
-		sessions[i] = parser.SessionInfo{
+		sessions[i] = discover.SessionInfo{
 			Path:         fmt.Sprintf("/tmp/result-%02d.jsonl", i),
 			FirstMessage: fmt.Sprintf("needle result %02d", i),
 			ModTime:      now.Add(-time.Duration(i) * time.Minute),
@@ -457,9 +456,9 @@ func TestPickerSearchMouseWheelClampsToFilteredList(t *testing.T) {
 	// blank padding.
 	m := searchScrollModel(2)
 	now := time.Now()
-	var unfiltered []parser.SessionInfo
+	var unfiltered []discover.SessionInfo
 	for i := 0; i < 50; i++ {
-		unfiltered = append(unfiltered, parser.SessionInfo{
+		unfiltered = append(unfiltered, discover.SessionInfo{
 			Path:         fmt.Sprintf("/tmp/all-%02d.jsonl", i),
 			FirstMessage: fmt.Sprintf("haystack %02d", i),
 			ModTime:      now.Add(-time.Duration(i) * time.Minute),
