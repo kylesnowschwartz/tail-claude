@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.15.0 (2026-07-05)
+
 ## v0.14.2 (2026-07-04)
 
 - Fix file-descriptor exhaustion when tailing workflow-heavy sessions: workflow activity is now polled instead of fsnotify-watched (macOS kqueue opens one fd per file in a watched directory, crashing the TUI past 1024)
