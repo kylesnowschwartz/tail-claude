@@ -3,7 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 // --- buildVisibleRows -------------------------------------------------------
@@ -18,9 +19,9 @@ func TestBuildVisibleRows(t *testing.T) {
 
 	t.Run("no expansions returns parent rows only", func(t *testing.T) {
 		items := []displayItem{
-			{itemType: parser.ItemThinking, text: "thinking"},
-			{itemType: parser.ItemToolCall, toolName: "Read"},
-			{itemType: parser.ItemOutput, text: "done"},
+			{itemType: transcript.ItemThinking, text: "thinking"},
+			{itemType: transcript.ItemToolCall, toolName: "Read"},
+			{itemType: transcript.ItemOutput, text: "done"},
 		}
 		rows := buildVisibleRows(items, make(map[int]bool))
 		if len(rows) != 3 {
@@ -37,19 +38,19 @@ func TestBuildVisibleRows(t *testing.T) {
 	})
 
 	t.Run("expanded subagent with process inserts children", func(t *testing.T) {
-		proc := &parser.SubagentProcess{
-			Chunks: []parser.Chunk{
-				{Type: parser.UserChunk, UserText: "hello"},
-				{Type: parser.AIChunk, Items: []parser.DisplayItem{
-					{Type: parser.ItemToolCall, ToolName: "Read"},
-					{Type: parser.ItemOutput, Text: "result"},
+		proc := &agents.SubagentProcess{
+			Chunks: []transcript.Chunk{
+				{Type: transcript.UserChunk, UserText: "hello"},
+				{Type: transcript.AIChunk, Items: []transcript.DisplayItem{
+					{Type: transcript.ItemToolCall, ToolName: "Read"},
+					{Type: transcript.ItemOutput, Text: "result"},
 				}},
 			},
 		}
 		items := []displayItem{
-			{itemType: parser.ItemThinking, text: "thinking"},
-			{itemType: parser.ItemSubagent, subagentType: "Explore", subagentProcess: proc},
-			{itemType: parser.ItemOutput, text: "done"},
+			{itemType: transcript.ItemThinking, text: "thinking"},
+			{itemType: transcript.ItemSubagent, subagentType: "Explore", subagentProcess: proc},
+			{itemType: transcript.ItemOutput, text: "done"},
 		}
 		expanded := map[int]bool{1: true}
 		rows := buildVisibleRows(items, expanded)
@@ -89,7 +90,7 @@ func TestBuildVisibleRows(t *testing.T) {
 
 	t.Run("expanded subagent without process does not insert children", func(t *testing.T) {
 		items := []displayItem{
-			{itemType: parser.ItemSubagent, subagentType: "Explore"},
+			{itemType: transcript.ItemSubagent, subagentType: "Explore"},
 		}
 		expanded := map[int]bool{0: true}
 		rows := buildVisibleRows(items, expanded)
@@ -99,15 +100,15 @@ func TestBuildVisibleRows(t *testing.T) {
 	})
 
 	t.Run("collapsed subagent with process does not insert children", func(t *testing.T) {
-		proc := &parser.SubagentProcess{
-			Chunks: []parser.Chunk{
-				{Type: parser.AIChunk, Items: []parser.DisplayItem{
-					{Type: parser.ItemToolCall, ToolName: "Read"},
+		proc := &agents.SubagentProcess{
+			Chunks: []transcript.Chunk{
+				{Type: transcript.AIChunk, Items: []transcript.DisplayItem{
+					{Type: transcript.ItemToolCall, ToolName: "Read"},
 				}},
 			},
 		}
 		items := []displayItem{
-			{itemType: parser.ItemSubagent, subagentProcess: proc},
+			{itemType: transcript.ItemSubagent, subagentProcess: proc},
 		}
 		rows := buildVisibleRows(items, make(map[int]bool))
 		if len(rows) != 1 {
@@ -127,16 +128,16 @@ func TestBuildTraceItems(t *testing.T) {
 	})
 
 	t.Run("maps user chunks to Input items", func(t *testing.T) {
-		proc := &parser.SubagentProcess{
-			Chunks: []parser.Chunk{
-				{Type: parser.UserChunk, UserText: "do the thing"},
+		proc := &agents.SubagentProcess{
+			Chunks: []transcript.Chunk{
+				{Type: transcript.UserChunk, UserText: "do the thing"},
 			},
 		}
 		items := buildTraceItems(displayItem{subagentProcess: proc})
 		if len(items) != 1 {
 			t.Fatalf("len = %d, want 1", len(items))
 		}
-		if items[0].itemType != parser.ItemOutput {
+		if items[0].itemType != transcript.ItemOutput {
 			t.Errorf("type = %d, want ItemOutput", items[0].itemType)
 		}
 		if items[0].toolName != "Input" {
@@ -145,11 +146,11 @@ func TestBuildTraceItems(t *testing.T) {
 	})
 
 	t.Run("maps AI chunk items via displayItemFromParser", func(t *testing.T) {
-		proc := &parser.SubagentProcess{
-			Chunks: []parser.Chunk{
-				{Type: parser.AIChunk, Items: []parser.DisplayItem{
-					{Type: parser.ItemToolCall, ToolName: "Bash", ToolSummary: "run test"},
-					{Type: parser.ItemOutput, Text: "all passed"},
+		proc := &agents.SubagentProcess{
+			Chunks: []transcript.Chunk{
+				{Type: transcript.AIChunk, Items: []transcript.DisplayItem{
+					{Type: transcript.ItemToolCall, ToolName: "Bash", ToolSummary: "run test"},
+					{Type: transcript.ItemOutput, Text: "all passed"},
 				}},
 			},
 		}
@@ -170,12 +171,12 @@ func TestBuildTraceItems(t *testing.T) {
 
 func TestTraceItemStats(t *testing.T) {
 	items := []displayItem{
-		{itemType: parser.ItemOutput, toolName: "Input"},
-		{itemType: parser.ItemToolCall, toolName: "Read"},
-		{itemType: parser.ItemToolCall, toolName: "Bash"},
-		{itemType: parser.ItemSubagent, subagentType: "Explore"},
-		{itemType: parser.ItemOutput, text: "result"},
-		{itemType: parser.ItemThinking, text: "hmm"},
+		{itemType: transcript.ItemOutput, toolName: "Input"},
+		{itemType: transcript.ItemToolCall, toolName: "Read"},
+		{itemType: transcript.ItemToolCall, toolName: "Bash"},
+		{itemType: transcript.ItemSubagent, subagentType: "Explore"},
+		{itemType: transcript.ItemOutput, text: "result"},
+		{itemType: transcript.ItemThinking, text: "hmm"},
 	}
 	tools, msgs := traceItemStats(items)
 	if tools != 3 {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 func TestAggregateMessageStats_BasicAndOrder(t *testing.T) {
@@ -12,22 +12,22 @@ func TestAggregateMessageStats_BasicAndOrder(t *testing.T) {
 		{
 			role: RoleClaude,
 			items: []displayItem{
-				{itemType: parser.ItemToolCall, toolName: "Read", durationMs: 100},
-				{itemType: parser.ItemToolCall, toolName: "Read", durationMs: 200},
-				{itemType: parser.ItemToolCall, toolName: "Bash", durationMs: 1000, toolError: true},
-				{itemType: parser.ItemSubagent, toolName: "Skill"}, // folds to Task
+				{itemType: transcript.ItemToolCall, toolName: "Read", durationMs: 100},
+				{itemType: transcript.ItemToolCall, toolName: "Read", durationMs: 200},
+				{itemType: transcript.ItemToolCall, toolName: "Bash", durationMs: 1000, toolError: true},
+				{itemType: transcript.ItemSubagent, toolName: "Skill"}, // folds to Task
 			},
 		},
 		{
 			role: RoleClaude,
 			items: []displayItem{
-				{itemType: parser.ItemThinking, text: "ignored"},
-				{itemType: parser.ItemToolCall, toolName: "Bash", durationMs: 0, toolError: true}, // 0 dur excluded
+				{itemType: transcript.ItemThinking, text: "ignored"},
+				{itemType: transcript.ItemToolCall, toolName: "Bash", durationMs: 0, toolError: true}, // 0 dur excluded
 			},
 		},
 		{
 			role:  RoleUser,
-			items: []displayItem{{itemType: parser.ItemToolCall, toolName: "Read"}}, // user role excluded
+			items: []displayItem{{itemType: transcript.ItemToolCall, toolName: "Read"}}, // user role excluded
 		},
 	}
 	stats := aggregateMessageStats(msgs)
@@ -54,7 +54,7 @@ func TestAggregateMessageStats_BasicAndOrder(t *testing.T) {
 }
 
 func TestAggregateMessageStats_NoToolsReturnsEmpty(t *testing.T) {
-	msgs := []message{{role: RoleClaude, items: []displayItem{{itemType: parser.ItemOutput, text: "hi"}}}}
+	msgs := []message{{role: RoleClaude, items: []displayItem{{itemType: transcript.ItemOutput, text: "hi"}}}}
 	if got := aggregateMessageStats(msgs); len(got) != 0 {
 		t.Errorf("len = %d, want 0", len(got))
 	}
@@ -68,8 +68,8 @@ func TestViewStats_RendersToolRowsAndHeader(t *testing.T) {
 			{
 				role: RoleClaude,
 				items: []displayItem{
-					{itemType: parser.ItemToolCall, toolName: "Read"},
-					{itemType: parser.ItemToolCall, toolName: "Bash", toolError: true},
+					{itemType: transcript.ItemToolCall, toolName: "Read"},
+					{itemType: transcript.ItemToolCall, toolName: "Bash", toolError: true},
 				},
 			},
 		},
@@ -84,7 +84,7 @@ func TestViewStats_RendersToolRowsAndHeader(t *testing.T) {
 
 func TestViewStats_EmptySessionShowsPlaceholder(t *testing.T) {
 	m := model{width: 80, height: 24, messages: []message{
-		{role: RoleClaude, items: []displayItem{{itemType: parser.ItemOutput, text: "no tools"}}},
+		{role: RoleClaude, items: []displayItem{{itemType: transcript.ItemOutput, text: "no tools"}}},
 	}}
 	got := m.viewStats()
 	if !strings.Contains(got, "No tool calls") {

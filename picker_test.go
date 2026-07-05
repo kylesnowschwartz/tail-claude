@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
 	zone "github.com/lrstanley/bubblezone/v2"
 )
 
@@ -73,7 +73,7 @@ func TestPickerSessionsMsgClearsLoading(t *testing.T) {
 		m.projectDirs = []string{"/tmp/fake-project"}
 
 		msg := pickerSessionsMsg{
-			sessions: []parser.SessionInfo{
+			sessions: []discover.SessionInfo{
 				{
 					Path:         "/tmp/fake.jsonl",
 					ModTime:      time.Now(),
@@ -153,7 +153,7 @@ func TestPickerSessionsMsgClearsLoading(t *testing.T) {
 // --- TestPickerSessionsMsgViewAndSelection ----------------------------------
 
 func TestPickerSessionsMsgViewAndSelection(t *testing.T) {
-	sessions := []parser.SessionInfo{
+	sessions := []discover.SessionInfo{
 		{Path: "/tmp/a.jsonl", SessionID: "aaa", ModTime: time.Now(), FirstMessage: "first"},
 		{Path: "/tmp/b.jsonl", SessionID: "bbb", ModTime: time.Now().Add(-time.Minute), FirstMessage: "second"},
 	}

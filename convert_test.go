@@ -5,30 +5,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 func TestChunksToMessages(t *testing.T) {
 	ts := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 
-	chunks := []parser.Chunk{
+	chunks := []transcript.Chunk{
 		{
-			Type:      parser.UserChunk,
+			Type:      transcript.UserChunk,
 			Timestamp: ts,
 			UserText:  "Hello",
 		},
 		{
-			Type:          parser.AIChunk,
+			Type:          transcript.AIChunk,
 			Timestamp:     ts.Add(1 * time.Second),
 			Model:         "claude-opus-4-6",
 			Text:          "Response here",
 			ThinkingCount: 2,
-			ToolCalls:     []parser.ToolCall{{ID: "t1", Name: "Bash"}, {ID: "t2", Name: "Read"}},
-			Usage:         parser.Usage{InputTokens: 100, OutputTokens: 50},
+			ToolCalls:     []transcript.ToolCall{{ID: "t1", Name: "Bash"}, {ID: "t2", Name: "Read"}},
+			Usage:         transcript.Usage{InputTokens: 100, OutputTokens: 50},
 			DurationMs:    3500,
 		},
 		{
-			Type:      parser.SystemChunk,
+			Type:      transcript.SystemChunk,
 			Timestamp: ts.Add(2 * time.Second),
 			Output:    "Command output",
 		},
@@ -78,9 +79,9 @@ func TestChunksToMessages(t *testing.T) {
 
 func TestChunksToMessages_EmptyToolCalls(t *testing.T) {
 	ts := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
-	chunks := []parser.Chunk{
+	chunks := []transcript.Chunk{
 		{
-			Type:      parser.AIChunk,
+			Type:      transcript.AIChunk,
 			Timestamp: ts,
 			Model:     "claude-opus-4-6",
 			Text:      "No tools used",
@@ -98,9 +99,9 @@ func TestChunksToMessages_EmptyToolCalls(t *testing.T) {
 
 func TestChunksToMessages_CompactChunk(t *testing.T) {
 	ts := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
-	chunks := []parser.Chunk{
+	chunks := []transcript.Chunk{
 		{
-			Type:      parser.CompactChunk,
+			Type:      transcript.CompactChunk,
 			Timestamp: ts,
 			Output:    "Context compressed here",
 		},
@@ -119,8 +120,8 @@ func TestChunksToMessages_CompactChunk(t *testing.T) {
 
 func TestDisplayItemFromParser(t *testing.T) {
 	t.Run("tool call with JSON input is pretty-printed", func(t *testing.T) {
-		it := parser.DisplayItem{
-			Type:        parser.ItemToolCall,
+		it := transcript.DisplayItem{
+			Type:        transcript.ItemToolCall,
 			ToolName:    "Read",
 			ToolInput:   []byte(`{"file_path":"/foo/bar.go"}`),
 			ToolSummary: "/foo/bar.go",
@@ -142,8 +143,8 @@ func TestDisplayItemFromParser(t *testing.T) {
 	})
 
 	t.Run("thinking block — text only, no tool fields", func(t *testing.T) {
-		it := parser.DisplayItem{
-			Type: parser.ItemThinking,
+		it := transcript.DisplayItem{
+			Type: transcript.ItemThinking,
 			Text: "Let me think about this...",
 		}
 		got := displayItemFromParser(it)
@@ -156,8 +157,8 @@ func TestDisplayItemFromParser(t *testing.T) {
 	})
 
 	t.Run("malformed JSON falls back to raw bytes", func(t *testing.T) {
-		it := parser.DisplayItem{
-			Type:      parser.ItemToolCall,
+		it := transcript.DisplayItem{
+			Type:      transcript.ItemToolCall,
 			ToolInput: []byte(`{not valid json`),
 		}
 		got := displayItemFromParser(it)
@@ -181,14 +182,14 @@ func TestConvertDisplayItems(t *testing.T) {
 
 	t.Run("links SubagentProcess by ToolID match", func(t *testing.T) {
 		toolID := "tool-abc-123"
-		proc := parser.SubagentProcess{
+		proc := agents.SubagentProcess{
 			ParentTaskID: toolID,
 			ID:           "agent-xyz",
 		}
-		items := []parser.DisplayItem{
-			{Type: parser.ItemSubagent, ToolID: toolID, ToolName: "Task"},
+		items := []transcript.DisplayItem{
+			{Type: transcript.ItemSubagent, ToolID: toolID, ToolName: "Task"},
 		}
-		got := convertDisplayItems(items, []parser.SubagentProcess{proc}, nil)
+		got := convertDisplayItems(items, []agents.SubagentProcess{proc}, nil)
 		if len(got) != 1 {
 			t.Fatalf("len = %d, want 1", len(got))
 		}
@@ -201,22 +202,22 @@ func TestConvertDisplayItems(t *testing.T) {
 	})
 
 	t.Run("unmatched ItemSubagent gets nil process", func(t *testing.T) {
-		items := []parser.DisplayItem{
-			{Type: parser.ItemSubagent, ToolID: "no-match", ToolName: "Task"},
+		items := []transcript.DisplayItem{
+			{Type: transcript.ItemSubagent, ToolID: "no-match", ToolName: "Task"},
 		}
-		proc := parser.SubagentProcess{ParentTaskID: "other-id"}
-		got := convertDisplayItems(items, []parser.SubagentProcess{proc}, nil)
+		proc := agents.SubagentProcess{ParentTaskID: "other-id"}
+		got := convertDisplayItems(items, []agents.SubagentProcess{proc}, nil)
 		if got[0].subagentProcess != nil {
 			t.Errorf("unmatched subagent should have nil process, got %v", got[0].subagentProcess)
 		}
 	})
 
 	t.Run("non-subagent items get nil process regardless of match", func(t *testing.T) {
-		proc := parser.SubagentProcess{ParentTaskID: "tool-1"}
-		items := []parser.DisplayItem{
-			{Type: parser.ItemToolCall, ToolID: "tool-1"},
+		proc := agents.SubagentProcess{ParentTaskID: "tool-1"}
+		items := []transcript.DisplayItem{
+			{Type: transcript.ItemToolCall, ToolID: "tool-1"},
 		}
-		got := convertDisplayItems(items, []parser.SubagentProcess{proc}, nil)
+		got := convertDisplayItems(items, []agents.SubagentProcess{proc}, nil)
 		if got[0].subagentProcess != nil {
 			t.Errorf("non-subagent item should have nil process, got %v", got[0].subagentProcess)
 		}
@@ -229,18 +230,18 @@ func TestConvertDisplayItems_TeamSessionLinksProcess(t *testing.T) {
 	// ParentTaskID. convertDisplayItems must then link the process to the
 	// display item so the render path shows an execution trace, not raw text.
 	toolID := "toolu_01"
-	proc := parser.SubagentProcess{
+	proc := agents.SubagentProcess{
 		ID:            "planner@analysis",
 		ParentTaskID:  toolID,
 		TeammateColor: "blue",
-		Chunks: []parser.Chunk{
-			{Type: parser.AIChunk, Model: "claude-sonnet-4-20250514"},
+		Chunks: []transcript.Chunk{
+			{Type: transcript.AIChunk, Model: "claude-sonnet-4-20250514"},
 		},
 	}
 	input := []byte(`{"subagent_type":"sc-refactor:sc-refactor-planner","description":"Find opportunities","team_name":"analysis","name":"planner"}`)
-	items := []parser.DisplayItem{
+	items := []transcript.DisplayItem{
 		{
-			Type:         parser.ItemSubagent,
+			Type:         transcript.ItemSubagent,
 			ToolID:       toolID,
 			ToolName:     "Task",
 			ToolInput:    input,
@@ -249,7 +250,7 @@ func TestConvertDisplayItems_TeamSessionLinksProcess(t *testing.T) {
 		},
 	}
 
-	got := convertDisplayItems(items, []parser.SubagentProcess{proc}, nil)
+	got := convertDisplayItems(items, []agents.SubagentProcess{proc}, nil)
 	if len(got) != 1 {
 		t.Fatalf("len = %d, want 1", len(got))
 	}
@@ -269,9 +270,9 @@ func TestConvertDisplayItems_TeamColorFallback(t *testing.T) {
 	// colorByToolID map provides fallback team color from toolUseResult data.
 	toolID := "toolu_02"
 	input := []byte(`{"subagent_type":"general-purpose","description":"Do work","team_name":"proj","name":"worker"}`)
-	items := []parser.DisplayItem{
+	items := []transcript.DisplayItem{
 		{
-			Type:         parser.ItemSubagent,
+			Type:         transcript.ItemSubagent,
 			ToolID:       toolID,
 			ToolName:     "Task",
 			ToolInput:    input,
@@ -293,11 +294,11 @@ func TestConvertDisplayItems_TeamColorFallback(t *testing.T) {
 func TestConvertDisplayItems_PoolColorsAssigned(t *testing.T) {
 	// Regular subagents (no team color in JSONL) get synthetic colors
 	// from the pool so they're visually distinguishable.
-	items := []parser.DisplayItem{
-		{Type: parser.ItemSubagent, ToolID: "t1", ToolName: "Task"},
-		{Type: parser.ItemToolCall, ToolID: "t2", ToolName: "Read"},
-		{Type: parser.ItemSubagent, ToolID: "t3", ToolName: "Task"},
-		{Type: parser.ItemSubagent, ToolID: "t4", ToolName: "Task"},
+	items := []transcript.DisplayItem{
+		{Type: transcript.ItemSubagent, ToolID: "t1", ToolName: "Task"},
+		{Type: transcript.ItemToolCall, ToolID: "t2", ToolName: "Read"},
+		{Type: transcript.ItemSubagent, ToolID: "t3", ToolName: "Task"},
+		{Type: transcript.ItemSubagent, ToolID: "t4", ToolName: "Task"},
 	}
 	got := convertDisplayItems(items, nil, nil)
 
@@ -327,15 +328,15 @@ func TestConvertDisplayItems_PoolSkipsClaimedColors(t *testing.T) {
 	// When a team agent claims "blue", pool assignment starts from the
 	// next unclaimed color so there are no collisions.
 	toolID := "t1"
-	proc := parser.SubagentProcess{
+	proc := agents.SubagentProcess{
 		ParentTaskID:  toolID,
 		TeammateColor: "blue",
 	}
-	items := []parser.DisplayItem{
-		{Type: parser.ItemSubagent, ToolID: toolID, ToolName: "Task"},
-		{Type: parser.ItemSubagent, ToolID: "t2", ToolName: "Task"},
+	items := []transcript.DisplayItem{
+		{Type: transcript.ItemSubagent, ToolID: toolID, ToolName: "Task"},
+		{Type: transcript.ItemSubagent, ToolID: "t2", ToolName: "Task"},
 	}
-	got := convertDisplayItems(items, []parser.SubagentProcess{proc}, nil)
+	got := convertDisplayItems(items, []agents.SubagentProcess{proc}, nil)
 
 	if got[0].teamColor != "blue" {
 		t.Errorf("team agent color = %q, want %q", got[0].teamColor, "blue")
@@ -351,25 +352,25 @@ func TestConvertDisplayItems_PoolSkipsClaimedColors(t *testing.T) {
 func TestBuildSubagentMessage(t *testing.T) {
 	ts := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
 
-	proc := &parser.SubagentProcess{
+	proc := &agents.SubagentProcess{
 		ID:         "agent-1",
 		StartTime:  ts,
-		Usage:      parser.Usage{InputTokens: 200, OutputTokens: 100},
+		Usage:      transcript.Usage{InputTokens: 200, OutputTokens: 100},
 		DurationMs: 5000,
 		Model:      "claude-opus-4-6",
-		Chunks: []parser.Chunk{
+		Chunks: []transcript.Chunk{
 			{
-				Type:     parser.UserChunk,
+				Type:     transcript.UserChunk,
 				UserText: "Explore the codebase",
 			},
 			{
-				Type:  parser.AIChunk,
+				Type:  transcript.AIChunk,
 				Model: "claude-opus-4-6",
-				Items: []parser.DisplayItem{
-					{Type: parser.ItemThinking, Text: "thinking..."},
-					{Type: parser.ItemToolCall, ToolName: "Read"},
-					{Type: parser.ItemToolCall, ToolName: "Grep"},
-					{Type: parser.ItemOutput, Text: "Found the thing"},
+				Items: []transcript.DisplayItem{
+					{Type: transcript.ItemThinking, Text: "thinking..."},
+					{Type: transcript.ItemToolCall, ToolName: "Read"},
+					{Type: transcript.ItemToolCall, ToolName: "Grep"},
+					{Type: transcript.ItemOutput, Text: "Found the thing"},
 				},
 			},
 		},

@@ -4,10 +4,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
-
 	tea "charm.land/bubbletea/v2"
 	"github.com/fsnotify/fsnotify"
+	"github.com/kylesnowschwartz/agent-ouija/claude/debuglog"
 )
 
 // debugWatcherDebounce is the delay after the last file-write event before
@@ -117,7 +116,7 @@ func (w *debugLogWatcher) run() {
 func (w *debugLogWatcher) readAndSend() {
 	// Re-read from the beginning to get the complete picture.
 	// Debug logs are small enough (typically <2000 lines) that this is fast.
-	entries, _, err := parser.ReadDebugLog(w.path)
+	entries, _, err := debuglog.ReadDebugLog(w.path)
 	if err != nil {
 		return
 	}

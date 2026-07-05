@@ -11,7 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
+	"github.com/kylesnowschwartz/agent-ouija/claude/debuglog"
+	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
+	"github.com/kylesnowschwartz/agent-ouija/claude/tools"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
+	"github.com/kylesnowschwartz/agent-ouija/gitroot"
 	zone "github.com/lrstanley/bubblezone/v2"
 
 	tea "charm.land/bubbletea/v2"
@@ -117,7 +122,7 @@ func gitDirtyTickCmd() tea.Cmd {
 
 // debugUpdateMsg carries a rebuilt debug entry list after an incremental read.
 type debugUpdateMsg struct {
-	entries []parser.DebugEntry
+	entries []debuglog.DebugEntry
 }
 
 // flashClearMsg fires after a delay to clear the ephemeral flash status.
@@ -134,13 +139,13 @@ func flashClearCmd() tea.Cmd {
 type editorFinishedMsg struct{ err error }
 
 // displayItem is a structured element within an AI message's detail view.
-// Mirrors parser.DisplayItem but with pre-formatted fields for rendering.
+// Mirrors transcript.DisplayItem but with pre-formatted fields for rendering.
 type displayItem struct {
-	itemType        parser.DisplayItemType
+	itemType        transcript.DisplayItemType
 	text            string
 	toolName        string
 	toolSummary     string
-	toolCategory    parser.ToolCategory
+	toolCategory    tools.ToolCategory
 	toolInput       string // formatted JSON for display
 	toolResult      string
 	toolError       bool
@@ -151,7 +156,7 @@ type displayItem struct {
 	teamMemberName  string // team member name (e.g. "file-counter")
 	teammateID      string
 	teamColor       string                  // team color name (e.g. "blue", "green")
-	subagentProcess *parser.SubagentProcess // linked subagent execution trace
+	subagentProcess *agents.SubagentProcess // linked subagent execution trace
 	subagentOngoing bool                    // linked subagent session is still in progress
 }
 
@@ -163,12 +168,12 @@ type message struct {
 	toolCallCount    int
 	outputCount      int
 	tokensRaw        int
-	contextTokens    int                  // input + cache tokens (context window snapshot, excludes output)
-	contextDelta     *parser.ContextDelta // per-chunk window evolution; nil when no token data
+	contextTokens    int                      // input + cache tokens (context window snapshot, excludes output)
+	contextDelta     *transcript.ContextDelta // per-chunk window evolution; nil when no token data
 	durationMs       int64
 	timestamp        string
 	items            []displayItem
-	lastOutput       *parser.LastOutput
+	lastOutput       *transcript.LastOutput
 	expandedPrompt   string // expanded skill/command prompt (shown on expand)
 	subagentLabel    string // non-empty for trace views: "Explore", "Plan", etc.
 	teammateSpawns   int    // count of distinct team-spawned subagent Task calls
@@ -250,7 +255,7 @@ type model struct {
 	tailSub         chan tailUpdateMsg
 	tailErrc        chan error
 	sessionOngoing  bool                    // whether the watched session is still in progress
-	sessionWorkflow parser.WorkflowActivity // background Workflow runs (agent count, last write)
+	sessionWorkflow agents.WorkflowActivity // background Workflow runs (agent count, last write)
 	ongoingGraceSeq int                     // sequence counter for grace period timers (stale timers ignored)
 	tickSeq         int                     // sequence counter for tick chains (stale ticks from old chains ignored)
 	lastTailUpdate  time.Time               // when the last tailUpdateMsg arrived (ongoing staleness failsafe)
@@ -285,8 +290,8 @@ type model struct {
 	pickerWorktreeMode  bool     // true = show sessions from all worktrees
 
 	// Session picker state
-	sessionCache       *parser.SessionCache
-	pickerSessions     []parser.SessionInfo
+	sessionCache       *discover.SessionCache
+	pickerSessions     []discover.SessionInfo
 	pickerItems        []pickerItem
 	pickerCursor       int
 	pickerScroll       int
@@ -299,20 +304,20 @@ type model struct {
 	pickerUniformModel bool         // all sessions share the same model family
 
 	// Team task board state
-	teams      []parser.TeamSnapshot
+	teams      []agents.TeamSnapshot
 	teamScroll int
 
 	// Debug log viewer state
-	debugEntries    []parser.DebugEntry // raw parsed entries (before filter/collapse)
-	debugFiltered   []parser.DebugEntry // after level filter + duplicate collapse
+	debugEntries    []debuglog.DebugEntry // raw parsed entries (before filter/collapse)
+	debugFiltered   []debuglog.DebugEntry // after level filter + duplicate collapse
 	debugCursor     int
 	debugScroll     int
-	debugExpanded   map[int]bool      // which multi-line entries are expanded
-	debugMinLevel   parser.DebugLevel // current filter: LevelDebug (all), LevelWarn, LevelError
-	debugPath       string            // path to the debug .txt file
-	debugWatcher    *debugLogWatcher  // live tailing watcher for debug file
-	debugFilterText string            // text search query (stacks with level filter)
-	debugFilterMode bool              // true when the / input prompt is active
+	debugExpanded   map[int]bool        // which multi-line entries are expanded
+	debugMinLevel   debuglog.DebugLevel // current filter: LevelDebug (all), LevelWarn, LevelError
+	debugPath       string              // path to the debug .txt file
+	debugWatcher    *debugLogWatcher    // live tailing watcher for debug file
+	debugFilterText string              // text search query (stacks with level filter)
+	debugFilterMode bool                // true when the / input prompt is active
 
 	// Flash status (ephemeral notification in the info bar, e.g. "Copied: /path/to/file").
 	flashStatus string
@@ -341,15 +346,15 @@ type model struct {
 	pickerPreviewRender   *previewRenderCache // memoized rendered pane lines
 
 	// Resume: set before tea.Quit to exec into claude --resume after exit
-	resumeSession *parser.SessionInfo
+	resumeSession *discover.SessionInfo
 }
 
 // applyDebugFilters rebuilds debugFiltered from debugEntries using the current
 // level filter, text filter, and duplicate collapsing. Clamps cursor to valid range.
 func (m *model) applyDebugFilters() {
-	filtered := parser.FilterByLevel(m.debugEntries, m.debugMinLevel)
-	filtered = parser.FilterByText(filtered, m.debugFilterText)
-	m.debugFiltered = parser.CollapseDuplicates(filtered)
+	filtered := debuglog.FilterByLevel(m.debugEntries, m.debugMinLevel)
+	filtered = debuglog.FilterByText(filtered, m.debugFilterText)
+	m.debugFiltered = debuglog.CollapseDuplicates(filtered)
 	if m.debugCursor >= len(m.debugFiltered) {
 		m.debugCursor = max(len(m.debugFiltered)-1, 0)
 	}
@@ -388,11 +393,11 @@ func (m *model) stopPickerWatcher() {
 // initial load and the watcher's incremental rebuilds derive from a chunk list.
 type sessionState struct {
 	messages     []message
-	teams        []parser.TeamSnapshot
-	allProcs     []parser.SubagentProcess
+	teams        []agents.TeamSnapshot
+	allProcs     []agents.SubagentProcess
 	ongoing      bool
 	hasTeamTasks bool
-	workflow     parser.WorkflowActivity
+	workflow     agents.WorkflowActivity
 }
 
 // buildSessionState runs the discover/link/ongoing/teams pipeline shared by
@@ -404,17 +409,17 @@ type sessionState struct {
 // parent predicate; subagents carry their own staleness check inside
 // isSubagentOngoing, so a fresh subagent keeps the spinner alive even when
 // the parent file is stale.
-func buildSessionState(path string, chunks []parser.Chunk) sessionState {
-	subagents, _ := parser.DiscoverSubagents(path)
-	teamProcs, _ := parser.DiscoverTeamSessions(path, chunks)
+func buildSessionState(path string, chunks []transcript.Chunk) sessionState {
+	subagents, _ := agents.DiscoverSubagents(path)
+	teamProcs, _ := agents.DiscoverTeamSessions(path, chunks)
 	allProcs := append(subagents, teamProcs...)
-	colorMap := parser.LinkSubagents(allProcs, chunks, path)
+	colorMap := agents.LinkSubagents(allProcs, chunks, path)
 
-	ongoing := parser.IsOngoing(chunks)
+	ongoing := transcript.IsOngoing(chunks)
 	if ongoing {
 		// Chunk heuristics can report a false positive on finished sessions;
 		// a parent file untouched past the threshold means the process is gone.
-		if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > parser.OngoingStalenessThreshold {
+		if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > transcript.OngoingStalenessThreshold {
 			ongoing = false
 		}
 	}
@@ -428,14 +433,14 @@ func buildSessionState(path string, chunks []parser.Chunk) sessionState {
 		}
 	}
 	// Background workflows keep working after the parent turn "ends".
-	workflow := parser.ScanWorkflowActivity(path)
-	if !ongoing && workflow.Active(parser.OngoingStalenessThreshold) {
+	workflow := agents.ScanWorkflowActivity(path)
+	if !ongoing && workflow.Active(transcript.OngoingStalenessThreshold) {
 		ongoing = true
 	}
 
 	return sessionState{
 		messages:     chunksToMessages(chunks, allProcs, colorMap),
-		teams:        parser.ReconstructTeams(chunks, allProcs),
+		teams:        agents.ReconstructTeams(chunks, allProcs),
 		allProcs:     allProcs,
 		ongoing:      ongoing,
 		hasTeamTasks: hasTeamTaskItems(chunks),
@@ -446,14 +451,14 @@ func buildSessionState(path string, chunks []parser.Chunk) sessionState {
 // loadResult holds everything needed to bootstrap the TUI and watcher.
 type loadResult struct {
 	messages     []message
-	teams        []parser.TeamSnapshot
+	teams        []agents.TeamSnapshot
 	path         string
-	classified   []parser.ClassifiedMsg
+	classified   []transcript.ClassifiedMsg
 	offset       int64
 	ongoing      bool
 	hasTeamTasks bool
-	meta         parser.SessionMeta // cwd, branch, permission mode
-	workflow     parser.WorkflowActivity
+	meta         discover.SessionMeta // cwd, branch, permission mode
+	workflow     agents.WorkflowActivity
 }
 
 // loadSession reads a JSONL session file and converts chunks to display messages.
@@ -463,12 +468,12 @@ func loadSession(path string) (loadResult, error) {
 		return loadResult{}, fmt.Errorf("no session path provided")
 	}
 
-	classified, offset, err := parser.ReadSessionIncremental(path, 0)
+	classified, offset, err := transcript.ReadSessionIncremental(path, 0)
 	if err != nil {
 		return loadResult{}, fmt.Errorf("reading session %s: %w", path, err)
 	}
 
-	chunks := parser.BuildChunks(classified)
+	chunks := transcript.BuildChunks(classified)
 	if len(chunks) == 0 {
 		return loadResult{}, fmt.Errorf("session %s has no messages", path)
 	}
@@ -483,7 +488,7 @@ func loadSession(path string) (loadResult, error) {
 		offset:       offset,
 		ongoing:      state.ongoing,
 		hasTeamTasks: state.hasTeamTasks,
-		meta:         parser.ExtractSessionMeta(path),
+		meta:         discover.ExtractSessionMeta(path),
 		workflow:     state.workflow,
 	}, nil
 }
@@ -498,7 +503,7 @@ func (m *model) refreshLiveGit() {
 // applySessionMeta copies the session-derived header metadata onto the model.
 // Every path that loads a session (initial load, --dump, picker switch) must
 // route through here so a new metadata field can't be missed on one of them.
-func (m *model) applySessionMeta(meta parser.SessionMeta) {
+func (m *model) applySessionMeta(meta discover.SessionMeta) {
 	m.sessionCwd = meta.Cwd
 	m.sessionGitBranch = meta.GitBranch
 	m.sessionMode = meta.PermissionMode
@@ -584,7 +589,7 @@ func baseModel(msgs []message, hasDarkBg bool, invokedFrom, projectDir string, p
 	m.pickerWorktreeMode = inWorktree
 	m.gitCwd = invokedFrom
 	m.refreshLiveGit()
-	m.sessionCache = parser.NewSessionCache()
+	m.sessionCache = discover.NewSessionCache()
 	return m
 }
 
@@ -1171,17 +1176,17 @@ func runAndMaybeResume(p *tea.Program) {
 func resolveSessionName(name string) (string, error) {
 	localDirs := localProjectDirsForResolver()
 
-	matches, err := parser.FindTitleMatches(name, localDirs)
+	matches, err := discover.FindTitleMatches(name, localDirs)
 	if err != nil {
 		return "", fmt.Errorf("tail-claude: searching local projects: %w", err)
 	}
 	if len(matches) == 0 && len(localDirs) > 0 {
-		all, err := parser.ListAllProjectDirs()
+		all, err := listAllProjectDirs()
 		if err != nil {
 			return "", fmt.Errorf("tail-claude: listing projects: %w", err)
 		}
 		remainder := excludeDirs(all, localDirs)
-		matches, err = parser.FindTitleMatches(name, remainder)
+		matches, err = discover.FindTitleMatches(name, remainder)
 		if err != nil {
 			return "", fmt.Errorf("tail-claude: searching all projects: %w", err)
 		}
@@ -1211,13 +1216,13 @@ func localProjectDirsForResolver() []string {
 	if err != nil {
 		return nil
 	}
-	projectDir, err := parser.CurrentProjectDir()
+	projectDir, err := currentProjectDir()
 	if err != nil || projectDir == "" {
 		return nil
 	}
 	dirs := []string{projectDir}
 	for _, wt := range discoverWorktreeDirs(cwd) {
-		if wtDir, err := parser.ProjectDirForPath(wt); err == nil && wtDir != projectDir {
+		if wtDir, err := projectDirForPath(wt); err == nil && wtDir != projectDir {
 			dirs = append(dirs, wtDir)
 		}
 	}
@@ -1335,7 +1340,7 @@ Flags:
 
 	// Resolve the CWD's project directory once — this is the single source of
 	// truth for picker discovery and the picker watcher.
-	projectDir, _ := parser.CurrentProjectDir()
+	projectDir, _ := currentProjectDir()
 
 	var projectDirs []string
 	if projectDir != "" {
@@ -1347,7 +1352,7 @@ Flags:
 	inWorktree := false
 	if projectDir != "" {
 		for _, wtPath := range discoverWorktreeDirs(invokedFrom) {
-			wtDir, err := parser.ProjectDirForPath(wtPath)
+			wtDir, err := projectDirForPath(wtPath)
 			if err != nil || wtDir == projectDir {
 				continue
 			}
@@ -1356,7 +1361,7 @@ Flags:
 		// If invoked from inside a worktree, default to showing all worktree
 		// sessions so the user sees the session they're actually working in.
 		if len(worktreeProjectDirs) > 0 {
-			inWorktree = parser.ResolveGitRoot(invokedFrom) != invokedFrom
+			inWorktree = gitroot.ResolveGitRoot(invokedFrom) != invokedFrom
 			if inWorktree {
 				projectDirs = dedup(append([]string{projectDir}, worktreeProjectDirs...))
 			}
@@ -1367,7 +1372,7 @@ Flags:
 	// main project and any worktree directories.
 	autoDiscovered := sessionPath == ""
 	if sessionPath == "" && len(projectDirs) > 0 {
-		if sessions, err := parser.DiscoverAllProjectSessions(projectDirs); err == nil && len(sessions) > 0 {
+		if sessions, err := discover.DiscoverAllProjectSessions(projectDirs); err == nil && len(sessions) > 0 {
 			sessionPath = sessions[0].Path
 		}
 	}

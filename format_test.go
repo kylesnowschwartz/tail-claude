@@ -7,7 +7,8 @@ import (
 
 	"image/color"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 func TestShortModel(t *testing.T) {
@@ -117,7 +118,7 @@ func TestModelColor(t *testing.T) {
 func TestCountOutputItems(t *testing.T) {
 	tests := []struct {
 		name  string
-		items []parser.DisplayItem
+		items []transcript.DisplayItem
 		want  int
 	}{
 		{
@@ -127,28 +128,28 @@ func TestCountOutputItems(t *testing.T) {
 		},
 		{
 			name: "only output items",
-			items: []parser.DisplayItem{
-				{Type: parser.ItemOutput},
-				{Type: parser.ItemOutput},
+			items: []transcript.DisplayItem{
+				{Type: transcript.ItemOutput},
+				{Type: transcript.ItemOutput},
 			},
 			want: 2,
 		},
 		{
 			name: "mixed types — only ItemOutput counted",
-			items: []parser.DisplayItem{
-				{Type: parser.ItemThinking},
-				{Type: parser.ItemOutput},
-				{Type: parser.ItemToolCall},
-				{Type: parser.ItemOutput},
-				{Type: parser.ItemSubagent},
+			items: []transcript.DisplayItem{
+				{Type: transcript.ItemThinking},
+				{Type: transcript.ItemOutput},
+				{Type: transcript.ItemToolCall},
+				{Type: transcript.ItemOutput},
+				{Type: transcript.ItemSubagent},
 			},
 			want: 2,
 		},
 		{
 			name: "no output items",
-			items: []parser.DisplayItem{
-				{Type: parser.ItemThinking},
-				{Type: parser.ItemToolCall},
+			items: []transcript.DisplayItem{
+				{Type: transcript.ItemThinking},
+				{Type: transcript.ItemToolCall},
 			},
 			want: 0,
 		},
@@ -164,13 +165,13 @@ func TestCountOutputItems(t *testing.T) {
 }
 
 func TestIsTeamTaskItem(t *testing.T) {
-	withInput := func(raw string) *parser.DisplayItem {
-		return &parser.DisplayItem{ToolInput: json.RawMessage(raw)}
+	withInput := func(raw string) *transcript.DisplayItem {
+		return &transcript.DisplayItem{ToolInput: json.RawMessage(raw)}
 	}
 
 	tests := []struct {
 		name string
-		item *parser.DisplayItem
+		item *transcript.DisplayItem
 		want bool
 	}{
 		{
@@ -190,7 +191,7 @@ func TestIsTeamTaskItem(t *testing.T) {
 		},
 		{
 			name: "empty ToolInput",
-			item: &parser.DisplayItem{},
+			item: &transcript.DisplayItem{},
 			want: false,
 		},
 		{
@@ -201,9 +202,9 @@ func TestIsTeamTaskItem(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parser.IsTeamTask(tt.item)
+			got := agents.IsTeamTask(tt.item)
 			if got != tt.want {
-				t.Errorf("parser.IsTeamTask() = %v, want %v", got, tt.want)
+				t.Errorf("agents.IsTeamTask() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -215,7 +216,7 @@ func TestHasTeamTaskItems(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		chunks []parser.Chunk
+		chunks []transcript.Chunk
 		want   bool
 	}{
 		{
@@ -225,11 +226,11 @@ func TestHasTeamTaskItems(t *testing.T) {
 		},
 		{
 			name: "no team task items",
-			chunks: []parser.Chunk{
+			chunks: []transcript.Chunk{
 				{
-					Type: parser.AIChunk,
-					Items: []parser.DisplayItem{
-						{Type: parser.ItemToolCall, ToolInput: regularInput},
+					Type: transcript.AIChunk,
+					Items: []transcript.DisplayItem{
+						{Type: transcript.ItemToolCall, ToolInput: regularInput},
 					},
 				},
 			},
@@ -237,11 +238,11 @@ func TestHasTeamTaskItems(t *testing.T) {
 		},
 		{
 			name: "has team task item",
-			chunks: []parser.Chunk{
+			chunks: []transcript.Chunk{
 				{
-					Type: parser.AIChunk,
-					Items: []parser.DisplayItem{
-						{Type: parser.ItemSubagent, ToolInput: teamInput},
+					Type: transcript.AIChunk,
+					Items: []transcript.DisplayItem{
+						{Type: transcript.ItemSubagent, ToolInput: teamInput},
 					},
 				},
 			},
@@ -249,12 +250,12 @@ func TestHasTeamTaskItems(t *testing.T) {
 		},
 		{
 			name: "team task item not a subagent type — not counted",
-			chunks: []parser.Chunk{
+			chunks: []transcript.Chunk{
 				{
-					Type: parser.AIChunk,
-					Items: []parser.DisplayItem{
+					Type: transcript.AIChunk,
+					Items: []transcript.DisplayItem{
 						// team_name+name present but type is ToolCall, not Subagent
-						{Type: parser.ItemToolCall, ToolInput: teamInput},
+						{Type: transcript.ItemToolCall, ToolInput: teamInput},
 					},
 				},
 			},

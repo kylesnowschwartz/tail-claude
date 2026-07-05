@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 // Session fixture lines for buildSessionState tests. The pending assistant
@@ -46,7 +46,7 @@ func writeSessionFixture(t *testing.T, parentLines string, withSubagent bool) st
 // makeStale pushes a file's mtime past OngoingStalenessThreshold.
 func makeStale(t *testing.T, path string) {
 	t.Helper()
-	old := time.Now().Add(-parser.OngoingStalenessThreshold - time.Minute)
+	old := time.Now().Add(-transcript.OngoingStalenessThreshold - time.Minute)
 	if err := os.Chtimes(path, old, old); err != nil {
 		t.Fatal(err)
 	}
@@ -54,11 +54,11 @@ func makeStale(t *testing.T, path string) {
 
 func buildStateFromPath(t *testing.T, path string) sessionState {
 	t.Helper()
-	classified, _, err := parser.ReadSessionIncremental(path, 0)
+	classified, _, err := transcript.ReadSessionIncremental(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return buildSessionState(path, parser.BuildChunks(classified))
+	return buildSessionState(path, transcript.BuildChunks(classified))
 }
 
 func TestBuildSessionState_Ongoing(t *testing.T) {

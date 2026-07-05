@@ -6,15 +6,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
-
 	tea "charm.land/bubbletea/v2"
 	"github.com/fsnotify/fsnotify"
+	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
 )
 
 // pickerRefreshMsg delivers an updated session list from the directory watcher.
 type pickerRefreshMsg struct {
-	sessions []parser.SessionInfo
+	sessions []discover.SessionInfo
 }
 
 // pickerWatcher watches project directories for .jsonl file changes and
@@ -23,17 +22,17 @@ type pickerRefreshMsg struct {
 // in the picker as soon as they're created.
 type pickerWatcher struct {
 	projectDirs []string
-	cache       *parser.SessionCache
-	sub         chan []parser.SessionInfo
+	cache       *discover.SessionCache
+	sub         chan []discover.SessionInfo
 	done        chan struct{}
 	signals     chan struct{} // debounced rescan trigger; capacity 1, never closed
 }
 
-func newPickerWatcher(projectDirs []string, cache *parser.SessionCache) *pickerWatcher {
+func newPickerWatcher(projectDirs []string, cache *discover.SessionCache) *pickerWatcher {
 	return &pickerWatcher{
 		projectDirs: projectDirs,
 		cache:       cache,
-		sub:         make(chan []parser.SessionInfo, 1),
+		sub:         make(chan []discover.SessionInfo, 1),
 		done:        make(chan struct{}),
 		signals:     make(chan struct{}, 1),
 	}
@@ -109,12 +108,12 @@ func (pw *pickerWatcher) run() {
 // rescan re-discovers all project sessions and sends the fresh list on sub.
 // Only called from run() -- run owns all sends on sub.
 func (pw *pickerWatcher) rescan() {
-	var sessions []parser.SessionInfo
+	var sessions []discover.SessionInfo
 	var err error
 	if pw.cache != nil {
 		sessions, err = pw.cache.DiscoverAllProjectSessions(pw.projectDirs)
 	} else {
-		sessions, err = parser.DiscoverAllProjectSessions(pw.projectDirs)
+		sessions, err = discover.DiscoverAllProjectSessions(pw.projectDirs)
 	}
 	if err != nil {
 		return
@@ -152,7 +151,7 @@ func (pw *pickerWatcher) stop() {
 }
 
 // waitForPickerRefresh returns a Cmd that waits for the next session refresh.
-func waitForPickerRefresh(sub chan []parser.SessionInfo) tea.Cmd {
+func waitForPickerRefresh(sub chan []discover.SessionInfo) tea.Cmd {
 	return func() tea.Msg {
 		sessions, ok := <-sub
 		if !ok {

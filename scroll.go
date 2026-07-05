@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
 // clampWidth returns m.width capped at maxContentWidth.
@@ -230,7 +230,7 @@ func (m *model) detailRowLines(row visibleRow, width int) int {
 	if row.childIndex == -1 {
 		// Parent row.
 		if m.detailExpanded[row.parentIndex] {
-			if row.item.itemType == parser.ItemSubagent && row.item.subagentProcess != nil {
+			if row.item.itemType == transcript.ItemSubagent && row.item.subagentProcess != nil {
 				lines++ // trace header line
 			} else {
 				expanded := m.renderDetailItemExpanded(row.item, width)

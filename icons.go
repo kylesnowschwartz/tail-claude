@@ -4,7 +4,7 @@ import (
 	"image/color"
 
 	"charm.land/lipgloss/v2"
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/tools"
 )
 
 // StyledIcon pairs an icon glyph with its default foreground color.
@@ -156,28 +156,28 @@ func initIcons() {
 
 // toolCategoryIcon returns the styled icon for a tool category.
 // Error tools always get the red error icon regardless of category.
-func toolCategoryIcon(cat parser.ToolCategory, isError bool) string {
+func toolCategoryIcon(cat tools.ToolCategory, isError bool) string {
 	if isError {
 		return Icon.Tool.Err.Render()
 	}
 	switch cat {
-	case parser.CategoryRead:
+	case tools.CategoryRead:
 		return Icon.Tool.Read.Render()
-	case parser.CategoryEdit:
+	case tools.CategoryEdit:
 		return Icon.Tool.Edit.Render()
-	case parser.CategoryWrite:
+	case tools.CategoryWrite:
 		return Icon.Tool.Write.Render()
-	case parser.CategoryBash:
+	case tools.CategoryBash:
 		return Icon.Tool.Bash.Render()
-	case parser.CategoryGrep:
+	case tools.CategoryGrep:
 		return Icon.Tool.Grep.Render()
-	case parser.CategoryGlob:
+	case tools.CategoryGlob:
 		return Icon.Tool.Glob.Render()
-	case parser.CategoryTask:
+	case tools.CategoryTask:
 		return Icon.Tool.Task.Render()
-	case parser.CategoryTool:
+	case tools.CategoryTool:
 		return Icon.Tool.Skill.Render()
-	case parser.CategoryWeb:
+	case tools.CategoryWeb:
 		return Icon.Tool.Web.Render()
 	default:
 		return Icon.Tool.Misc.Render()

@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
+	"github.com/kylesnowschwartz/agent-ouija/claude/tools"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 	zone "github.com/lrstanley/bubblezone/v2"
 
 	tea "charm.land/bubbletea/v2"
@@ -24,7 +26,7 @@ func zoneSessionID(sessionID string) string {
 // scans (e.g. worktree toggle mid-discovery) can't overwrite newer state.
 type pickerSessionsMsg struct {
 	gen      int
-	sessions []parser.SessionInfo
+	sessions []discover.SessionInfo
 	err      error
 }
 
@@ -48,14 +50,14 @@ func pickerTickCmd() tea.Cmd {
 // (main repo + worktree dirs). When cache is non-nil, unchanged files return
 // cached metadata. gen must be the model's pickerLoadGen at dispatch time;
 // the handler drops results whose gen no longer matches.
-func loadPickerSessionsCmd(gen int, projectDirs []string, cache *parser.SessionCache) tea.Cmd {
+func loadPickerSessionsCmd(gen int, projectDirs []string, cache *discover.SessionCache) tea.Cmd {
 	return func() tea.Msg {
-		var sessions []parser.SessionInfo
+		var sessions []discover.SessionInfo
 		var err error
 		if cache != nil {
 			sessions, err = cache.DiscoverAllProjectSessions(projectDirs)
 		} else {
-			sessions, err = parser.DiscoverAllProjectSessions(projectDirs)
+			sessions, err = discover.DiscoverAllProjectSessions(projectDirs)
 		}
 		return pickerSessionsMsg{gen: gen, sessions: sessions, err: err}
 	}
@@ -86,15 +88,15 @@ const (
 // pickerItem is an entry in the flattened picker list.
 type pickerItem struct {
 	typ      pickerItemType
-	session  *parser.SessionInfo // nil for headers
-	category parser.DateCategory // set for headers
+	session  *discover.SessionInfo // nil for headers
+	category discover.DateCategory // set for headers
 }
 
 // rebuildPickerItems flattens sessions into headers + session rows.
 // Within each date group, ongoing sessions sort first (stable sort preserves
 // mod-time order from DiscoverProjectSessions).
-func rebuildPickerItems(sessions []parser.SessionInfo) []pickerItem {
-	groups := parser.GroupSessionsByDate(sessions)
+func rebuildPickerItems(sessions []discover.SessionInfo) []pickerItem {
+	groups := discover.GroupSessionsByDate(sessions)
 
 	var items []pickerItem
 	for _, g := range groups {
@@ -104,7 +106,7 @@ func rebuildPickerItems(sessions []parser.SessionInfo) []pickerItem {
 		})
 
 		// Stable sort: ongoing first within each group.
-		sorted := make([]parser.SessionInfo, len(g.Sessions))
+		sorted := make([]discover.SessionInfo, len(g.Sessions))
 		copy(sorted, g.Sessions)
 		sort.SliceStable(sorted, func(i, j int) bool {
 			if sorted[i].IsOngoing != sorted[j].IsOngoing {
@@ -214,7 +216,7 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if preview == "" {
 				preview = s.FirstMessage
 			}
-			preview = parser.Truncate(preview, 50)
+			preview = tools.Truncate(preview, 50)
 			if preview == "" {
 				preview = formatSessionName(s.SessionID)
 			}
@@ -293,7 +295,7 @@ func (m model) executeDeleteSession() (tea.Model, tea.Cmd) {
 
 	// Remove from session list and rebuild picker items.
 	path := s.Path
-	filtered := make([]parser.SessionInfo, 0, len(m.pickerSessions)-1)
+	filtered := make([]discover.SessionInfo, 0, len(m.pickerSessions)-1)
 	for _, si := range m.pickerSessions {
 		if si.Path != path {
 			filtered = append(filtered, si)
@@ -329,7 +331,7 @@ func dedup(ss []string) []string {
 }
 
 // pickerSelectedSession returns the session at the current cursor, or nil.
-func (m model) pickerSelectedSession() *parser.SessionInfo {
+func (m model) pickerSelectedSession() *discover.SessionInfo {
 	if m.pickerCursor < 0 || m.pickerCursor >= len(m.pickerItems) {
 		return nil
 	}
@@ -612,7 +614,7 @@ func (m model) renderPickerItems(width int) []string {
 }
 
 // renderPickerHeader renders a date group header with underline rule.
-func (m model) renderPickerHeader(category parser.DateCategory, width int) string {
+func (m model) renderPickerHeader(category discover.DateCategory, width int) string {
 	labelStyle := StyleSecondaryBold
 	label := labelStyle.Render(string(category))
 	labelWidth := lipgloss.Width(label)
@@ -630,7 +632,7 @@ func (m model) renderPickerHeader(category parser.DateCategory, width int) strin
 // renderPickerSession renders a flat session row + bottom separator.
 // Selected: background highlight band. Unselected: plain text.
 // Matches claude-devtools: every row has a bottom border, selected gets bg.
-func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width int, itemIndex int) []string {
+func (m model) renderPickerSession(s *discover.SessionInfo, isSelected bool, width int, itemIndex int) []string {
 	indent := "  "
 	innerWidth := max(width-4, 20) // indent (2) + right gutter (2)
 
@@ -681,7 +683,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 	}
 	previewMaxWidth = max(previewMaxWidth, 20)
 	if lipgloss.Width(preview) > previewMaxWidth {
-		preview = parser.TruncateWord(preview, previewMaxWidth)
+		preview = tools.TruncateWord(preview, previewMaxWidth)
 	}
 
 	// Bake background into preview when selected; prevents ANSI reset from the
@@ -710,7 +712,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 
 	if s.GitBranch != "" {
 		branchIcon := Icon.Branch.WithColor(ColorPickerMeta)
-		branchName := parser.Truncate(s.GitBranch, 20)
+		branchName := tools.Truncate(s.GitBranch, 20)
 		branchStr := lipgloss.NewStyle().Foreground(metaColor).Render(branchName)
 		metaParts = append(metaParts, branchIcon+branchStr)
 	}
@@ -726,7 +728,7 @@ func (m model) renderPickerSession(s *parser.SessionInfo, isSelected bool, width
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(durStr))
 	}
 
-	if pct, _, ok := parser.ContextUsagePct(s.ContextTokens, s.Model); ok {
+	if pct, _, ok := transcript.ContextUsagePct(s.ContextTokens, s.Model); ok {
 		pctStr := fmt.Sprintf("%3.0f%% ctx", pct)
 		pctStr = fmt.Sprintf("%9s", pctStr) // right-align in the column
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(contextUsageColor(pct)).Render(pctStr))

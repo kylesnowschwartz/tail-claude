@@ -10,21 +10,22 @@ Pipeline-oriented data flow. Each stage transforms data and passes it forward:
 JSONL line -> ParseEntry -> Classify -> BuildChunks -> chunksToMessages -> TUI
 ```
 
-### Parser package (`parser/`)
+### Parsing library (`github.com/kylesnowschwartz/agent-ouija`)
 
-Pure data transformation -- no side effects except file IO in `ReadSession` / `ReadSessionIncremental`.
+All parsing/discovery lives in the shared **agent-ouija** library (repo:
+`~/Code/my-projects/agent-ouija`) — pure data transformation, no side effects
+except file IO in `ReadSession` / `ReadSessionIncremental`. tail-claude imports:
 
-- **entry.go** -- JSONL line to `Entry` struct (raw deserialization)
-- **classify.go** -- `Entry` to `ClassifiedMsg` (sealed interface: `UserMsg`, `AIMsg`, `SystemMsg`, `TeammateMsg`, `CompactMsg`). Noise filtering lives here.
-- **sanitize.go** -- XML tag stripping, command display formatting, text extraction from JSON content blocks
-- **chunk.go** -- `[]ClassifiedMsg` to `[]Chunk`. Merges consecutive AI messages into single display units. `Chunk.Usage` is the last assistant message's context-window snapshot, not the sum.
-- **session.go** -- File IO: `ReadSession` (full), `ReadSessionIncremental` (from offset), session discovery
-- **last_output.go** -- `FindLastOutput`: extracts the final text or tool result from a chunk for collapsed preview
-- **subagent.go** -- Subagent/teammate process discovery and linking across chunks (two discovery paths: `DiscoverSubagents` for `subagents/` files, `DiscoverTeamSessions` for project-dir team files)
-- **summary.go** -- `Truncate` helper and per-tool one-line summary generation
-- **ongoing.go** -- Heuristics for whether a session is still in progress
-- **dategroup.go** -- Date-based session grouping (Today, Yesterday, This Week, etc.)
-- **patterns.go** -- Shared regex patterns for content classification
+- **`claude/transcript`** -- `Entry`/`ParseEntry` (raw deserialization), `Classify` (`Entry` to `ClassifiedMsg`, a sealed interface: `UserMsg`, `AIMsg`, `SystemMsg`, `TeammateMsg`, `CompactMsg`; noise filtering lives here), `BuildChunks` (`[]ClassifiedMsg` to `[]Chunk` -- merges consecutive AI messages; `Chunk.Usage` is the last assistant message's context-window snapshot, not the sum), `ReadSession`/`ReadSessionIncremental` (file IO), `FindLastOutput` (final text/tool result for collapsed preview), sanitization, ongoing heuristics
+- **`claude/discover`** -- session discovery, titles, cache, date grouping (Today, Yesterday, ...), `ProjectName`
+- **`claude/agents`** -- subagent/teammate discovery and linking (`DiscoverSubagents` for `subagents/` files, `DiscoverTeamSessions` for project-dir team files, `LinkSubagents`, `ScanWorkflowActivity`)
+- **`claude/tools`** -- per-tool one-line summaries, `Truncate`/`ShortPath`
+- **`claude/debuglog`** -- debug-log parsing and incremental reads
+- **`claude/claudedir`** -- `Root` type: path encoding, project-dir resolution (see `claudepaths.go` for the app-side helpers that inject `claudedir.DefaultRoot()`)
+- **`jsonl`**, **`gitroot`** -- line scanning (search), git main-worktree resolution
+
+During migration the worktree builds against a local checkout via a
+git-ignored `go.work`; the final release pins a tagged module version.
 
 ### TUI
 
@@ -56,10 +57,10 @@ Bubble Tea model with three view states: list, detail, picker.
 
 Prefer pure functions that take inputs and return outputs. Push side effects to the edges.
 
-- Parser functions are pure transformations. Keep them that way.
+- Library parsing functions are pure transformations. Keep them that way.
 - `chunksToMessages`, `shortModel`, `formatTokens`, `formatDuration` are pure -- no model state.
 - Bubble Tea's `Update` returns `(model, cmd)` -- treat it as a state reducer, not a mutation point.
-- New features should follow the same pattern: parse/transform in `parser/`, display in the TUI layer.
+- New features should follow the same pattern: parse/transform in agent-ouija, display in the TUI layer.
 - Avoid shared mutable state. The watcher communicates via channels, not shared structs.
 
 ## Session file format
@@ -87,7 +88,7 @@ The encoding is **lossy** -- paths containing literal dashes can't be round-trip
 
 **Caveat**: some reference projects only replace `/` and `\`. The CLI uses the stricter three-character rule above. Verified empirically against 273 project directories on disk (zero contain literal dots or underscores).
 
-Implementation: `parser/session.go:encodePath()`.
+Implementation: agent-ouija `claude/claudedir`, `EncodeProjectPath()`.
 
 Each JSONL line is a JSON object with: `type`, `uuid`, `timestamp`, `isSidechain`, `isMeta`, `message` (with `role`, `content`, `model`, `usage`, `stop_reason`).
 
@@ -105,7 +106,7 @@ Not all entries are conversation messages. Files may contain:
 - Teammate messages: `type=user` with `<teammate-message>` XML wrapper in content
 - Meta entries: `isMeta=true` on user entries marks tool results, classified as `AIMsg`
 
-Thinking blocks from Opus 4.7+/Claude 5 models arrive with empty text (`{"thinking":"","signature":"..."}` — content encrypted into the signature by API default). The parser counts them but emits no block. Large tool results are externalized to `{session}/tool-results/{id}.txt` with a `<persisted-output>` placeholder; the parser splices them back in at the IO edge (`parser/persisted.go`).
+Thinking blocks from Opus 4.7+/Claude 5 models arrive with empty text (`{"thinking":"","signature":"..."}` — content encrypted into the signature by API default). The parser counts them but emits no block. Large tool results are externalized to `{session}/tool-results/{id}.txt` with a `<persisted-output>` placeholder; the parser splices them back in at the IO edge (agent-ouija `claude/transcript/persisted.go`).
 
 ### Subagent session discovery
 
@@ -113,7 +114,7 @@ Subagent sessions appear in two locations depending on how they were spawned:
 
 **Regular subagents** (Task without `team_name`): files in `{session}/subagents/agent-{agentId}.jsonl`. First entry has `isSidechain=true`, `agentId` matches filename. Parent links via the `agent-{agentId}.meta.json` sidecar's `toolUseId` (2.1.19x+, exact and available from spawn time) or via `toolUseResult.agentId` (hex UUID).
 
-**Workflow agents** (Workflow tool): transcripts in `{session}/subagents/workflows/wf_{runId}/` subdirectories. `ScanWorkflowActivity` (parser/workflow.go) surfaces their presence — run/agent counts and last write drive the ongoing indicator and the info-bar "workflow running · N agents" badge. The watcher **polls** this scan (2s ticker) rather than fsnotify-watching the run dirs: macOS kqueue opens one fd per file in a watched directory, and workflow-heavy sessions hold hundreds of transcripts — enough to exhaust the fd budget and break select(2)-based terminal readers (FD_SETSIZE 1024). Transcript parsing/drill-down is a planned follow-up (the parent `Workflow` tool_use links via `toolUseResult.runId`; one call spawns many agents, which the current one-process-per-item UI can't represent).
+**Workflow agents** (Workflow tool): transcripts in `{session}/subagents/workflows/wf_{runId}/` subdirectories. `ScanWorkflowActivity` (agent-ouija `claude/agents`) surfaces their presence — run/agent counts and last write drive the ongoing indicator and the info-bar "workflow running · N agents" badge. The watcher **polls** this scan (2s ticker) rather than fsnotify-watching the run dirs: macOS kqueue opens one fd per file in a watched directory, and workflow-heavy sessions hold hundreds of transcripts — enough to exhaust the fd budget and break select(2)-based terminal readers (FD_SETSIZE 1024). Transcript parsing/drill-down is a planned follow-up (the parent `Workflow` tool_use links via `toolUseResult.runId`; one call spawns many agents, which the current one-process-per-item UI can't represent).
 
 **Team agents** (Task with `team_name` + `name`): standalone `.jsonl` files in the project directory. First entry has top-level `teamName` and `agentName` fields, `isSidechain=false`. Parent links via `toolUseResult.agent_id` in `"name@team"` format (e.g. `"planner@analysis"`).
 
@@ -163,8 +164,8 @@ tail-claude [flags] [session.jsonl]
 ## Conventions
 
 - Conventional commits: `feat:`, `fix:`, `test:`, `chore:`
-- Keep parser package free of TUI dependencies
+- Parsing logic belongs in agent-ouija, not the TUI layer; keep the library free of TUI dependencies
 - Test files live alongside source (`*_test.go`)
-- Test fixtures in `parser/testdata/`
-- No external dependencies beyond bubbletea/v2, lipgloss/v2, glamour, chroma/v2, colorprofile, fsnotify, x/term, x/ansi, and bubblezone/v2
+- Parsing test fixtures live in agent-ouija (`claude/transcript/testdata/`)
+- No external dependencies beyond agent-ouija, bubbletea/v2, lipgloss/v2, glamour, chroma/v2, colorprofile, fsnotify, x/term, x/ansi, and bubblezone/v2
 - Attribution for ported parsing logic documented in ATTRIBUTION.md

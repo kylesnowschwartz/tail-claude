@@ -6,7 +6,10 @@ import (
 	"image/color"
 	"strings"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
+	"github.com/kylesnowschwartz/agent-ouija/claude/debuglog"
+	"github.com/kylesnowschwartz/agent-ouija/claude/tools"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 	zone "github.com/lrstanley/bubblezone/v2"
 
 	"charm.land/lipgloss/v2"
@@ -154,7 +157,7 @@ func truncateLines(content string, maxLines int) (string, int) {
 }
 
 // formatToolResultPreview renders a one-line tool result summary for collapsed view.
-func formatToolResultPreview(lo *parser.LastOutput) string {
+func formatToolResultPreview(lo *transcript.LastOutput) string {
 	icon := Icon.Tool.Ok
 	if lo.IsError {
 		icon = Icon.Tool.Err
@@ -162,21 +165,21 @@ func formatToolResultPreview(lo *parser.LastOutput) string {
 	nameStyle := StylePrimaryBold
 	resultStyle := StyleSecondary
 
-	// parser.Truncate collapses newlines and cuts on rune boundaries; a byte
+	// tools.Truncate collapses newlines and cuts on rune boundaries; a byte
 	// slice here would split multi-byte runes into mojibake.
-	return icon.Render() + " " + nameStyle.Render(lo.ToolName) + " " + resultStyle.Render(parser.Truncate(lo.ToolResult, 80))
+	return icon.Render() + " " + nameStyle.Render(lo.ToolName) + " " + resultStyle.Render(tools.Truncate(lo.ToolResult, 80))
 }
 
 // formatToolCallsPreview renders tool names for turns with no output or results.
 // Shows up to maxToolCalls tools with their one-line summaries.
-func formatToolCallsPreview(lo *parser.LastOutput) string {
+func formatToolCallsPreview(lo *transcript.LastOutput) string {
 	nameStyle := StylePrimaryBold
 	summaryStyle := StyleDim
 	var parts []string
 	for _, tc := range lo.ToolCalls {
 		entry := Icon.Tool.Misc.Render() + " " + nameStyle.Render(tc.Name)
 		if tc.Summary != "" {
-			entry += " " + summaryStyle.Render(parser.Truncate(tc.Summary, 60))
+			entry += " " + summaryStyle.Render(tools.Truncate(tc.Summary, 60))
 		}
 		parts = append(parts, entry)
 	}
@@ -288,16 +291,16 @@ func (m model) claudeCollapsedContent(msg message, isExpanded bool) (string, int
 
 	if msg.lastOutput != nil {
 		switch msg.lastOutput.Type {
-		case parser.LastOutputText:
+		case transcript.LastOutputText:
 			content = msg.lastOutput.Text
 			truncated, hidden := truncateLines(content, maxCollapsedLines)
 			if hidden > 0 {
 				return truncated, hidden
 			}
 			return content, 0
-		case parser.LastOutputToolResult:
+		case transcript.LastOutputToolResult:
 			return formatToolResultPreview(msg.lastOutput), 0
-		case parser.LastOutputToolCalls:
+		case transcript.LastOutputToolCalls:
 			return formatToolCallsPreview(msg.lastOutput), 0
 		}
 	}
@@ -481,7 +484,7 @@ func (m model) renderDetailItemsContent(msg message, width int) string {
 			rowStr := m.renderDetailItemRow(row.item, ri, m.detailCursor, isExp, width)
 
 			if isExp {
-				if row.item.itemType == parser.ItemSubagent && row.item.subagentProcess != nil {
+				if row.item.itemType == transcript.ItemSubagent && row.item.subagentProcess != nil {
 					// Trace header separates parent from its children.
 					hdr := renderTraceHeader(row.item)
 					rowStr += "\n" + childIndent + hdr
@@ -562,19 +565,19 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 	var indicator, name string
 
 	switch item.itemType {
-	case parser.ItemThinking:
+	case transcript.ItemThinking:
 		indicator = Icon.Thinking.Render()
 		name = "Thinking"
-	case parser.ItemOutput:
+	case transcript.ItemOutput:
 		indicator = Icon.Output.Render()
 		name = "Output"
 		if item.toolName != "" {
 			name = item.toolName
 		}
-	case parser.ItemToolCall:
+	case transcript.ItemToolCall:
 		indicator = toolCategoryIcon(item.toolCategory, item.toolError)
 		name = item.toolName
-	case parser.ItemSubagent:
+	case transcript.ItemSubagent:
 		if item.teamColor != "" {
 			indicator = Icon.Subagent.WithColor(teamColor(item.teamColor))
 		} else {
@@ -589,7 +592,7 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		if name == "" {
 			name = "Subagent"
 		}
-	case parser.ItemTeammateMessage:
+	case transcript.ItemTeammateMessage:
 		if item.teamColor != "" {
 			indicator = Icon.Teammate.WithColor(teamColor(item.teamColor))
 		} else {
@@ -599,7 +602,7 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 		if name == "" {
 			name = "Teammate"
 		}
-	case parser.ItemMemoryLoad:
+	case transcript.ItemMemoryLoad:
 		indicator = Icon.Memory.Render()
 		name = "Loaded"
 	}
@@ -615,7 +618,7 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 
 	// Ongoing spinner for subagent items: 1 glyph + 1 space, or 2 spaces for alignment.
 	spinnerSlot := "  "
-	if item.itemType == parser.ItemSubagent && item.subagentOngoing {
+	if item.itemType == transcript.ItemSubagent && item.subagentOngoing {
 		frame := SpinnerFrames[m.animFrame%len(SpinnerFrames)]
 		spinnerSlot = lipgloss.NewStyle().Foreground(ColorOngoing).Render(frame) + " "
 	}
@@ -623,18 +626,18 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 	// Summary
 	var summary string
 	switch item.itemType {
-	case parser.ItemThinking, parser.ItemOutput:
-		summary = parser.Truncate(item.text, 40)
-	case parser.ItemToolCall:
+	case transcript.ItemThinking, transcript.ItemOutput:
+		summary = tools.Truncate(item.text, 40)
+	case transcript.ItemToolCall:
 		summary = item.toolSummary
-	case parser.ItemSubagent:
+	case transcript.ItemSubagent:
 		summary = item.subagentDesc
 		if summary == "" {
 			summary = item.toolSummary
 		}
-	case parser.ItemTeammateMessage:
-		summary = parser.Truncate(item.text, 60)
-	case parser.ItemMemoryLoad:
+	case transcript.ItemTeammateMessage:
+		summary = tools.Truncate(item.text, 60)
+	case transcript.ItemMemoryLoad:
 		summary = item.text // the displayPath
 	}
 	// Suppress summary when it just repeats the tool name (common for MCP
@@ -706,11 +709,11 @@ func (m model) renderDetailItemRow(item displayItem, index, cursorIndex int, isE
 // keep the two in sync when adding item types.
 func hasExpandedContent(item displayItem) bool {
 	switch item.itemType {
-	case parser.ItemThinking, parser.ItemOutput, parser.ItemTeammateMessage:
+	case transcript.ItemThinking, transcript.ItemOutput, transcript.ItemTeammateMessage:
 		return strings.TrimSpace(item.text) != ""
-	case parser.ItemSubagent:
+	case transcript.ItemSubagent:
 		return item.subagentProcess != nil || item.toolInput != "" || item.toolResult != "" || item.toolError
-	case parser.ItemToolCall:
+	case transcript.ItemToolCall:
 		return item.toolInput != "" || item.toolResult != "" || item.toolError
 	}
 	return false
@@ -727,7 +730,7 @@ func (m model) renderDetailItemExpanded(item displayItem, width int) rendered {
 
 	var content string
 	switch item.itemType {
-	case parser.ItemThinking, parser.ItemOutput, parser.ItemTeammateMessage:
+	case transcript.ItemThinking, transcript.ItemOutput, transcript.ItemTeammateMessage:
 		text := strings.TrimSpace(item.text)
 		if text == "" {
 			return rendered{}
@@ -735,14 +738,14 @@ func (m model) renderDetailItemExpanded(item displayItem, width int) rendered {
 		md := m.md.renderMarkdown(text, wrapWidth)
 		content = indentBlock(md, indent)
 
-	case parser.ItemSubagent:
+	case transcript.ItemSubagent:
 		if item.subagentProcess != nil {
 			content = m.renderSubagentTrace(item, wrapWidth, indent)
 		} else {
 			content = m.renderTaskInput(item, wrapWidth, indent)
 		}
 
-	case parser.ItemToolCall:
+	case transcript.ItemToolCall:
 		content = m.renderToolExpanded(item, wrapWidth, indent)
 	}
 
@@ -947,7 +950,7 @@ func detailHeaderStats(msg message) string {
 func subagentIcons(items []displayItem) string {
 	var icons []string
 	for _, it := range items {
-		if it.itemType == parser.ItemSubagent {
+		if it.itemType == transcript.ItemSubagent {
 			icons = append(icons, Icon.Subagent.WithColor(teamColor(it.teamColor)))
 		}
 	}
@@ -982,7 +985,7 @@ func detailHeaderMeta(msg message) string {
 //
 // Color tracks the LAST cycle's usage so the user sees the current state.
 // Returns "" when delta is nil (no token data for this chunk).
-func formatContextDelta(d *parser.ContextDelta) string {
+func formatContextDelta(d *transcript.ContextDelta) string {
 	if d == nil {
 		return ""
 	}
@@ -1016,11 +1019,11 @@ func contextUsageColor(pct float64) color.Color {
 // -- Debug log rendering ------------------------------------------------------
 
 // debugLevelBadge returns a colored level label for a debug entry.
-func debugLevelBadge(level parser.DebugLevel) string {
+func debugLevelBadge(level debuglog.DebugLevel) string {
 	switch level {
-	case parser.LevelWarn:
+	case debuglog.LevelWarn:
 		return lipgloss.NewStyle().Foreground(ColorContextWarn).Render("WARN ")
-	case parser.LevelError:
+	case debuglog.LevelError:
 		return lipgloss.NewStyle().Bold(true).Foreground(ColorError).Render("ERROR")
 	default:
 		return StyleDim.Render("DEBUG")
@@ -1028,11 +1031,11 @@ func debugLevelBadge(level parser.DebugLevel) string {
 }
 
 // debugFilterLabel returns the human-readable label for the current filter.
-func debugFilterLabel(level parser.DebugLevel) string {
+func debugFilterLabel(level debuglog.DebugLevel) string {
 	switch level {
-	case parser.LevelWarn:
+	case debuglog.LevelWarn:
 		return "warn+"
-	case parser.LevelError:
+	case debuglog.LevelError:
 		return "error"
 	default:
 		return "all"
@@ -1172,7 +1175,7 @@ func (m model) renderDebugFilterPrompt(width int) string {
 // Format: {cursor} HH:MM:SS.mmm  LEVEL  [category] message  [+N lines]  xN
 // Category is inlined as a bracketed prefix on the message -- only present
 // when the entry has one, so entries without a category waste no space.
-func (m model) renderDebugEntry(entry parser.DebugEntry, index int, isCursor bool, width int) string {
+func (m model) renderDebugEntry(entry debuglog.DebugEntry, index int, isCursor bool, width int) string {
 	// Cursor indicator
 	cursor := "  "
 	if isCursor {
@@ -1223,7 +1226,7 @@ func (m model) renderDebugEntry(entry parser.DebugEntry, index int, isCursor boo
 		msg = "[" + entry.Category + "] " + msg
 	}
 	if lipgloss.Width(msg) > msgSpace {
-		msg = parser.Truncate(msg, msgSpace)
+		msg = tools.Truncate(msg, msgSpace)
 	}
 
 	// Style message based on level, with optional match highlighting.
@@ -1238,18 +1241,18 @@ func (m model) renderDebugEntry(entry parser.DebugEntry, index int, isCursor boo
 
 // styleDebugMessage styles a debug message string by level, then highlights
 // any text filter matches with a reverse-video accent.
-func (m model) styleDebugMessage(msg string, level parser.DebugLevel) string {
+func (m model) styleDebugMessage(msg string, level debuglog.DebugLevel) string {
 	hlStyle := lipgloss.NewStyle().Bold(true).Reverse(true).Foreground(ColorAccent)
 	return highlightMatches(msg, m.debugFilterText,
 		func(s string) string { return debugLevelStyle(s, level) }, hlStyle)
 }
 
 // debugLevelStyle applies the standard level-based foreground color to text.
-func debugLevelStyle(text string, level parser.DebugLevel) string {
+func debugLevelStyle(text string, level debuglog.DebugLevel) string {
 	switch level {
-	case parser.LevelError:
+	case debuglog.LevelError:
 		return lipgloss.NewStyle().Foreground(ColorError).Render(text)
-	case parser.LevelWarn:
+	case debuglog.LevelWarn:
 		return lipgloss.NewStyle().Foreground(ColorContextWarn).Render(text)
 	default:
 		return StyleDim.Render(text)
@@ -1410,7 +1413,7 @@ func (m model) renderInfoBar() string {
 
 	// Background workflow indicator: agents write outside the parent file,
 	// so without this the session looks idle while a workflow runs.
-	if m.view != viewPicker && m.sessionWorkflow.Active(parser.OngoingStalenessThreshold) {
+	if m.view != viewPicker && m.sessionWorkflow.Active(transcript.OngoingStalenessThreshold) {
 		label := fmt.Sprintf("workflow running %s %d agents",
 			Icon.Dot.Render(), m.sessionWorkflow.Agents)
 		leftParts = append(leftParts,
@@ -1572,7 +1575,7 @@ func (m model) renderTeamContent(width, animFrame int) string {
 }
 
 // renderTeamSection renders a single team: divider, description, progress, members, task rows.
-func renderTeamSection(team parser.TeamSnapshot, width, animFrame int) string {
+func renderTeamSection(team agents.TeamSnapshot, width, animFrame int) string {
 	var lines []string
 
 	// Divider: "── team-name ──────────────────────"
@@ -1608,7 +1611,7 @@ func renderTeamSection(team parser.TeamSnapshot, width, animFrame int) string {
 }
 
 // renderTeamSummary renders the progress summary line: "3 members · 2/5 done".
-func renderTeamSummary(team parser.TeamSnapshot) string {
+func renderTeamSummary(team agents.TeamSnapshot) string {
 	var parts []string
 
 	if len(team.Members) > 0 {
@@ -1637,7 +1640,7 @@ func renderTeamSummary(team parser.TeamSnapshot) string {
 }
 
 // renderTeamMembers renders a row of colored member names with ongoing spinners.
-func renderTeamMembers(team parser.TeamSnapshot, animFrame int) string {
+func renderTeamMembers(team agents.TeamSnapshot, animFrame int) string {
 	var parts []string
 	for _, name := range team.Members {
 		var rendered string
@@ -1675,7 +1678,7 @@ func renderTeamDivider(name string, width int) string {
 // renderTeamTaskRow renders a single task row.
 // Format: "  #1  ✓  Fix shell hook anti-patterns         shell-hooks-worker"
 // When the task's owner has an ongoing session, a spinner appears after the status glyph.
-func renderTeamTaskRow(task parser.TeamTask, team parser.TeamSnapshot, width, animFrame int) string {
+func renderTeamTaskRow(task agents.TeamTask, team agents.TeamSnapshot, width, animFrame int) string {
 	// Status glyph
 	status := taskStatusGlyph(task.Status)
 
@@ -1701,7 +1704,7 @@ func renderTeamTaskRow(task parser.TeamTask, team parser.TeamSnapshot, width, an
 
 	subject := task.Subject
 	if lipgloss.Width(subject) > subjectWidth {
-		subject = parser.Truncate(subject, subjectWidth)
+		subject = tools.Truncate(subject, subjectWidth)
 	}
 	subjectRendered := fmt.Sprintf("%-*s", subjectWidth, subject)
 

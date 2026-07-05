@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/kylesnowschwartz/tail-claude/parser"
+	"github.com/kylesnowschwartz/agent-ouija/claude/debuglog"
 	zone "github.com/lrstanley/bubblezone/v2"
 
 	tea "charm.land/bubbletea/v2"
@@ -119,12 +119,12 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "d":
 		// Open debug log viewer for current session.
-		debugPath := parser.DebugLogPath(m.sessionPath)
+		debugPath := debugLogPathFor(m.sessionPath)
 		if debugPath == "" {
 			m.flashStatus = "No debug log (start Claude with --debug)"
 			return m, flashClearCmd()
 		}
-		entries, _, err := parser.ReadDebugLog(debugPath)
+		entries, _, err := debuglog.ReadDebugLog(debugPath)
 		if err != nil {
 			return m, nil
 		}
@@ -132,7 +132,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.debugPath = debugPath
 		m.debugCursor = 0
 		m.debugScroll = 0
-		m.debugMinLevel = parser.LevelDebug
+		m.debugMinLevel = debuglog.LevelDebug
 		m.debugExpanded = make(map[int]bool)
 		m.applyDebugFilters()
 		m.view = viewDebug
@@ -408,12 +408,12 @@ func (m model) updateDebug(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "f":
 		// Cycle level filter: All -> Warn+ -> Error -> All.
 		switch m.debugMinLevel {
-		case parser.LevelDebug:
-			m.debugMinLevel = parser.LevelWarn
-		case parser.LevelWarn:
-			m.debugMinLevel = parser.LevelError
-		case parser.LevelError:
-			m.debugMinLevel = parser.LevelDebug
+		case debuglog.LevelDebug:
+			m.debugMinLevel = debuglog.LevelWarn
+		case debuglog.LevelWarn:
+			m.debugMinLevel = debuglog.LevelError
+		case debuglog.LevelError:
+			m.debugMinLevel = debuglog.LevelDebug
 		}
 		m.reapplyDebugFilters()
 	case "/":
