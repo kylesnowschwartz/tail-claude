@@ -24,8 +24,21 @@ except file IO in `ReadSession` / `ReadSessionIncremental`. tail-claude imports:
 - **`claude/claudedir`** -- `Root` type: path encoding, project-dir resolution (see `claudepaths.go` for the app-side helpers that inject `claudedir.DefaultRoot()`)
 - **`jsonl`**, **`gitroot`** -- line scanning (search), git main-worktree resolution
 
-During migration the worktree builds against a local checkout via a
-git-ignored `go.work`; the final release pins a tagged module version.
+**Staying current**: pin tagged versions only
+(`go get github.com/kylesnowschwartz/agent-ouija@vX.Y.Z && go mod tidy`,
+read its CHANGELOG first — breaking changes bump the library minor).
+After any bump: `just check`, `just test`, and the golden gate
+(`--dump --expand` on a fixture must not change). For cross-repo dev use
+a git-ignored `go.work` (`go work init . ../agent-ouija`); any commit
+finalizing a bump must pass `GOWORK=off go build ./... && go test ./...`.
+
+**The line (one-way dependency)**: agent-ouija reads Claude Code state
+and returns data; tail-claude decides how to present it. Rendering, TUI
+state, fsnotify watching, scroll/search/picker behavior stay here —
+never propose moving them into the library, and never add
+tail-claude-specific types or fields to the library. Format drift and
+parsing defects are ALWAYS fixed in agent-ouija (with a fixture), never
+worked around in this repo.
 
 ### TUI
 
