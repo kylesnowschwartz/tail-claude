@@ -1,0 +1,11 @@
+# Bump-PR-as-notification: when agent-ouija tags a new release (usually a
+# format-drift fix), the PR is the signal to pick it up. Scoped to that one
+# dependency — everything else bumps manually, batched.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-name: github.com/kylesnowschwartz/agent-ouija
