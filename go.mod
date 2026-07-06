@@ -10,7 +10,7 @@ require (
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/kylesnowschwartz/agent-ouija v0.2.0
+	github.com/kylesnowschwartz/agent-ouija v1.1.0
 	github.com/lrstanley/bubblezone/v2 v2.0.0
 	golang.org/x/term v0.31.0
 )
