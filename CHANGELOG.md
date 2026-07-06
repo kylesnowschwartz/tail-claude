@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.17.0 (2026-07-06)
+
+- Show real session names in the picker: overlay live-registry names (`~/.claude/sessions/{pid}.json`), the only place a `/rename` survives Claude Code's custom-title re-stamping; arbitration is custom title > AI title > registry name
+- Resolve registry names as `tail-claude <name>` arguments alongside transcript titles; exact matches beat substring matches across both sources
+- Route all picker session-list builds through a single discovery path so watcher rescans keep the name overlay
+- Bump agent-ouija to v1.2.0 and consume its display-name API (`claude.NameResolver`, `claude.FindNameMatches`)
+
 ## v0.16.0 (2026-07-05)
 
 ## v0.15.0 (2026-07-05)
