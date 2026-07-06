@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kylesnowschwartz/agent-ouija/claude"
 	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
 	"github.com/kylesnowschwartz/agent-ouija/claude/debuglog"
 	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
@@ -1182,7 +1183,7 @@ func resolveSessionName(name string) (string, error) {
 	}
 	// Registry names are what the picker displays for stamped and
 	// auto-named sessions -- they must resolve as arguments too.
-	matches = mergeTitleRefs(matches, registryNameMatches(name))
+	matches = discover.MergeTitleRefs(matches, claude.FindNameMatches(name, claudeRoot, readSessionRegistry()))
 	if len(matches) == 0 && len(localDirs) > 0 {
 		all, err := listAllProjectDirs()
 		if err != nil {
@@ -1195,7 +1196,7 @@ func resolveSessionName(name string) (string, error) {
 		}
 	}
 
-	matches = preferExact(matches, name)
+	matches = discover.PreferExact(matches, name)
 
 	switch len(matches) {
 	case 0:

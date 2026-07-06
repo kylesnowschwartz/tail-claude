@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kylesnowschwartz/agent-ouija/claude"
 	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
 	"github.com/kylesnowschwartz/agent-ouija/claude/tools"
 	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
@@ -55,6 +56,24 @@ func loadPickerSessionsCmd(gen int, projectDirs []string, cache *discover.Sessio
 		sessions, err := discoverSessionsWithNames(projectDirs, cache)
 		return pickerSessionsMsg{gen: gen, sessions: sessions, err: err}
 	}
+}
+
+// discoverSessionsWithNames is the single entry point for building the
+// picker's session list: project discovery plus the registry-name overlay
+// (custom title > AI title > registry name > stamped title, arbitrated by
+// agent-ouija's NameResolver). The initial load and watcher rescans both
+// route through here so the overlay cannot regress on one path and not
+// the other.
+func discoverSessionsWithNames(projectDirs []string, cache *discover.SessionCache) ([]discover.SessionInfo, error) {
+	var sessions []discover.SessionInfo
+	var err error
+	if cache != nil {
+		sessions, err = cache.DiscoverAllProjectSessions(projectDirs)
+	} else {
+		sessions, err = discover.DiscoverAllProjectSessions(projectDirs)
+	}
+	claude.NewNameResolver(readSessionRegistry()).Apply(sessions)
+	return sessions, err
 }
 
 // loadSessionCmd returns a command that loads a session file into messages.

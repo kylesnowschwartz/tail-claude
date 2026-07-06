@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/kylesnowschwartz/agent-ouija/claude/claudedir"
+	"github.com/kylesnowschwartz/agent-ouija/claude/registry"
 	"github.com/kylesnowschwartz/agent-ouija/gitroot"
 )
 
@@ -43,6 +44,18 @@ func listAllProjectDirs() ([]string, error) {
 		return nil, claudeRootErr
 	}
 	return claudeRoot.ListProjectDirs()
+}
+
+// readSessionRegistry returns raw live-session registry entries, or nil
+// when the Claude root is unavailable. Feed the result to
+// claude.NewNameResolver / claude.FindNameMatches, which own the
+// per-session arbitration (including lingering entries of exited
+// sessions -- do not liveness-filter here).
+func readSessionRegistry() []registry.Live {
+	if claudeRootErr != nil {
+		return nil
+	}
+	return registry.Read(claudeRoot.SessionsDir())
 }
 
 // debugLogPathFor returns the debug log path for a session JSONL path, or
