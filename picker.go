@@ -52,13 +52,7 @@ func pickerTickCmd() tea.Cmd {
 // the handler drops results whose gen no longer matches.
 func loadPickerSessionsCmd(gen int, projectDirs []string, cache *discover.SessionCache) tea.Cmd {
 	return func() tea.Msg {
-		var sessions []discover.SessionInfo
-		var err error
-		if cache != nil {
-			sessions, err = cache.DiscoverAllProjectSessions(projectDirs)
-		} else {
-			sessions, err = discover.DiscoverAllProjectSessions(projectDirs)
-		}
+		sessions, err := discoverSessionsWithNames(projectDirs, cache)
 		return pickerSessionsMsg{gen: gen, sessions: sessions, err: err}
 	}
 }

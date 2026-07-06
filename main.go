@@ -1180,6 +1180,9 @@ func resolveSessionName(name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("tail-claude: searching local projects: %w", err)
 	}
+	// Registry names are what the picker displays for stamped and
+	// auto-named sessions -- they must resolve as arguments too.
+	matches = mergeTitleRefs(matches, registryNameMatches(name))
 	if len(matches) == 0 && len(localDirs) > 0 {
 		all, err := listAllProjectDirs()
 		if err != nil {
@@ -1191,6 +1194,8 @@ func resolveSessionName(name string) (string, error) {
 			return "", fmt.Errorf("tail-claude: searching all projects: %w", err)
 		}
 	}
+
+	matches = preferExact(matches, name)
 
 	switch len(matches) {
 	case 0:

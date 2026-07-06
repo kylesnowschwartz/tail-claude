@@ -108,13 +108,7 @@ func (pw *pickerWatcher) run() {
 // rescan re-discovers all project sessions and sends the fresh list on sub.
 // Only called from run() -- run owns all sends on sub.
 func (pw *pickerWatcher) rescan() {
-	var sessions []discover.SessionInfo
-	var err error
-	if pw.cache != nil {
-		sessions, err = pw.cache.DiscoverAllProjectSessions(pw.projectDirs)
-	} else {
-		sessions, err = discover.DiscoverAllProjectSessions(pw.projectDirs)
-	}
+	sessions, err := discoverSessionsWithNames(pw.projectDirs, pw.cache)
 	if err != nil {
 		return
 	}
