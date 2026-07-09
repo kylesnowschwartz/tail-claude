@@ -298,3 +298,58 @@ func TestPickerTabEmptyList(t *testing.T) {
 type errForTest string
 
 func (e errForTest) Error() string { return string(e) }
+
+// --- TestPickerCopilotBadge --------------------------------------------------
+
+func TestPickerCopilotBadge(t *testing.T) {
+	m := pickerModel()
+
+	copilotSession := discover.SessionInfo{
+		Path:         "/home/dev/.copilot/session-state/1111/events.jsonl",
+		SessionID:    "1111-aaaa",
+		ModTime:      time.Now(),
+		FirstMessage: "add a greeting function",
+		Model:        "gpt-5",
+		TurnCount:    2,
+	}
+	claudeSession := discover.SessionInfo{
+		Path:         "/home/dev/.claude/projects/-home-dev-foo/abc.jsonl",
+		SessionID:    "abc-1234",
+		ModTime:      time.Now(),
+		FirstMessage: "fix the bug",
+		Model:        "claude-opus-4-6",
+		TurnCount:    3,
+	}
+
+	copilotLines := strings.Join(m.renderPickerSession(&copilotSession, false, 120, 0), "\n")
+	if !strings.Contains(copilotLines, "copilot") {
+		t.Errorf("copilot session row missing source badge:\n%s", copilotLines)
+	}
+
+	claudeLines := strings.Join(m.renderPickerSession(&claudeSession, false, 120, 0), "\n")
+	if strings.Contains(claudeLines, "copilot") {
+		t.Errorf("claude session row must not carry the copilot badge:\n%s", claudeLines)
+	}
+}
+
+// --- TestPickerCopilotDelete --------------------------------------------------
+
+func TestPickerCopilotDelete(t *testing.T) {
+	m := pickerModel()
+	s := discover.SessionInfo{
+		Path:      "/home/dev/.copilot/session-state/1111/events.jsonl",
+		SessionID: "1111-aaaa",
+		ModTime:   time.Now(),
+	}
+	m.pickerItems = []pickerItem{{typ: pickerItemSession, session: &s}}
+	m.pickerCursor = 0
+
+	updated, _ := m.updatePicker(key("D"))
+	um := updated.(model)
+	if um.popup != nil {
+		t.Error("D on a Copilot session must not open the delete popup")
+	}
+	if !strings.Contains(um.flashStatus, "not supported") {
+		t.Errorf("flashStatus = %q, want delete-not-supported notice", um.flashStatus)
+	}
+}

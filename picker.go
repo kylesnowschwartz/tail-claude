@@ -61,9 +61,10 @@ func loadPickerSessionsCmd(gen int, projectDirs []string, cache *discover.Sessio
 // discoverSessionsWithNames is the single entry point for building the
 // picker's session list: project discovery plus the registry-name overlay
 // (custom title > AI title > registry name > stamped title, arbitrated by
-// agent-ouija's NameResolver). The initial load and watcher rescans both
-// route through here so the overlay cannot regress on one path and not
-// the other.
+// agent-ouija's NameResolver), then the Copilot sessions for this project
+// merged in by ModTime. The initial load and watcher rescans both route
+// through here so neither the overlay nor the Copilot rows can regress on
+// one path and not the other.
 func discoverSessionsWithNames(projectDirs []string, cache *discover.SessionCache) ([]discover.SessionInfo, error) {
 	var sessions []discover.SessionInfo
 	var err error
@@ -73,6 +74,7 @@ func discoverSessionsWithNames(projectDirs []string, cache *discover.SessionCach
 		sessions, err = discover.DiscoverAllProjectSessions(projectDirs)
 	}
 	claude.NewNameResolver(readSessionRegistry()).Apply(sessions)
+	sessions = mergeByModTime(sessions, copilotSessionsForProject(projectDirs))
 	return sessions, err
 }
 
@@ -213,11 +215,13 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		if s := m.pickerSelectedSession(); s != nil {
 			si := *s // copy for closure
+			argv := resumeArgvFor(s)
 			m.popup = newPopup(
 				"Resume session?",
-				"claude --resume "+formatSessionName(s.SessionID),
+				resumeCommandLabel(s),
 				func() (tea.Model, tea.Cmd) {
 					m.resumeSession = &si
+					m.resumeArgv = argv
 					return m, tea.Quit
 				},
 			)
@@ -225,6 +229,13 @@ func (m model) updatePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "D":
 		if s := m.pickerSelectedSession(); s != nil {
+			// Copilot sessions are directories (events.jsonl + checkpoints/
+			// files/ ...): os.Remove would leave the dir, RemoveAll is too
+			// destructive to ship unreviewed. v1: not supported.
+			if sourceForPath(s.Path) == sourceCopilot {
+				m.flashStatus = "Delete not supported for Copilot sessions"
+				return m, flashClearCmd()
+			}
 			preview := s.Title
 			if preview == "" {
 				preview = s.FirstMessage
@@ -713,6 +724,12 @@ func (m model) renderPickerSession(s *discover.SessionInfo, isSelected bool, wid
 
 	var metaParts []string
 	dot := Icon.Dot.Render()
+
+	// Source badge: Copilot sessions share the picker with Claude ones.
+	// Inline in the meta line so pickerItemHeight stays unchanged.
+	if sourceForPath(s.Path) == sourceCopilot {
+		metaParts = append(metaParts, StyleDim.Render("copilot"))
+	}
 
 	if s.Model != "" {
 		short := fmt.Sprintf("%-10s", shortModel(s.Model))

@@ -118,7 +118,12 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.view = viewTeam
 		}
 	case "d":
-		// Open debug log viewer for current session.
+		// Open debug log viewer for current session. Copilot sessions have
+		// no Claude debug log — debugLogPathFor would fabricate a Claude path.
+		if sourceForPath(m.sessionPath) == sourceCopilot {
+			m.flashStatus = "No debug log for Copilot sessions"
+			return m, flashClearCmd()
+		}
 		debugPath := debugLogPathFor(m.sessionPath)
 		if debugPath == "" {
 			m.flashStatus = "No debug log (start Claude with --debug)"

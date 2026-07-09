@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/kylesnowschwartz/tail-claude/copilot"
 
 	"github.com/kylesnowschwartz/agent-ouija/claude"
 	"github.com/kylesnowschwartz/agent-ouija/claude/agents"
@@ -252,7 +255,7 @@ type model struct {
 	// Live tailing state
 	sessionPath     string
 	watching        bool
-	watcher         *sessionWatcher
+	watcher         tailWatcher
 	tailSub         chan tailUpdateMsg
 	tailErrc        chan error
 	sessionOngoing  bool                    // whether the watched session is still in progress
@@ -346,8 +349,11 @@ type model struct {
 	pickerPreviewCache    []previewCacheEntry // LRU cache of last 5 previews
 	pickerPreviewRender   *previewRenderCache // memoized rendered pane lines
 
-	// Resume: set before tea.Quit to exec into claude --resume after exit
+	// Resume: set before tea.Quit to exec into the session's own CLI
+	// (claude/copilot --resume) after exit. resumeArgv carries the full
+	// command; empty falls back to claude --resume for safety.
 	resumeSession *discover.SessionInfo
+	resumeArgv    []string
 }
 
 // applyDebugFilters rebuilds debugFiltered from debugEntries using the current
@@ -460,13 +466,22 @@ type loadResult struct {
 	hasTeamTasks bool
 	meta         discover.SessionMeta // cwd, branch, permission mode
 	workflow     agents.WorkflowActivity
+
+	// copilotReader is non-nil for Copilot sessions: the classification
+	// state the watcher must continue from. nil for Claude sessions.
+	copilotReader *copilot.Reader
 }
 
-// loadSession reads a JSONL session file and converts chunks to display messages.
+// loadSession reads a session file and converts chunks to display messages.
 // The path must be non-empty — callers resolve auto-discovery before calling.
+// This is the single source dispatch point: it covers picker-enter, the CLI
+// positional arg, --dump, and the search preview.
 func loadSession(path string) (loadResult, error) {
 	if path == "" {
 		return loadResult{}, fmt.Errorf("no session path provided")
+	}
+	if sourceForPath(path) == sourceCopilot {
+		return loadCopilotSession(path)
 	}
 
 	classified, offset, err := transcript.ReadSessionIncremental(path, 0)
@@ -510,10 +525,27 @@ func (m *model) applySessionMeta(meta discover.SessionMeta) {
 	m.sessionMode = meta.PermissionMode
 }
 
+// tailWatcher is the minimal surface Update/switchSession need from a live
+// tail watcher. Implemented by sessionWatcher (Claude) and copilotWatcher;
+// both share the tailUpdateMsg/errc channel protocol, so the model only ever
+// needs to stop whichever one is running.
+type tailWatcher interface{ stop() }
+
 // startWatching spins up the tail watcher for a loaded session and wires its
 // channels into the model. Shared by the initial load and switchSession so
-// the watcher bootstrap sequence lives in exactly one place.
+// the watcher bootstrap sequence lives in exactly one place. Dispatches on
+// source: Copilot sessions get the stripped copilotWatcher (single-file
+// watch, no team/workflow machinery).
 func (m *model) startWatching(result loadResult) {
+	if result.copilotReader != nil {
+		w := newCopilotWatcher(result.path, result.classified, result.offset, result.copilotReader)
+		go w.run()
+		m.watcher = w
+		m.watching = true
+		m.tailSub = w.sub
+		m.tailErrc = w.errc
+		return
+	}
 	w := newSessionWatcher(result.path, result.classified, result.offset)
 	w.hasTeamTasks = result.hasTeamTasks
 	go w.run()
@@ -1155,17 +1187,23 @@ func runAndMaybeResume(p *tea.Program) {
 		return
 	}
 
-	// Change to the session's working directory so claude picks up context.
+	// Change to the session's working directory so the CLI picks up context.
 	if m.resumeSession.Cwd != "" {
 		os.Chdir(m.resumeSession.Cwd)
 	}
 
-	claudePath, err := exec.LookPath("claude")
+	// The popup confirm stored the full argv (claude/copilot --resume <id>);
+	// fall back to claude for safety if it's somehow missing.
+	argv := m.resumeArgv
+	if len(argv) == 0 {
+		argv = []string{"claude", "--resume", m.resumeSession.SessionID}
+	}
+	binPath, err := exec.LookPath(argv[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tail-claude: claude not found in PATH\n")
+		fmt.Fprintf(os.Stderr, "tail-claude: %s not found in PATH\n", argv[0])
 		os.Exit(1)
 	}
-	syscall.Exec(claudePath, []string{"claude", "--resume", m.resumeSession.SessionID}, os.Environ())
+	syscall.Exec(binPath, argv, os.Environ())
 }
 
 // resolveSessionName maps a non-path positional argument to a session file
@@ -1330,14 +1368,20 @@ Flags:
 	// A non-file positional arg is a name. Resolve it against session titles
 	// across all Claude project dirs. Exact title match wins; otherwise
 	// substring match. Zero matches → error; multiple → list and exit.
+	// A Copilot session directory resolves to its events.jsonl.
 	if sessionPath != "" {
-		if _, err := os.Stat(sessionPath); err != nil {
+		if info, err := os.Stat(sessionPath); err != nil {
 			resolved, rerr := resolveSessionName(sessionPath)
 			if rerr != nil {
 				fmt.Fprintln(os.Stderr, rerr)
 				os.Exit(1)
 			}
 			sessionPath = resolved
+		} else if info.IsDir() {
+			ep := filepath.Join(sessionPath, "events.jsonl")
+			if fi, err := os.Stat(ep); err == nil && !fi.IsDir() {
+				sessionPath = ep
+			}
 		}
 	}
 

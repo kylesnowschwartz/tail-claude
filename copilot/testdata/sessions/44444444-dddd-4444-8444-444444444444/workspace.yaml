@@ -1,0 +1,11 @@
+id: 44444444-dddd-4444-8444-444444444444
+cwd: /home/dev/notes
+git_root: /home/dev/notes
+branch: feature/next
+name: notes summary
+user_named: true
+client_name: github/cli
+created_at: 2026-05-04T08:00:00.000Z
+updated_at: 2026-05-04T12:00:19.000Z
+summary_count: 1
+summary: notes reviewed and summarized

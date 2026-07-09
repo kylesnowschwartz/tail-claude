@@ -13,6 +13,8 @@ import (
 	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
 	"github.com/kylesnowschwartz/agent-ouija/claude/tools"
 	"github.com/kylesnowschwartz/agent-ouija/jsonl"
+
+	"github.com/kylesnowschwartz/tail-claude/copilot"
 )
 
 // searchState is the picker search UI mode. A single enum (rather than two
@@ -121,6 +123,12 @@ func matchesSessionContent(path, lowerQuery string) bool {
 	}
 	defer f.Close()
 
+	// Copilot events.jsonl uses different type markers for conversation lines.
+	lineFilter := isConversationLine
+	if sourceForPath(path) == sourceCopilot {
+		lineFilter = copilot.IsConversationLine
+	}
+
 	found := false
 	// jsonl.ScanLines skips oversized lines instead of aborting the scan,
 	// so one huge line (e.g. pasted image data) can't hide later matches.
@@ -128,7 +136,7 @@ func matchesSessionContent(path, lowerQuery string) bool {
 	_ = jsonl.ScanLines(f, func(line string) bool {
 		// Only scan conversation messages, not system/meta/snapshot entries.
 		// Checking for type markers avoids parsing JSON on every line.
-		if !isConversationLine(line) {
+		if !lineFilter(line) {
 			return true
 		}
 		if strings.Contains(strings.ToLower(line), lowerQuery) {
@@ -320,11 +328,13 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		if s := m.pickerSearchSelectedSession(); s != nil {
 			si := *s // copy for closure
+			argv := resumeArgvFor(s)
 			m.popup = newPopup(
 				"Resume session?",
-				"claude --resume "+formatSessionName(s.SessionID),
+				resumeCommandLabel(s),
 				func() (tea.Model, tea.Cmd) {
 					m.resumeSession = &si
+					m.resumeArgv = argv
 					return m, tea.Quit
 				},
 			)
@@ -577,6 +587,10 @@ func (m model) renderSearchPickerSession(s *discover.SessionInfo, isSelected boo
 	// Line 2: compact metadata with git branch (may match query)
 	metaColor := ColorTextMuted
 	var metaParts []string
+	// Source badge, mirroring renderPickerSession.
+	if sourceForPath(s.Path) == sourceCopilot {
+		metaParts = append(metaParts, StyleDim.Render("copilot"))
+	}
 	if s.Model != "" {
 		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(shortModel(s.Model)))
 	}

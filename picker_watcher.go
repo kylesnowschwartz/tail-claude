@@ -16,6 +16,14 @@ type pickerRefreshMsg struct {
 	sessions []discover.SessionInfo
 }
 
+// copilotPollInterval is the cadence for the Copilot session signature scan.
+// Copilot events.jsonl files live inside per-session directories that are
+// deliberately NOT fsnotify-watched (kqueue opens one fd per file in a
+// watched dir — hundreds of sessions would exhaust the fd budget, the same
+// trap CLAUDE.md documents for workflow dirs), so writes to existing
+// sessions are detected by polling a cheap count+mtime signature instead.
+const copilotPollInterval = 2 * time.Second
+
 // pickerWatcher watches project directories for .jsonl file changes and
 // pushes refreshed session lists through a channel. Watches all related
 // project directories (main + worktree dirs) so worktree sessions appear
@@ -62,6 +70,17 @@ func (pw *pickerWatcher) run() {
 		}
 	}
 
+	// The Copilot session-state root is deliberately NOT fsnotify-watched:
+	// on macOS the kqueue backend opens one fd per direct entry of a watched
+	// directory, and the global root holds one subdirectory per Copilot
+	// session across all projects — hundreds of fds, the exact exhaustion
+	// the fd rule in CLAUDE.md exists to prevent. The poll ticker below
+	// covers new session dirs, flat session files, and writes alike via the
+	// count+mtime signature.
+	copilotPoll := time.NewTicker(copilotPollInterval)
+	defer copilotPoll.Stop()
+	lastCopilotSig := copilotSignature()
+
 	var debounce *time.Timer
 
 	for {
@@ -77,11 +96,19 @@ func (pw *pickerWatcher) run() {
 			// goroutine so closing sub on exit can never race a send.
 			pw.rescan()
 
+		case <-copilotPoll.C:
+			if sig := copilotSignature(); sig != lastCopilotSig {
+				lastCopilotSig = sig
+				pw.sendSignal()
+			}
+
 		case event, ok := <-w.Events:
 			if !ok {
 				return
 			}
-			// Only care about .jsonl files (not agent_ files).
+			// Only Claude project dirs are fsnotify-watched; only .jsonl
+			// files (not agent_ files) matter. Copilot changes arrive via
+			// the poll ticker.
 			name := filepath.Base(event.Name)
 			if !strings.HasSuffix(name, ".jsonl") {
 				continue

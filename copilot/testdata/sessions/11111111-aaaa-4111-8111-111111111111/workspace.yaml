@@ -1,0 +1,10 @@
+id: 11111111-aaaa-4111-8111-111111111111
+cwd: /home/dev/example-project
+git_root: /home/dev/example-project
+branch: main
+name: greeting feature
+user_named: true
+client_name: github/cli
+created_at: 2026-05-01T10:00:00.000Z
+updated_at: 2026-05-01T10:00:16.000Z
+summary_count: 0

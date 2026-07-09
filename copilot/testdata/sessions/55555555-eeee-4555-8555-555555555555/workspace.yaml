@@ -1,0 +1,10 @@
+id: 55555555-eeee-4555-8555-555555555555
+cwd: /home/dev/example-project
+git_root: /home/dev/example-project
+branch: main
+name: coverage analysis
+user_named: false
+client_name: github/cli
+created_at: 2026-05-05T16:00:00.000Z
+updated_at: 2026-05-05T16:00:21.000Z
+summary_count: 0

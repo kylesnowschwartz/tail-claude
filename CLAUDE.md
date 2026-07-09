@@ -40,6 +40,53 @@ tail-claude-specific types or fields to the library. Format drift and
 parsing defects are ALWAYS fixed in agent-ouija (with a fixture), never
 worked around in this repo.
 
+### Copilot CLI sessions (`copilot/` package)
+
+The local `copilot/` package is the **explicit, sole exception** to
+"parsing lives in agent-ouija": it parses GitHub Copilot CLI sessions
+(`~/.copilot/session-state/{dir}/events.jsonl` plus flat `{uuid}.jsonl`
+files, `workspace.yaml` sidecars). Rationale: a non-Claude source that
+maps onto agent-ouija's exported types (`transcript.ClassifiedMsg`,
+`transcript.Chunk`, `discover.SessionInfo`) so the existing
+`chunksToMessages`/render pipeline is reused — the library itself is
+never forked or extended for it. Claude format drift still goes to
+agent-ouija; Copilot format drift goes to `copilot/` (with a fixture).
+
+Event → ClassifiedMsg mapping (`copilot/classify.go`): `user.message` →
+`UserMsg` (raw `content`, never `transformedContent`; `source != ""`
+synthetic messages dropped); `assistant.message`/`assistant.reasoning` →
+`AIMsg` with text/thinking blocks; `tool.execution_start` → `AIMsg` with
+a tool_use block (assistant `toolRequests` are ignored — start events
+cover every executed call); `tool.execution_complete` → meta `AIMsg`
+with the paired tool_result; `session.compaction_complete` →
+`CompactMsg`; `session.error`/`session.info`/`abort` → `SystemMsg`;
+lifecycle/permission/hook/subagent-internal (top-level `agentId`) events
+drop. `Reader` carries model/meta state across incremental reads and
+must be replaced on truncation. Usage honesty: only `OutputTokens` is
+real; `ContextTokens()` = 0 hides the ctx% column by design. Copilot
+tool summaries are rewritten post-BuildChunks (`copilot/summary.go`).
+
+`sourceForPath` (copilotpaths.go) is the dispatch predicate; its gated
+sites are `loadSession` (covers picker-enter, CLI arg, `--dump`, search
+preview), `startWatching` (→ `copilot_watcher.go`),
+`discoverSessionsWithNames` (the single picker merge point — both
+initial load and watcher rescans route through it), the search line
+predicate (`copilot.IsConversationLine`), resume (`copilot --resume`),
+delete (unsupported for Copilot), and the debug-log key (no-op).
+
+**fd rule**: never fsnotify-watch any Copilot directory — not per-session
+dirs, not their `checkpoints/`/`files/`/`rewind-snapshots/` subtrees, and
+not the global session-state root (kqueue opens one fd per direct entry
+of a watched dir; the root holds one entry per session across all
+projects — same fd-per-file exhaustion as workflow dirs). The session
+watcher adds only the single events.jsonl file; the picker watcher uses
+only a 2s poll over a count+mtime signature (`copilotSignature`), which
+covers new sessions and writes alike.
+
+**Fixture policy**: `copilot/testdata/` is synthetic/sanitized only —
+invented paths and prompts mirroring the real schema. Never copy
+content from real sessions in `~/.copilot/session-state`.
+
 ### TUI
 
 Bubble Tea model with three view states: list, detail, picker.
@@ -54,6 +101,9 @@ Bubble Tea model with three view states: list, detail, picker.
 - **watcher.go** -- fsnotify-based file watcher for live tailing
 - **picker.go** -- Session discovery and selection UI
 - **picker_watcher.go** -- Directory watcher for live picker updates (new/changed sessions)
+- **copilotpaths.go** -- Copilot root/`sourceForPath` dispatch, picker merge helpers, resume argv
+- **copilot_load.go** -- `loadCopilotSession` (Copilot branch of `loadSession`)
+- **copilot_watcher.go** -- Stripped tail watcher for Copilot events.jsonl (single-file watch)
 - **markdown.go** -- Glamour-based markdown renderer with width-based caching
 - **popup.go** -- Reusable modal confirmation overlay (ANSI-safe background splicing)
 - **theme.go** -- AdaptiveColor definitions for dark/light terminal support
