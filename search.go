@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/kylesnowschwartz/agent-ouija/claude/discover"
 	"github.com/kylesnowschwartz/agent-ouija/claude/tools"
+	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 	"github.com/kylesnowschwartz/agent-ouija/jsonl"
 )
 
@@ -79,6 +80,7 @@ func searchSessionsCmd(query string, sessions []discover.SessionInfo, gen int, l
 
 		lower := strings.ToLower(query)
 		var matched []discover.SessionInfo
+		snippets := make(map[string]string)
 
 		for _, s := range sessions {
 			// Bail between files once a newer generation owns the results;
@@ -86,14 +88,28 @@ func searchSessionsCmd(query string, sessions []discover.SessionInfo, gen int, l
 			if liveGen != nil && int(liveGen.Load()) != gen {
 				return nil
 			}
-			if matchesSessionMetadata(s, lower) || matchesSessionContent(s.Path, lower) {
+			if matchesSessionMetadata(s, lower) {
+				// The match is visible in the row's own title/metadata; no
+				// content snippet needed (and no file scan paid).
 				matched = append(matched, s)
+				continue
+			}
+			if snippet, ok := matchesSessionContent(s.Path, lower); ok {
+				matched = append(matched, s)
+				if snippet != "" {
+					snippets[s.Path] = snippet
+				}
 			}
 		}
 
 		results := rebuildPickerItems(matched)
 		if results == nil {
 			results = []pickerItem{} // empty, not nil — distinguishes "no results" from "no search"
+		}
+		for i := range results {
+			if results[i].typ == pickerItemSession {
+				results[i].matchSnippet = snippets[results[i].session.Path]
+			}
 		}
 		return pickerSearchResultMsg{
 			results: results,
@@ -114,13 +130,19 @@ func matchesSessionMetadata(s discover.SessionInfo, lowerQuery string) bool {
 // matchesSessionContent scans a JSONL file for the query string in conversation
 // content. Only checks user and assistant message lines — skips system entries,
 // tool definitions, and other boilerplate that would produce false positives.
-func matchesSessionContent(path, lowerQuery string) bool {
+// Reports whether the session matched and, when the match lies in display
+// text, a snippet of that text around the first such occurrence. The snippet
+// is empty when the query only matched raw JSON (tool inputs, escapes); the
+// scan keeps going in that case, since a later line may match in readable
+// text worth showing.
+func matchesSessionContent(path, lowerQuery string) (string, bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return false
+		return "", false
 	}
 	defer f.Close()
 
+	var snippet string
 	found := false
 	// jsonl.ScanLines skips oversized lines instead of aborting the scan,
 	// so one huge line (e.g. pasted image data) can't hide later matches.
@@ -131,13 +153,78 @@ func matchesSessionContent(path, lowerQuery string) bool {
 		if !isConversationLine(line) {
 			return true
 		}
-		if strings.Contains(strings.ToLower(line), lowerQuery) {
-			found = true
-			return false
+		if !strings.Contains(strings.ToLower(line), lowerQuery) {
+			return true
 		}
-		return true
+		found = true
+		snippet = extractMatchSnippet(line, lowerQuery)
+		return snippet == "" // stop once a display-text snippet is in hand
 	})
-	return found
+	return snippet, found
+}
+
+// extractMatchSnippet parses a matched JSONL line and cuts a window of its
+// display text around the first query occurrence. Message text is tried
+// first, then tool-result text — command output spliced back into the
+// transcript carries much of a session's searchable content. Returns "" when
+// the query appears in neither (it matched tool-input JSON, escape sequences,
+// or field names instead).
+func extractMatchSnippet(line, lowerQuery string) string {
+	entry, ok := transcript.ParseEntry([]byte(line))
+	if !ok {
+		return ""
+	}
+	if s := snippetAround(transcript.SanitizeContent(transcript.ExtractText(entry.Message.Content)), lowerQuery); s != "" {
+		return s
+	}
+	for _, tr := range transcript.ExtractContentBlocks(entry).ToolResult {
+		if s := snippetAround(transcript.SanitizeContent(transcript.ExtractText(tr.Content)), lowerQuery); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// snippetAroundWindow is the snippet length in runes. Sized so the match
+// survives the search pane's row truncation: the window starts at most a
+// quarter-window before the match, keeping it visible at typical pane widths.
+const snippetAroundWindow = 80
+
+// snippetAround returns a one-line window of text around the first
+// case-insensitive occurrence of query, with ellipsis markers on cut edges.
+// Returns "" when the query does not occur. Matching runs on rune indices
+// (same folding as highlightMatches) so multi-byte case folds can't split
+// characters.
+func snippetAround(text, query string) string {
+	runes := []rune(text)
+	lower := make([]rune, len(runes))
+	for i, r := range runes {
+		lower[i] = unicode.ToLower(r)
+	}
+	q := []rune(strings.ToLower(query))
+	idx := indexRunes(lower, q)
+	if idx < 0 {
+		return ""
+	}
+
+	start := idx - snippetAroundWindow/4
+	if start < 0 {
+		start = 0
+	}
+	end := start + snippetAroundWindow
+	if end > len(runes) {
+		end = len(runes)
+		start = max(0, end-snippetAroundWindow)
+	}
+
+	s := strings.Join(strings.Fields(string(runes[start:end])), " ")
+	if start > 0 {
+		s = "…" + s
+	}
+	if end < len(runes) {
+		s += "…"
+	}
+	return s
 }
 
 // isConversationLine returns true if the JSONL line is a user or assistant
@@ -366,11 +453,17 @@ func (m model) updatePickerSearchNav(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // searchPickerItemHeight returns the rendered line count of an item in the
 // search left pane, mirroring renderSearchPickerItems: headers are a text line
 // plus a trailing blank (plus a leading blank when not first); sessions are
-// preview + metadata + separator. pickerItemHeight can't be used here — it
-// indexes m.pickerItems, which is the unfiltered list.
-func searchPickerItemHeight(index int, typ pickerItemType) int {
-	if typ == pickerItemHeader && index == 0 {
-		return 2
+// preview + optional match snippet + metadata + separator. pickerItemHeight
+// can't be used here — it indexes m.pickerItems, which is the unfiltered list.
+func searchPickerItemHeight(index int, item pickerItem) int {
+	if item.typ == pickerItemHeader {
+		if index == 0 {
+			return 2
+		}
+		return 3
+	}
+	if item.matchSnippet != "" {
+		return 4
 	}
 	return 3
 }
@@ -380,7 +473,7 @@ func searchPickerItemHeight(index int, typ pickerItemType) int {
 // picker scroll math (clampPickerScroll, totalItemLines).
 func (m model) searchPickerHeights() (int, func(int) int) {
 	items := m.activePickerItems()
-	return len(items), func(i int) int { return searchPickerItemHeight(i, items[i].typ) }
+	return len(items), func(i int) int { return searchPickerItemHeight(i, items[i]) }
 }
 
 // searchPickerTotalLines returns the total rendered line count of the active
@@ -552,15 +645,17 @@ func (m model) renderSearchPickerItems(items []pickerItem, width int) []string {
 			lines = append(lines, "")
 		case pickerItemSession:
 			isSelected := i == m.pickerCursor
-			lines = append(lines, m.renderSearchPickerSession(item.session, isSelected, width)...)
+			lines = append(lines, m.renderSearchPickerSession(item, isSelected, width)...)
 		}
 	}
 	return lines
 }
 
-// renderSearchPickerSession renders a compact session row for the search left pane.
-// Two lines: preview text + metadata, plus a separator.
-func (m model) renderSearchPickerSession(s *discover.SessionInfo, isSelected bool, width int) []string {
+// renderSearchPickerSession renders a compact session row for the search left
+// pane: preview text, the matched-content snippet when the query hit
+// conversation text rather than metadata, metadata, and a separator.
+func (m model) renderSearchPickerSession(item pickerItem, isSelected bool, width int) []string {
+	s := item.session
 	indent := "  "
 	innerWidth := max(width-4, 20)
 
@@ -590,7 +685,19 @@ func (m model) renderSearchPickerSession(s *discover.SessionInfo, isSelected boo
 	}
 	line1 := indent + previewStyle.Render(highlighted)
 
-	// Line 2: compact metadata with git branch (may match query)
+	// Matched-content snippet: the line that made this session a result.
+	// Rendered dim so the highlighted query stands out inside it.
+	var snippetLine string
+	if item.matchSnippet != "" {
+		snippet := item.matchSnippet
+		if lipgloss.Width(snippet) > innerWidth {
+			snippet = tools.Truncate(snippet, innerWidth)
+		}
+		snippetLine = indent + highlightMatches(snippet, m.pickerSearchQuery,
+			func(s string) string { return StyleDim.Render(s) }, StyleSearchHighlight)
+	}
+
+	// Metadata line: compact metadata with git branch (may match query)
 	metaColor := ColorTextMuted
 	var metaParts []string
 	if s.Model != "" {
@@ -619,7 +726,11 @@ func (m model) renderSearchPickerSession(s *discover.SessionInfo, isSelected boo
 	metaParts = append(metaParts, lipgloss.NewStyle().Foreground(metaColor).Render(relativeTime(s.ModTime)))
 	line2 := indent + strings.Join(metaParts, StyleMuted.Render(" "+Icon.Dot.Glyph+" "))
 
-	lines := []string{line1, line2}
+	lines := []string{line1}
+	if snippetLine != "" {
+		lines = append(lines, snippetLine)
+	}
+	lines = append(lines, line2)
 
 	if isSelected {
 		bgStyle := lipgloss.NewStyle().Background(ColorPickerSelectedBg).Width(width)

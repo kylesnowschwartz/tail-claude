@@ -103,6 +103,11 @@ type pickerItem struct {
 	typ      pickerItemType
 	session  *discover.SessionInfo // nil for headers
 	category discover.DateCategory // set for headers
+
+	// matchSnippet is display-text context around a content match, set only
+	// on search results whose match lies in conversation text rather than
+	// session metadata. Empty for the plain (non-search) picker.
+	matchSnippet string
 }
 
 // rebuildPickerItems flattens sessions into headers + session rows.

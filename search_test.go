@@ -58,27 +58,69 @@ func TestMatchesSessionContent(t *testing.T) {
 	}
 
 	tests := []struct {
-		name  string
-		query string
-		want  bool
+		name        string
+		query       string
+		want        bool
+		wantSnippet string // substring the snippet must contain ("" = no snippet expected)
 	}{
-		{"matches user content deep in modern line", "flibbertigibbet", true},
-		{"matches assistant content", "quixotic", true},
-		{"case-insensitive via lowered query", "quixotic", true},
-		{"no match for absent text", "zanzibar", false},
-		{"summary-only text ignored (not a conversation line)", "sesquipedalian", false},
+		{"matches user content deep in modern line", "flibbertigibbet", true, "hello flibbertigibbet world"},
+		{"matches assistant content", "quixotic", true, "quixotic reply"},
+		{"case-insensitive via lowered query", "quixotic", true, "quixotic reply"},
+		{"no match for absent text", "zanzibar", false, ""},
+		{"summary-only text ignored (not a conversation line)", "sesquipedalian", false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := matchesSessionContent(path, tt.query); got != tt.want {
+			snippet, got := matchesSessionContent(path, tt.query)
+			if got != tt.want {
 				t.Errorf("matchesSessionContent(%q) = %v, want %v", tt.query, got, tt.want)
+			}
+			if tt.wantSnippet == "" && snippet != "" {
+				t.Errorf("snippet = %q, want none", snippet)
+			}
+			if tt.wantSnippet != "" && !strings.Contains(snippet, tt.wantSnippet) {
+				t.Errorf("snippet = %q, want it to contain %q", snippet, tt.wantSnippet)
 			}
 		})
 	}
 
 	t.Run("missing file returns false", func(t *testing.T) {
-		if matchesSessionContent(filepath.Join(dir, "nope.jsonl"), "x") {
+		if _, ok := matchesSessionContent(filepath.Join(dir, "nope.jsonl"), "x"); ok {
 			t.Error("expected false for missing file")
+		}
+	})
+
+	t.Run("json-only match reports found without a snippet", func(t *testing.T) {
+		// Query matches tool-input JSON but no display text: the session is a
+		// result, but there is no conversation line worth quoting.
+		toolLine := `{"type":"assistant","uuid":"ffff","timestamp":"2026-07-04T00:00:02Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"grep xylophone /tmp/f"}}]}}`
+		p := filepath.Join(dir, "tool-only.jsonl")
+		if err := os.WriteFile(p, []byte(toolLine+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		snippet, ok := matchesSessionContent(p, "xylophone")
+		if !ok {
+			t.Fatal("expected match on tool-input JSON")
+		}
+		if snippet != "" {
+			t.Errorf("snippet = %q, want empty for a non-display-text match", snippet)
+		}
+	})
+
+	t.Run("tool-result text yields a snippet", func(t *testing.T) {
+		// Most of a transcript's searchable text is command output spliced
+		// back in as tool_result blocks; those must produce snippets too.
+		resultLine := `{"type":"user","isMeta":true,"uuid":"gggg","timestamp":"2026-07-04T00:00:03Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"grep found xylophone in main.go"}]}}`
+		p := filepath.Join(dir, "tool-result.jsonl")
+		if err := os.WriteFile(p, []byte(resultLine+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		snippet, ok := matchesSessionContent(p, "xylophone")
+		if !ok {
+			t.Fatal("expected match on tool-result text")
+		}
+		if !strings.Contains(snippet, "xylophone in main.go") {
+			t.Errorf("snippet = %q, want tool-result context", snippet)
 		}
 	})
 }
@@ -698,5 +740,131 @@ func TestSearchTypingHeaderShowsLiveResultCount(t *testing.T) {
 	m.pickerSearchResults = rebuildPickerItems(sessions)
 	if plain := ansi.Strip(m.viewPicker()); !strings.Contains(plain, "(1 results)") {
 		t.Error("typing-mode header missing live result count")
+	}
+}
+
+// --- match snippets ------------------------------------------------------------
+
+func TestSnippetAround(t *testing.T) {
+	long := strings.Repeat("padding words before the target ", 10) +
+		"the needle sits here" +
+		strings.Repeat(" trailing context words after the match", 10)
+
+	tests := []struct {
+		name  string
+		text  string
+		query string
+		want  string // substring the snippet must contain; "" = no snippet
+	}{
+		{"short text returned whole", "a tiny match here", "match", "a tiny match here"},
+		{"deep match windowed with ellipses", long, "needle", "the needle sits here"},
+		{"newlines collapsed to spaces", "first line\nneedle here\nthird line", "needle", "first line needle here third line"},
+		{"case-insensitive", "The NEEDLE stands out", "needle", "NEEDLE"},
+		{"absent query yields nothing", "no match in this text", "needle", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := snippetAround(tt.text, tt.query)
+			if tt.want == "" {
+				if got != "" {
+					t.Errorf("snippetAround = %q, want empty", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("snippetAround = %q, want it to contain %q", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("deep match is cut on both sides", func(t *testing.T) {
+		got := snippetAround(long, "needle")
+		if !strings.HasPrefix(got, "…") || !strings.HasSuffix(got, "…") {
+			t.Errorf("snippet %q missing ellipsis markers on cut edges", got)
+		}
+		if n := len([]rune(got)); n > snippetAroundWindow+2 {
+			t.Errorf("snippet is %d runes, want <= window %d plus markers", n, snippetAroundWindow)
+		}
+	})
+}
+
+func TestSearchResultsCarrySnippets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "content-match.jsonl")
+	if err := os.WriteFile(path, []byte(modernUserLine+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sessions := []discover.SessionInfo{
+		// Content match: query lives in the transcript, not the metadata.
+		{Path: path, FirstMessage: "unrelated title", ModTime: time.Now()},
+		// Metadata match: query in the title; no snippet expected.
+		{Path: filepath.Join(dir, "absent.jsonl"), FirstMessage: "flibbertigibbet in title", ModTime: time.Now()},
+	}
+
+	msg := searchSessionsCmd("flibbertigibbet", sessions, 1, nil)()
+	results := msg.(pickerSearchResultMsg).results
+
+	var withSnippet, withoutSnippet int
+	for _, item := range results {
+		if item.typ != pickerItemSession {
+			continue
+		}
+		if item.matchSnippet != "" {
+			withSnippet++
+			if !strings.Contains(item.matchSnippet, "flibbertigibbet") {
+				t.Errorf("snippet %q does not contain the query", item.matchSnippet)
+			}
+		} else {
+			withoutSnippet++
+		}
+	}
+	if withSnippet != 1 || withoutSnippet != 1 {
+		t.Errorf("got %d snippet / %d plain results, want 1 / 1", withSnippet, withoutSnippet)
+	}
+}
+
+func TestSearchPickerSnippetRowRendering(t *testing.T) {
+	m := pickerModel()
+	m.pickerSearchState = searchNav
+	m.pickerSearchQuery = "needle"
+
+	sessions := []discover.SessionInfo{
+		{Path: "/tmp/a.jsonl", FirstMessage: "alpha session", ModTime: time.Now()},
+	}
+	items := rebuildPickerItems(sessions)
+	for i := range items {
+		if items[i].typ == pickerItemSession {
+			items[i].matchSnippet = "context around the needle match"
+		}
+	}
+	m.pickerSearchResults = items
+
+	for i, item := range items {
+		if item.typ != pickerItemSession {
+			continue
+		}
+		lines := m.renderSearchPickerSession(item, false, 60)
+		if got, want := len(lines), searchPickerItemHeight(i, item); got != want {
+			t.Errorf("rendered %d lines, height fn says %d — scroll math will drift", got, want)
+		}
+		joined := ansi.Strip(strings.Join(lines, "\n"))
+		if !strings.Contains(joined, "needle match") {
+			t.Errorf("snippet text missing from rendered row:\n%s", joined)
+		}
+	}
+
+	// Without a snippet the row keeps its compact height.
+	plain := items
+	for i := range plain {
+		plain[i].matchSnippet = ""
+	}
+	for i, item := range plain {
+		if item.typ != pickerItemSession {
+			continue
+		}
+		lines := m.renderSearchPickerSession(item, false, 60)
+		if got, want := len(lines), searchPickerItemHeight(i, item); got != want {
+			t.Errorf("plain row rendered %d lines, height fn says %d", got, want)
+		}
 	}
 }
