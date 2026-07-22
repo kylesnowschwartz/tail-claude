@@ -14,6 +14,17 @@ func (m model) clampWidth() int {
 	return m.width
 }
 
+// dumpHeight returns the screen height at which viewList shows the whole
+// message list with no blank padding: exactly the laid-out content plus the
+// fixed sections viewList's viewport math subtracts. --dump renders through
+// the interactive screen assembler, whose contract is "output is exactly
+// screenH lines" — the height must therefore be the content's natural height,
+// not an arbitrarily large one. Call after layoutList (it reads
+// totalRenderedLines).
+func (m model) dumpHeight() int {
+	return m.totalRenderedLines + m.footerHeight() + m.activityIndicatorHeight()
+}
+
 // layoutList renders every message once, caching both the rendered content
 // (listParts) and the line-offset metadata used by scroll math. viewList
 // assembles its output from listParts, so layout and view always agree.

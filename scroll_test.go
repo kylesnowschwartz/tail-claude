@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/kylesnowschwartz/agent-ouija/claude/transcript"
 )
 
@@ -529,4 +531,33 @@ func TestScrollWindow(t *testing.T) {
 			t.Errorf("got %v, want empty", got)
 		}
 	})
+}
+
+// --- dumpHeight ---------------------------------------------------------------
+
+func TestDumpHeightRendersWithoutPadding(t *testing.T) {
+	// --dump renders viewList at dumpHeight; the assembler pads content to
+	// exactly screenH lines, so any excess height becomes blank output lines
+	// (the historical failure was a fixed 1,000,000-line screen producing a
+	// megabyte of padding after ~100 lines of conversation).
+	m := testModel()
+	m.height = m.dumpHeight()
+
+	out := m.viewList()
+	gotLines := strings.Count(out, "\n") + 1
+	if gotLines != m.height {
+		t.Fatalf("viewList rendered %d lines at dumpHeight %d", gotLines, m.height)
+	}
+
+	// The full conversation must survive: first and last message content.
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "Hello, world") || !strings.Contains(plain, "system output") {
+		t.Error("dump-height render lost message content")
+	}
+
+	// No padding run: the final line is the footer, not a blank.
+	lines := strings.Split(plain, "\n")
+	if strings.TrimSpace(lines[len(lines)-1]) == "" {
+		t.Error("render ends in blank padding instead of the footer")
+	}
 }

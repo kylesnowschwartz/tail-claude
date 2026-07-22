@@ -1431,14 +1431,17 @@ Flags:
 		}
 		m := baseModel(result.messages, hasDarkBg, invokedFrom, projectDir, projectDirs, worktreeProjectDirs, inWorktree)
 		m.width = width
-		m.height = 1_000_000
 		m.applySessionMeta(result.meta)
 		if expandAll {
 			for i := range m.messages {
 				m.expanded[i] = true
 			}
 		}
+		// Layout depends only on width; sizing the screen to the laid-out
+		// content makes the assembler's fixed-height contract hold with zero
+		// padding, so the stream contains the conversation and nothing else.
 		m.layoutList()
+		m.height = m.dumpHeight()
 		fmt.Println(m.viewList())
 		return
 	}
