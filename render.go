@@ -1291,11 +1291,11 @@ func (m model) currentKeybindPairs() []string {
 }
 
 // footerHeight returns the total footer line count: info bar (always) +
-// keybind hints (when showKeybinds is true). Measures the actual rendered
+// keybind hints (when keybindsVisible). Measures the actual rendered
 // keybind bar so the viewport calculation accounts for content wrapping.
 func (m model) footerHeight() int {
 	h := m.infoBarHeight()
-	if m.showKeybinds {
+	if m.keybindsVisible() {
 		bar := renderKeybindBox(m.watching, m.width, m.currentKeybindPairs()...)
 		h += lipgloss.Height(bar)
 	}
@@ -1466,10 +1466,19 @@ func (m model) renderInfoBar() string {
 // renderFooter builds the complete footer: info bar + optional keybind hints.
 func (m model) renderFooter(keybindPairs ...string) string {
 	footer := m.renderInfoBar()
-	if m.showKeybinds {
+	if m.keybindsVisible() {
 		footer += "\n" + m.renderKeybindBar(keybindPairs...)
 	}
 	return footer
+}
+
+// keybindsVisible reports whether the footer keybind bar is drawn. The user
+// toggle (?) controls it everywhere except picker search, whose mode-specific
+// keys (enter commits the query, j/k then navigate) are otherwise
+// undiscoverable — ? itself types into the query there. Shared by
+// renderFooter and footerHeight so the measured bar matches the drawn one.
+func (m model) keybindsVisible() bool {
+	return m.showKeybinds || (m.view == viewPicker && m.pickerSearchState != searchOff)
 }
 
 // -- Status bar ---------------------------------------------------------------

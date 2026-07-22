@@ -248,8 +248,9 @@ func (m model) updatePickerSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // updatePickerSearchTyping handles keys while the search input is focused.
-// All printable characters go to the query. Only esc, enter, and backspace
-// are special.
+// All printable characters go to the query; up/down move the result cursor
+// so results can be browsed without committing the query first. Only esc,
+// enter, and backspace are otherwise special.
 func (m model) updatePickerSearchTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
@@ -275,6 +276,14 @@ func (m model) updatePickerSearchTyping(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	case "ctrl+c":
 		m.stopPickerWatcher()
 		return m, tea.Quit
+	case "down":
+		m.pickerCursorDown()
+		m.ensureSearchPickerVisible()
+		return m, m.schedulePreviewLoad()
+	case "up":
+		m.pickerCursorUp()
+		m.ensureSearchPickerVisible()
+		return m, m.schedulePreviewLoad()
 	default:
 		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
 			m.pickerSearchQuery += key
@@ -430,6 +439,7 @@ func (m *model) schedulePreviewLoad() tea.Cmd {
 func (m model) searchKeybindPairs() []string {
 	if m.pickerSearchState == searchTyping {
 		return []string{
+			"↑/↓", "nav",
 			"enter", "search",
 			"esc", "cancel",
 		}
@@ -463,12 +473,18 @@ func (m model) viewPickerSearch() string {
 		}
 	}
 
+	countStr := StyleDim.Render(fmt.Sprintf("(%d results)", resultCount))
+
 	var header string
 	if m.pickerSearchState == searchTyping {
 		cursor := StyleAccentBold.Render("\u2588") // block cursor
 		header = StyleAccentBold.Render("/") + " " + queryDisplay + cursor
+		// Live count while typing, but only once a scan has produced results \u2014
+		// before that, resultCount counts the unfiltered session list.
+		if m.pickerSearchQuery != "" && m.pickerSearchResults != nil {
+			header += " " + countStr
+		}
 	} else {
-		countStr := StyleDim.Render(fmt.Sprintf("(%d results)", resultCount))
 		header = StyleAccentBold.Render("/") + " " +
 			StyleSearchHighlight.Render(queryDisplay) + " " + countStr
 	}
@@ -617,23 +633,37 @@ func (m model) renderSearchPickerSession(s *discover.SessionInfo, isSelected boo
 	return lines
 }
 
-// renderPreviewPane renders the right pane content from the preview messages.
-// Uses the existing message rendering but at the narrower preview width. The
-// pane is never scrolled, so rendering stops once maxLines lines exist rather
-// than paying a markdown render for every message in the session. Results are
-// memoized in pickerPreviewRender keyed by (path, width) — View runs on every
-// keystroke and spinner tick, so an uncached pass per call is the hot path.
+// renderPreviewPane renders the right pane content from the preview messages,
+// starting at the first message that contains the search query so the matched
+// text is on screen rather than buried past the first screenful. Uses the
+// existing message rendering but at the narrower preview width. The pane is
+// never scrolled, so rendering stops once maxLines lines exist rather than
+// paying a markdown render for every message in the session. Results are
+// memoized in pickerPreviewRender keyed by (path, width, query) — View runs
+// on every keystroke and spinner tick, so an uncached pass per call is the
+// hot path.
 func (m model) renderPreviewPane(width, maxLines int) []string {
 	c := m.pickerPreviewRender
 	if c != nil && c.path == m.pickerPreviewPath && c.width == width &&
+		c.query == m.pickerSearchQuery &&
 		(c.complete || len(c.lines) >= maxLines) {
 		return c.lines
 	}
 
+	start := previewMatchIndex(m.pickerPreviewMessages, m.pickerSearchQuery)
+
 	var lines []string
+	if start > 0 {
+		skipped := fmt.Sprintf("%s %d earlier messages", Icon.Ellipsis.Render(), start)
+		if start == 1 {
+			skipped = Icon.Ellipsis.Render() + " 1 earlier message"
+		}
+		lines = append(lines, StyleDim.Render(skipped), "")
+	}
+
 	complete := true
-	for i, msg := range m.pickerPreviewMessages {
-		r := m.renderMessage(msg, width, false, false)
+	for i := start; i < len(m.pickerPreviewMessages); i++ {
+		r := m.renderMessage(m.pickerPreviewMessages[i], width, false, false)
 		lines = append(lines, strings.Split(r.content, "\n")...)
 		if len(lines) >= maxLines {
 			complete = i == len(m.pickerPreviewMessages)-1
@@ -648,11 +678,45 @@ func (m model) renderPreviewPane(width, maxLines int) []string {
 		*c = previewRenderCache{
 			path:     m.pickerPreviewPath,
 			width:    width,
+			query:    m.pickerSearchQuery,
 			lines:    lines,
 			complete: complete,
 		}
 	}
 	return lines
+}
+
+// previewMatchIndex returns the index of the first message whose text
+// contains the query (case-insensitive). Returns 0 when the query is empty
+// or nothing matches — sessions matched only on metadata (cwd, branch)
+// preview from the top.
+func previewMatchIndex(messages []message, query string) int {
+	if query == "" {
+		return 0
+	}
+	lower := strings.ToLower(query)
+	for i, msg := range messages {
+		if messageContainsQuery(msg, lower) {
+			return i
+		}
+	}
+	return 0
+}
+
+// messageContainsQuery reports whether any user-visible text in the message
+// (body, structured item text, tool input/result) contains lowerQuery.
+func messageContainsQuery(msg message, lowerQuery string) bool {
+	if strings.Contains(strings.ToLower(msg.content), lowerQuery) {
+		return true
+	}
+	for _, item := range msg.items {
+		if strings.Contains(strings.ToLower(item.text), lowerQuery) ||
+			strings.Contains(strings.ToLower(item.toolInput), lowerQuery) ||
+			strings.Contains(strings.ToLower(item.toolResult), lowerQuery) {
+			return true
+		}
+	}
+	return false
 }
 
 // highlightQuery wraps case-insensitive occurrences of query in the search

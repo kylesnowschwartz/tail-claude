@@ -196,6 +196,7 @@ type previewCacheEntry struct {
 type previewRenderCache struct {
 	path     string
 	width    int
+	query    string // search query; determines which message the pane opens on
 	lines    []string
 	complete bool // every preview message rendered (not cut at maxLines)
 }
@@ -801,7 +802,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pickerSessions = msg.sessions
 		m.pickerItems = rebuildPickerItems(msg.sessions)
 
-		if oldSession != nil {
+		if m.pickerSearchState != searchOff {
+			// Search mode owns pickerCursor and pickerScroll (they index the
+			// filtered results); absorb the fresh list but leave them alone.
+		} else if oldSession != nil {
 			// Restore cursor by session ID and keep scroll where the user
 			// left it, the same way pickerRefreshMsg does.
 			for i, item := range m.pickerItems {
@@ -847,25 +851,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case pickerRefreshMsg:
+		// Capture the selection before rebuilding: after the rebuild the old
+		// cursor index points at whatever now occupies that row, not at the
+		// session the user selected.
+		oldSession := m.pickerSelectedSession()
 		m.pickerSessions = msg.sessions
 		m.pickerItems = rebuildPickerItems(msg.sessions)
 
-		// Preserve cursor position by matching session ID.
-		oldSession := m.pickerSelectedSession()
-		if oldSession != nil {
-			for i, item := range m.pickerItems {
-				if item.typ == pickerItemSession && item.session.SessionID == oldSession.SessionID {
-					m.pickerCursor = i
-					break
+		// Search mode owns pickerCursor and pickerScroll: they index the
+		// filtered results, which this refresh does not touch. Remapping them
+		// against the rebuilt unfiltered list would clobber the selection on
+		// every live-session write while the user is searching.
+		if m.pickerSearchState == searchOff {
+			// Preserve cursor position by matching session ID.
+			if oldSession != nil {
+				for i, item := range m.pickerItems {
+					if item.typ == pickerItemSession && item.session.SessionID == oldSession.SessionID {
+						m.pickerCursor = i
+						break
+					}
 				}
 			}
-		}
 
-		// Clamp cursor.
-		if m.pickerCursor >= len(m.pickerItems) {
-			m.pickerCursorLast()
+			// Clamp cursor.
+			if m.pickerCursor >= len(m.pickerItems) {
+				m.pickerCursorLast()
+			}
+			m.ensurePickerVisible()
 		}
-		m.ensurePickerVisible()
 
 		m.updatePickerSessionState()
 

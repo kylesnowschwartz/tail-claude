@@ -515,3 +515,188 @@ func TestHighlightQueryUnicodeRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// --- live refresh vs search navigation ----------------------------------------
+
+func TestPickerRefreshDuringSearchPreservesNavigation(t *testing.T) {
+	m := pickerModel()
+	sessions := []discover.SessionInfo{
+		{Path: "/tmp/a.jsonl", SessionID: "a", FirstMessage: "alpha", ModTime: time.Now()},
+		{Path: "/tmp/b.jsonl", SessionID: "b", FirstMessage: "beta", ModTime: time.Now()},
+		{Path: "/tmp/c.jsonl", SessionID: "c", FirstMessage: "gamma", ModTime: time.Now()},
+	}
+	m.pickerSessions = sessions
+	m.pickerItems = rebuildPickerItems(sessions)
+	m.pickerSearchState = searchNav
+	m.pickerSearchQuery = "a"
+	m.pickerSearchResults = rebuildPickerItems(sessions[:2])
+	m.pickerCursor = 2 // second session in the filtered results (index 0 is the date header)
+	m.pickerScroll = 1
+
+	refreshed := append([]discover.SessionInfo{
+		{Path: "/tmp/new.jsonl", SessionID: "new", FirstMessage: "brand new", ModTime: time.Now()},
+	}, sessions...)
+	result, _ := m.Update(pickerRefreshMsg{sessions: refreshed})
+	got := result.(model)
+
+	if got.pickerCursor != 2 || got.pickerScroll != 1 {
+		t.Errorf("cursor/scroll = %d/%d, want 2/1 (live refresh clobbered search navigation)",
+			got.pickerCursor, got.pickerScroll)
+	}
+	if len(got.pickerSearchResults) != len(m.pickerSearchResults) {
+		t.Error("live refresh replaced the filtered search results")
+	}
+	if len(got.pickerSessions) != len(refreshed) {
+		t.Error("live refresh did not absorb the new session list")
+	}
+}
+
+func TestPickerRefreshPreservesSelectionWhenRowsShift(t *testing.T) {
+	m := pickerModel()
+	sessions := []discover.SessionInfo{
+		{Path: "/tmp/a.jsonl", SessionID: "a", FirstMessage: "alpha", ModTime: time.Now()},
+		{Path: "/tmp/b.jsonl", SessionID: "b", FirstMessage: "beta", ModTime: time.Now()},
+	}
+	m.pickerSessions = sessions
+	m.pickerItems = rebuildPickerItems(sessions)
+	m.pickerCursor = 2 // session b
+
+	// A new session lands at the top of the same date group, shifting b's row.
+	refreshed := append([]discover.SessionInfo{
+		{Path: "/tmp/new.jsonl", SessionID: "new", FirstMessage: "brand new", ModTime: time.Now()},
+	}, sessions...)
+	result, _ := m.Update(pickerRefreshMsg{sessions: refreshed})
+	got := result.(model)
+
+	s := got.pickerSelectedSession()
+	if s == nil || s.SessionID != "b" {
+		id := "<nil>"
+		if s != nil {
+			id = s.SessionID
+		}
+		t.Errorf("selected session = %s, want b (selection must track the session, not the row index)", id)
+	}
+}
+
+// --- typing-mode arrow navigation ----------------------------------------------
+
+func TestSearchTypingArrowKeysNavigateResults(t *testing.T) {
+	m := pickerModel()
+	sessions := []discover.SessionInfo{
+		{Path: "/tmp/a.jsonl", SessionID: "a", FirstMessage: "alpha", ModTime: time.Now()},
+		{Path: "/tmp/b.jsonl", SessionID: "b", FirstMessage: "beta", ModTime: time.Now()},
+	}
+	m.pickerSearchState = searchTyping
+	m.pickerSearchQuery = "a"
+	m.pickerSearchResults = rebuildPickerItems(sessions)
+	m.pickerCursor = 1 // first session (index 0 is the date header)
+
+	result, _ := m.updatePickerSearchTyping(key("down"))
+	got := result.(model)
+	if got.pickerCursor != 2 {
+		t.Errorf("down: cursor = %d, want 2", got.pickerCursor)
+	}
+
+	result, _ = got.updatePickerSearchTyping(key("up"))
+	got = result.(model)
+	if got.pickerCursor != 1 {
+		t.Errorf("up: cursor = %d, want 1", got.pickerCursor)
+	}
+
+	// j/k stay query text while typing; only the arrows navigate.
+	result, _ = got.updatePickerSearchTyping(key("j"))
+	got = result.(model)
+	if got.pickerSearchQuery != "aj" {
+		t.Errorf("query = %q, want %q (j must edit the query, not navigate)", got.pickerSearchQuery, "aj")
+	}
+}
+
+// --- preview match jump ----------------------------------------------------------
+
+func TestRenderPreviewPaneStartsAtMatchingMessage(t *testing.T) {
+	m := previewPaneModel(50)
+	m.pickerSearchQuery = "message 30"
+
+	lines := m.renderPreviewPane(60, 40)
+	joined := ansi.Strip(strings.Join(lines, "\n"))
+
+	if !strings.Contains(joined, "30 earlier messages") {
+		t.Errorf("missing skipped-messages line, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "message 30") {
+		t.Errorf("matched message not visible in preview, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "preview message 0") {
+		t.Error("preview still starts at the first message instead of the match")
+	}
+}
+
+func TestRenderPreviewPaneNoTextMatchStartsAtTop(t *testing.T) {
+	// Sessions matched only on metadata (cwd, branch) have no matching message
+	// text; the preview falls back to the top of the conversation.
+	m := previewPaneModel(5)
+	m.pickerSearchQuery = "zanzibar"
+
+	lines := m.renderPreviewPane(60, 100)
+	joined := ansi.Strip(strings.Join(lines, "\n"))
+
+	if !strings.Contains(joined, "preview message 0") {
+		t.Errorf("preview does not start at the first message, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "earlier messages") {
+		t.Error("skipped-messages line shown with nothing skipped")
+	}
+}
+
+func TestRenderPreviewPaneQueryChangeMissesCache(t *testing.T) {
+	m := previewPaneModel(5)
+	m.renderPreviewPane(60, 100)
+
+	c := m.pickerPreviewRender
+	c.lines = []string{"SENTINEL"}
+	m.pickerSearchQuery = "message 3"
+	got := m.renderPreviewPane(60, 100)
+	if len(got) == 1 && got[0] == "SENTINEL" {
+		t.Error("query change reused stale cache entry")
+	}
+}
+
+// --- search footer & header --------------------------------------------------
+
+func TestSearchFooterShowsKeybindsWithoutToggle(t *testing.T) {
+	// The ? toggle is unreachable inside search (it types into the query), so
+	// the mode-specific hints must be visible regardless of showKeybinds.
+	m := pickerModel()
+	m.showKeybinds = false
+
+	m.pickerSearchState = searchTyping
+	if plain := ansi.Strip(m.viewPicker()); !strings.Contains(plain, "cancel") {
+		t.Error("typing-mode footer missing keybind hints when showKeybinds is off")
+	}
+
+	m.pickerSearchState = searchNav
+	if plain := ansi.Strip(m.viewPicker()); !strings.Contains(plain, "edit query") {
+		t.Error("nav-mode footer missing keybind hints when showKeybinds is off")
+	}
+}
+
+func TestSearchTypingHeaderShowsLiveResultCount(t *testing.T) {
+	m := pickerModel()
+	m.pickerSearchState = searchTyping
+	m.pickerSearchQuery = "alpha"
+
+	// Before the first scan lands there are no results to count — the
+	// unfiltered session list must not be reported as a result count.
+	m.pickerSearchResults = nil
+	if plain := ansi.Strip(m.viewPicker()); strings.Contains(plain, "results)") {
+		t.Error("result count shown before any scan results arrived")
+	}
+
+	sessions := []discover.SessionInfo{
+		{Path: "/tmp/a.jsonl", SessionID: "a", FirstMessage: "alpha", ModTime: time.Now()},
+	}
+	m.pickerSearchResults = rebuildPickerItems(sessions)
+	if plain := ansi.Strip(m.viewPicker()); !strings.Contains(plain, "(1 results)") {
+		t.Error("typing-mode header missing live result count")
+	}
+}
