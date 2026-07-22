@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.18.0 (2026-07-22)
+
+- Show why a search result matched: content-matched sessions display a snippet of the matching conversation text under the title, query highlighted; tool output is searched for snippets too, since most matches live there
+- Fix transcript search navigation: arrow keys move the selection while typing (no need to commit the query first), and live session writes no longer disturb the cursor, scroll, or selected session mid-search
+- Open the search preview at the first matching message with an earlier-messages marker, instead of always at the top of the session
+- Always show the search key hints in the footer (the `?` toggle is unreachable while typing) and a live result count while the query is being typed
+- Fix `--dump` padding its output to a million lines; it now emits the rendered conversation and nothing else
+
 ## v0.17.0 (2026-07-06)
 
 - Show real session names in the picker: overlay live-registry names (`~/.claude/sessions/{pid}.json`), the only place a `/rename` survives Claude Code's custom-title re-stamping; arbitration is custom title > AI title > registry name
